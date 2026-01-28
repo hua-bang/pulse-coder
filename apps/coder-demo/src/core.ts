@@ -1,15 +1,12 @@
-import generateTextAI from "./ai";
-
-const cwd = process.cwd();
+import loop from "./loop";
 
 export const run = async () => {
   console.log('Coder Demo Core is running...');
 
-  const prompt = `阅读当前目录 README.md 并总结其内容`;
+  const prompt = `阅读当前目录下 README.md 文件的内容，并用中文写入当前目录的 README-zh.md 文件中`;
 
-  const result = await generateTextAI([
-    { role: 'user', content: prompt }
-  ]);
+  const result = await loop(prompt);
 
-  console.log(result);
+  console.log(`Coder Demo Core is running with result: ${result}`);
+
 }

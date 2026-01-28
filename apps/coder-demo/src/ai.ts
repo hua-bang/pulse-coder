@@ -1,6 +1,5 @@
 import { generateText, tool, type ModelMessage, type Tool } from 'ai';
 import { CoderAI, DEFAULT_MODEL } from './config';
-import z from 'zod';
 import { BuiltinTools } from './tools';
 import { generateSystemPrompt } from './prompt';
 

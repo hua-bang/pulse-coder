@@ -11,3 +11,5 @@ export const CoderAI = createOpenAI({
 });
 
 export const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'novita/deepseek/deepseek_v3';
+
+export const MAX_TURNS = 50;
