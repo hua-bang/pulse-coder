@@ -22,6 +22,7 @@ export const generateTextAI = (messages: ModelMessage[]): ReturnType<typeof gene
     model: CoderAI.chat(DEFAULT_MODEL),
     messages: finalMessages,
     tools: BuiltinToolsMap,
+    toolChoice: 'required',
   }) as unknown as ReturnType<typeof generateText>;
 }
 
