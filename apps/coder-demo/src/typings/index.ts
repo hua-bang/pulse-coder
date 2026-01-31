@@ -1,4 +1,4 @@
-import type { FlexibleSchema } from "ai";
+import type { FlexibleSchema, ModelMessage } from "ai";
 import type z from "zod";
 
 export interface Tool<Input, Output> {
@@ -6,4 +6,8 @@ export interface Tool<Input, Output> {
   description: string;
   inputSchema: FlexibleSchema<Input>;
   execute: (input: Input) => Promise<Output>;
+}
+
+export interface Context {
+  messages: ModelMessage[];
 }

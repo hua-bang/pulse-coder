@@ -26,16 +26,11 @@ export const generateTextAI = (messages: ModelMessage[]): ReturnType<typeof gene
   }) as unknown as ReturnType<typeof generateText>;
 }
 
-export const generateObject = async <T extends z.ZodSchema>(prompt: string, schema: T) => {
+export const generateObject = async <T extends z.ZodSchema>(messages: ModelMessage[], schema: T) => {
   // 使用 tool calling 的方式来实现结构化输出
   const result = await generateText({
     model: CoderAI.chat(DEFAULT_MODEL),
-    messages: [
-      {
-        role: 'user',
-        content: prompt,
-      }
-    ],
+    messages: messages,
     tools: {
       respond: tool({
         description: 'Respond with structured data',
