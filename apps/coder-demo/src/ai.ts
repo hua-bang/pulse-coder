@@ -10,7 +10,6 @@ const BuiltinToolsMap = BuiltinTools.reduce((acc, toolInstance) => {
 }, {} as Record<string, Tool>);
 
 export const generateTextAI = (messages: ModelMessage[]): ReturnType<typeof generateText> => {
-
   const finalMessages = [
     {
       role: 'system',

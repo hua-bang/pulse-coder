@@ -41,55 +41,63 @@ async function loop(context: Context, options?: LoopOptions) {
   let count = 0;
 
   while (true) {
-    const result = await generateTextAI(messages);
+    try {
+      count++;
+      const result = await generateTextAI(messages);
 
-    options?.onResult?.(result);
+      options?.onResult?.(result);
 
-    count++;
+      if ((!result.toolCalls?.length && result.text) || count >= MAX_TURNS) {
+        messages.push({
+          role: 'assistant',
+          content: result.text || '',
+        });
 
-    if ((!result.toolCalls?.length && result.text) || count >= MAX_TURNS) {
-      messages.push({
-        role: 'assistant',
-        content: result.text || '',
-      });
-
-      if (!await checkLoopFinish(result, { messages })) {
-        continue;
+        // if (!await checkLoopFinish(result, { messages })) {
+        //   continue;
+        // }
+        return result.text || 'Max turns reached';
       }
-      return result.text || 'Max turns reached';
-    }
 
-    if (result.toolCalls?.length) {
-      const assistantToolCalls: AssistantModelMessage['content'] = result.toolCalls.map(({ toolCallId, toolName, input }) => ({
-        toolCallId,
-        type: 'tool-call',
-        toolName: toolName,
-        input,
-      }));
+      if (result.toolCalls?.length) {
+        const assistantToolCalls: AssistantModelMessage['content'] = result.toolCalls.map(({ toolCallId, toolName, input }) => ({
+          toolCallId,
+          type: 'tool-call',
+          toolName: toolName,
+          input,
+        }));
 
+        messages.push({
+          role: 'assistant',
+          content: assistantToolCalls,
+        });
+      }
+
+
+      if (result?.toolResults?.length) {
+
+        const toolContents: ToolModelMessage['content'] = result.toolResults.map(({ toolCallId, output, toolName }) => ({
+          toolCallId,
+          type: 'tool-result',
+          toolName: toolName,
+          output: {
+            type: 'json',
+            value: output,
+          },
+        }));
+
+        messages.push({
+          role: 'tool',
+          content: toolContents,
+        });
+      }
+    } catch (error) {
+      console.error('Error during AI generation:', error);
       messages.push({
         role: 'assistant',
-        content: assistantToolCalls,
+        content: `I encountered an error while processing your request. Please try again later. Error: ${error}`,
       });
-    }
-
-
-    if (result?.toolResults?.length) {
-
-      const toolContents: ToolModelMessage['content'] = result.toolResults.map(({ toolCallId, output, toolName }) => ({
-        toolCallId,
-        type: 'tool-result',
-        toolName: toolName,
-        output: {
-          type: 'json',
-          value: output,
-        },
-      }));
-
-      messages.push({
-        role: 'tool',
-        content: toolContents,
-      });
+      continue;
     }
   }
 }
