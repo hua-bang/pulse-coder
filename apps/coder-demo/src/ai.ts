@@ -32,7 +32,7 @@ export const generateObject = async <T extends z.ZodSchema>(messages: ModelMessa
     messages: messages,
     tools: {
       respond: tool({
-        description: 'Respond with structured data',
+        description,
         inputSchema: schema,
         execute: async (input: any) => input,
       })
@@ -47,6 +47,8 @@ export const generateObject = async <T extends z.ZodSchema>(messages: ModelMessa
   if (result.toolCalls && result.toolCalls.length > 0) {
     return result!.toolCalls[0]!.input as z.infer<T>;
   }
+
+  console.log(result);
 
   throw new Error('No structured output generated');
 }
