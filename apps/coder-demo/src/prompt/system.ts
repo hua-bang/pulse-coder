@@ -80,7 +80,6 @@ You are producing plain text that will later be styled by the CLI. Follow these 
   * Do not provide range of lines
   * Examples: src/app.ts, src/app.ts:42, b/server/index.js#L10, C:\repo\project\main.rs:12:5
 
-You are powered by the model named openai/gpt-5-nano. The exact model ID is requesty/openai/gpt-5-nano
 Here is some useful information about the environment you are running in:
 <env>
   Working directory: ${process.cwd()}
