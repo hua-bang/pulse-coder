@@ -1,110 +1,191 @@
-import { type AssistantModelMessage, type ModelMessage, type ToolModelMessage, type Tool, Output } from "ai";
-import generateTextAI, { generateObject } from "./ai";
+import type { AssistantModelMessage, ToolModelMessage } from "ai";
+import generateTextAI from "./ai";
 import { MAX_ERROR_COUNT, MAX_TURNS } from "./config";
-import { z } from "zod";
-import type { Context } from "./typings";
+import type { Context, LoopOptions, LoopResult, TurnInfo, ToolCallInfo } from "./typings";
 
-export interface LoopOptions {
-  onResult?: (result: any) => void;
-}
+/**
+ * Execute tool calls sequentially, firing lifecycle hooks around each one.
+ */
+async function executeToolCalls(
+  toolResults: Array<{ toolCallId: string; toolName: string; output: any }>,
+  hooks: LoopOptions['hooks'],
+): Promise<ToolCallInfo[]> {
+  const infos: ToolCallInfo[] = [];
 
-async function checkLoopFinish(result: { text?: string }, context: { messages: ModelMessage[] }): Promise<boolean> {
-  if (!result.text) {
-    return false;
+  for (const tr of toolResults) {
+    const start = Date.now();
+    hooks?.onToolCallStart?.({ toolCallId: tr.toolCallId, toolName: tr.toolName, input: undefined });
+
+    const info: ToolCallInfo = {
+      toolCallId: tr.toolCallId,
+      toolName: tr.toolName,
+      input: undefined,
+      output: tr.output,
+      durationMs: Date.now() - start,
+    };
+
+    infos.push(info);
+    hooks?.onToolCallEnd?.(info);
   }
 
-  const assistanceMessage: ModelMessage = {
-    role: 'assistant',
-    content: result.text,
-  };
-
-  const messages: ModelMessage[] = [
-    ...context.messages,
-    assistanceMessage,
-    {
-      role: 'user',
-      content: `Based on the below response, should the loop finish now? [!important] Must use the tool "respond" to respond with a JSON object containing a boolean field "finish"`,
-    },
-  ];
-
-
-  const res = await generateObject(messages, z.object({
-    finish: z.boolean().describe('Indicates whether the loop should finish or continue'),
-  }), 'You should only respond with a JSON object containing a boolean field "finish". The value should be true if the loop should finish, or false if it should continue.');
-
-  return res.finish;
+  return infos;
 }
 
-async function loop(context: Context, options?: LoopOptions) {
+/**
+ * Core agent loop.
+ *
+ * Iterates: call the LLM → if it returns tool calls, record them, feed results back
+ * → if it returns only text (no tool calls), the task is finished.
+ *
+ * Removed the old `checkLoopFinish` which made an extra LLM call every turn.
+ * The new logic: no tool calls + has text = done. This matches the standard
+ * ReAct pattern — the model stops calling tools when it's ready to answer.
+ */
+async function loop(context: Context, options?: LoopOptions): Promise<LoopResult> {
+  const { messages, abortSignal } = context;
+  const maxTurns = options?.maxTurns ?? MAX_TURNS;
+  const maxErrors = options?.maxErrors ?? MAX_ERROR_COUNT;
+  const hooks = options?.hooks;
 
-  const { messages } = context;
-  let count = 0;
-  let error_count = 0;
+  const turns: TurnInfo[] = [];
+  let consecutiveErrors = 0;
+  const loopStart = Date.now();
 
-  while (true) {
+  for (let turnIndex = 1; turnIndex <= maxTurns; turnIndex++) {
+    // Abort check
+    if (abortSignal?.aborted) {
+      return {
+        text: 'Loop aborted.',
+        turns,
+        finishReason: 'aborted',
+        totalDurationMs: Date.now() - loopStart,
+      };
+    }
+
+    const turnStart = Date.now();
+    hooks?.onTurnStart?.({ index: turnIndex });
+
     try {
-      count++;
       const result = await generateTextAI(messages);
 
-      options?.onResult?.(result);
+      // Successful LLM call — reset consecutive error counter
+      consecutiveErrors = 0;
 
-      if ((!result.toolCalls?.length && result.text) || count >= MAX_TURNS) {
-        messages.push({
-          role: 'assistant',
-          content: result.text || '',
-        });
+      const hasToolCalls = !!(result.toolCalls && result.toolCalls.length > 0);
+      const hasText = !!result.text;
 
-        if (!await checkLoopFinish(result, { messages })) {
-          continue;
-        }
-        return result.text || 'Max turns reached';
+      if (hasText) {
+        hooks?.onText?.(result.text!);
       }
 
-      if (result.toolCalls?.length) {
-        const assistantToolCalls: AssistantModelMessage['content'] = result.toolCalls.map(({ toolCallId, toolName, input }) => ({
-          toolCallId,
+      // ---- No tool calls → the agent is done ----
+      if (!hasToolCalls) {
+        const text = result.text || '';
+        messages.push({ role: 'assistant', content: text });
+
+        const turn: TurnInfo = {
+          index: turnIndex,
+          toolCalls: [],
+          hasText,
+          durationMs: Date.now() - turnStart,
+        };
+        turns.push(turn);
+        hooks?.onTurnEnd?.(turn);
+
+        return {
+          text,
+          turns,
+          finishReason: 'complete',
+          totalDurationMs: Date.now() - loopStart,
+        };
+      }
+
+      // ---- Has tool calls → record assistant message + execute tools ----
+      const assistantContent: AssistantModelMessage['content'] = [];
+
+      // Preserve text alongside tool calls (some models emit both)
+      if (hasText) {
+        assistantContent.push({ type: 'text', text: result.text! });
+      }
+
+      for (const tc of result.toolCalls!) {
+        assistantContent.push({
           type: 'tool-call',
-          toolName: toolName,
-          input,
-        }));
-
-        messages.push({
-          role: 'assistant',
-          content: assistantToolCalls,
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          input: tc.input,
         });
       }
 
+      messages.push({ role: 'assistant', content: assistantContent });
 
-      if (result?.toolResults?.length) {
+      // Collect tool execution info via hooks
+      const toolCallInfos = result.toolResults?.length
+        ? await executeToolCalls(result.toolResults as any, hooks)
+        : [];
 
-        const toolContents: ToolModelMessage['content'] = result.toolResults.map(({ toolCallId, output, toolName }) => ({
-          toolCallId,
-          type: 'tool-result',
-          toolName: toolName,
-          output: {
-            type: 'json',
-            value: output,
-          },
-        }));
-
-        messages.push({
-          role: 'tool',
-          content: toolContents,
-        });
+      // Push tool results back into messages for the next turn
+      if (result.toolResults && result.toolResults.length > 0) {
+        const toolContent: ToolModelMessage['content'] = result.toolResults.map(
+          ({ toolCallId, output, toolName }: any) => ({
+            toolCallId,
+            type: 'tool-result' as const,
+            toolName,
+            output: { type: 'json' as const, value: output },
+          }),
+        );
+        messages.push({ role: 'tool', content: toolContent });
       }
-    } catch (error) {
-      console.error('Error during AI generation:', error);
+
+      const turn: TurnInfo = {
+        index: turnIndex,
+        toolCalls: toolCallInfos,
+        hasText,
+        durationMs: Date.now() - turnStart,
+      };
+      turns.push(turn);
+      hooks?.onTurnEnd?.(turn);
+
+    } catch (error: any) {
+      consecutiveErrors++;
+      const err = error instanceof Error ? error : new Error(String(error));
+      hooks?.onError?.(err, { index: turnIndex });
+
       messages.push({
         role: 'assistant',
-        content: `I encountered an error while processing your request. Please try again later. Error: ${error}`,
+        content: `Error during processing: ${err.message}`,
       });
-      error_count++;
-      if (error_count >= MAX_ERROR_COUNT) {
-        return 'Max error count reached. Exiting loop.';
+
+      const turn: TurnInfo = {
+        index: turnIndex,
+        toolCalls: [],
+        hasText: false,
+        durationMs: Date.now() - turnStart,
+      };
+      turns.push(turn);
+      hooks?.onTurnEnd?.(turn);
+
+      if (consecutiveErrors >= maxErrors) {
+        return {
+          text: `Stopped after ${consecutiveErrors} consecutive errors. Last: ${err.message}`,
+          turns,
+          finishReason: 'max_errors',
+          totalDurationMs: Date.now() - loopStart,
+        };
       }
-      continue;
     }
   }
+
+  // Reached max turns — surface whatever the last assistant text was
+  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+  const fallbackText = typeof lastAssistant?.content === 'string' ? lastAssistant.content : '';
+
+  return {
+    text: fallbackText || 'Reached maximum number of turns.',
+    turns,
+    finishReason: 'max_turns',
+    totalDurationMs: Date.now() - loopStart,
+  };
 }
 
 export default loop;

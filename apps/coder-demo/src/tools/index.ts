@@ -3,16 +3,28 @@ import WriteTool from './write';
 import LsTool from './ls';
 import BashTool from './bash';
 import TavilyTool from './tavily';
-import SkillTool from './skill';
+import { createSkillTool } from './skill';
+import type { Tool } from '../typings';
 
-const BuiltinTools = [
+/** Static tools that don't depend on runtime initialization */
+const StaticTools = [
   ReadTool,
   WriteTool,
   LsTool,
   BashTool,
   TavilyTool,
-  SkillTool,
 ] as const;
+
+/**
+ * Build the full tool list. Must be called after skillRegistry.initialize()
+ * so the skill tool can read from the populated registry.
+ */
+export function buildTools(): Tool[] {
+  return [
+    ...StaticTools,
+    createSkillTool(),
+  ];
+}
 
 export {
   ReadTool,
@@ -20,6 +32,5 @@ export {
   LsTool,
   BashTool,
   TavilyTool,
-  BuiltinTools,
-  SkillTool,
+  createSkillTool,
 };
