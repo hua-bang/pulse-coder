@@ -1,0 +1,24 @@
+{
+  "name": "coder",
+  "version": "1.0.0",
+  "description": "Plugin-based AI coding assistant",
+  "type": "module",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r dev",
+    "test": "pnpm -r test",
+    "start": "pnpm --filter @coder/cli start",
+    "clean": "pnpm -r clean"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "tsup": "^8.0.0",
+    "vitest": "^1.0.0"
+  }
+}
