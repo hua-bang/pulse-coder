@@ -1,5 +1,5 @@
-import { generateText, Output, tool, type ModelMessage, type Tool } from 'ai';
-import { CoderAI, DEFAULT_MODEL } from './config';
+import { generateText, stepCountIs, streamText, tool, type ModelMessage, type StepResult, type Tool } from 'ai';
+import { CoderAI, DEFAULT_MODEL, MAX_STEPS } from './config';
 import { BuiltinTools } from './tools';
 import { generateSystemPrompt } from './prompt';
 import z from 'zod';
@@ -23,6 +23,31 @@ export const generateTextAI = (messages: ModelMessage[]): ReturnType<typeof gene
     messages: finalMessages,
     tools: BuiltinToolsMap
   }) as unknown as ReturnType<typeof generateText>;
+}
+
+export interface StreamOptions {
+  abortSignal?: AbortSignal;
+  onStepFinish?: (event: StepResult<any>) => void;
+  onChunk?: (event: { chunk: any }) => void;
+}
+
+export const streamTextAI = (messages: ModelMessage[], options?: StreamOptions): ReturnType<typeof streamText> => {
+  const finalMessages = [
+    {
+      role: 'system',
+      content: generateSystemPrompt(),
+    },
+    ...messages,
+  ] as ModelMessage[];
+
+  return streamText({
+    model: CoderAI.chat(DEFAULT_MODEL),
+    messages: finalMessages,
+    tools: BuiltinToolsMap,
+    abortSignal: options?.abortSignal,
+    onStepFinish: options?.onStepFinish,
+    onChunk: options?.onChunk,
+  }) as unknown as ReturnType<typeof streamText>;
 }
 
 export const generateObject = async <T extends z.ZodSchema>(messages: ModelMessage[], schema: T, description: string) => {

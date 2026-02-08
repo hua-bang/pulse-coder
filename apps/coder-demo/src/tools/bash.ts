@@ -1,6 +1,7 @@
 import z from "zod";
 import { execSync } from "child_process";
 import type { Tool } from "../typings";
+import { truncateOutput } from "./utils";
 
 const BashTool: Tool<
   { command: string },
@@ -17,11 +18,11 @@ const BashTool: Tool<
         encoding: 'utf-8',
         maxBuffer: 1024 * 1024 * 10, // 10MB
       });
-      return { output };
+      return { output: truncateOutput(output) };
     } catch (error: any) {
       return {
-        output: error.stdout || '',
-        error: error.stderr || error.message,
+        output: truncateOutput(String(error.stdout || '')),
+        error: truncateOutput(String(error.stderr || error.message || '')),
       };
     }
   },

@@ -13,3 +13,7 @@ export const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'novita/deepseek/deepse
 export const MAX_TURNS = 50;
 
 export const MAX_ERROR_COUNT = 3;
+
+export const MAX_STEPS = 25;
+
+export const MAX_TOOL_OUTPUT_LENGTH = 30_000;

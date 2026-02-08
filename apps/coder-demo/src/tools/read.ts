@@ -1,6 +1,7 @@
 import z from "zod";
 import { readFileSync } from "fs";
 import type { Tool } from "../typings";
+import { truncateOutput } from "./utils";
 
 const ReadTool: Tool<
   { filePath: string },
@@ -13,7 +14,7 @@ const ReadTool: Tool<
   }),
   execute: async ({ filePath }) => {
     const content = readFileSync(filePath, 'utf-8');
-    return { content };
+    return { content: truncateOutput(content) };
   },
 };
 

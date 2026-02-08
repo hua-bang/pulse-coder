@@ -1,5 +1,6 @@
 import z from "zod";
 import type { Tool } from "../typings";
+import { truncateOutput } from "./utils";
 
 const TavilyTool: Tool<
   { query: string; maxResults?: number },
@@ -44,7 +45,7 @@ const TavilyTool: Tool<
       results: data.results?.map((result: any) => ({
         title: result.title || '',
         url: result.url || '',
-        content: result.content || '',
+        content: truncateOutput(result.content || ''),
         score: result.score || 0,
       })) || [],
     };

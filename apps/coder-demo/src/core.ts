@@ -21,6 +21,19 @@ export const run = async () => {
     prompt: '> '
   });
 
+  let currentAbortController: AbortController | null = null;
+  let isProcessing = false;
+
+  process.on('SIGINT', () => {
+    if (isProcessing && currentAbortController && !currentAbortController.signal.aborted) {
+      currentAbortController.abort();
+      process.stdout.write('\n[Abort] Request cancelled.\n');
+      return;
+    }
+
+    rl.close();
+  });
+
   const processInput = async (input: string) => {
     if (input.trim().toLowerCase() === 'exit') {
       console.log('Goodbye!');
@@ -41,21 +54,42 @@ export const run = async () => {
 
     console.log('\nProcessing...\n');
 
-    // Call loop with the updated context
-    const result = await loop(context, {
-      onResult: (result) => {
-        console.log(`
-Step:  \n
-- Result Text: ${result.text || 'N/A'}\n
-- Tool Calls: ${result.toolCalls ? JSON.stringify(result.toolCalls, null, 2) : 'N/A'}\n
-- Tool Results: ${result.toolResults ? JSON.stringify(result.toolResults, null, 2) : 'N/A'}\n          
-- result.reasoningText: ${result.reasoningText || 'N/A'}\n
-      `);
-      },
-    });
+    const ac = new AbortController();
+    currentAbortController = ac;
+    isProcessing = true;
 
-    console.log(`\nResult: ${result}\n`);
-    rl.prompt();
+    let sawText = false;
+
+    try {
+      const result = await loop(context, {
+        abortSignal: ac.signal,
+        onText: (delta) => {
+          sawText = true;
+          process.stdout.write(delta);
+        },
+        onToolCall: (toolCall) => {
+          const input = 'input' in toolCall ? toolCall.input : undefined;
+          const inputText = input === undefined ? '' : `(${JSON.stringify(input)})`;
+          process.stdout.write(`\n[Tool] ${toolCall.toolName}${inputText}\n`);
+        },
+        onToolResult: (toolResult) => {
+          process.stdout.write(`\n[Tool Result] ${toolResult.toolName}\n`);
+        },
+        onStepFinish: (step) => {
+          process.stdout.write(`\n[Step finished] reason: ${step.finishReason}\n`);
+        },
+      });
+
+      if (!sawText && result) {
+        console.log(result);
+      } else {
+        process.stdout.write('\n');
+      }
+    } finally {
+      isProcessing = false;
+      currentAbortController = null;
+      rl.prompt();
+    }
   };
 
   rl.prompt();
