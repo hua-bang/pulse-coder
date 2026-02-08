@@ -1,18 +1,72 @@
 import * as readline from 'readline';
 import loop from "./loop";
-import type { Context } from "./typings";
+import type { Context, LoopResult } from "./typings";
 import { skillRegistry } from "./skill";
+import { buildTools } from "./tools";
+import { initializeAI } from "./ai";
+
+/**
+ * Check if input is a slash command targeting a skill (e.g. "/deep-research query").
+ * Returns { skillName, rest } if matched, null otherwise.
+ */
+function parseSlashCommand(input: string): { skillName: string; rest: string } | null {
+  const trimmed = input.trim();
+  if (!trimmed.startsWith('/')) return null;
+
+  const spaceIdx = trimmed.indexOf(' ');
+  const command = spaceIdx === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIdx);
+  const rest = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim();
+
+  if (!command) return null;
+
+  // Check if this command matches a registered skill
+  if (skillRegistry.has(command)) {
+    return { skillName: command, rest };
+  }
+
+  // Try fuzzy search
+  const matches = skillRegistry.search(command);
+  if (matches.length === 1 && matches[0]) {
+    return { skillName: matches[0].name, rest };
+  }
+
+  return null;
+}
+
+function formatResult(result: LoopResult): string {
+  const lines: string[] = [];
+  lines.push(result.text);
+  lines.push('');
+
+  const turnCount = result.turns.length;
+  const toolCount = result.turns.reduce((sum, t) => sum + t.toolCalls.length, 0);
+  const durationSec = (result.totalDurationMs / 1000).toFixed(1);
+
+  lines.push(`[${turnCount} turn(s), ${toolCount} tool call(s), ${durationSec}s, ${result.finishReason}]`);
+
+  return lines.join('\n');
+}
 
 export const run = async () => {
   console.log('Coder Demo Core is running...');
 
-  // 初始化技能注册表
+  // 1. Initialize skill registry first
   await skillRegistry.initialize(process.cwd());
 
-  console.log('Type your messages and press Enter. Type "exit" to quit.\n');
+  // 2. Build tools (skill tool reads from registry)
+  const tools = buildTools();
+
+  // 3. Initialize AI layer with the built tools
+  initializeAI(tools);
+
+  console.log('Type your messages and press Enter. Type "exit" to quit.');
+  console.log('Use /skill-name to invoke a skill directly.\n');
+
+  const abortController = new AbortController();
 
   const context: Context = {
     messages: [],
+    abortSignal: abortController.signal,
   };
 
   const rl = readline.createInterface({
@@ -22,39 +76,69 @@ export const run = async () => {
   });
 
   const processInput = async (input: string) => {
-    if (input.trim().toLowerCase() === 'exit') {
+    const trimmed = input.trim();
+
+    if (trimmed.toLowerCase() === 'exit') {
       console.log('Goodbye!');
       rl.close();
       process.exit(0);
     }
 
-    if (!input.trim()) {
+    if (!trimmed) {
       rl.prompt();
       return;
     }
 
-    // Add user message to context
-    context.messages.push({
-      role: 'user',
-      content: input.trim(),
-    });
+    // Handle built-in commands
+    if (trimmed === '/skills') {
+      const skills = skillRegistry.getAll();
+      if (skills.length === 0) {
+        console.log('No skills loaded.\n');
+      } else {
+        console.log('Available skills:');
+        for (const s of skills) {
+          console.log(`  /${s.name} - ${s.description}`);
+        }
+        console.log('');
+      }
+      rl.prompt();
+      return;
+    }
+
+    // Handle slash command → skill invocation
+    const slashCmd = parseSlashCommand(trimmed);
+    if (slashCmd) {
+      const skill = skillRegistry.get(slashCmd.skillName)!;
+      const userMessage = slashCmd.rest
+        ? `[Using skill: ${skill.name}]\n\nSkill instructions:\n${skill.content}\n\nUser request: ${slashCmd.rest}`
+        : `[Using skill: ${skill.name}]\n\nSkill instructions:\n${skill.content}\n\nPlease follow the skill instructions above.`;
+
+      context.messages.push({ role: 'user', content: userMessage });
+    } else {
+      context.messages.push({ role: 'user', content: trimmed });
+    }
 
     console.log('\nProcessing...\n');
 
-    // Call loop with the updated context
     const result = await loop(context, {
-      onResult: (result) => {
-        console.log(`
-Step:  \n
-- Result Text: ${result.text || 'N/A'}\n
-- Tool Calls: ${result.toolCalls ? JSON.stringify(result.toolCalls, null, 2) : 'N/A'}\n
-- Tool Results: ${result.toolResults ? JSON.stringify(result.toolResults, null, 2) : 'N/A'}\n          
-- result.reasoningText: ${result.reasoningText || 'N/A'}\n
-      `);
+      hooks: {
+        onTurnStart: ({ index }) => {
+          console.log(`--- Turn ${index} ---`);
+        },
+        onText: (text) => {
+          console.log(`[text] ${text.slice(0, 200)}${text.length > 200 ? '...' : ''}`);
+        },
+        onToolCallEnd: (info) => {
+          const status = info.error ? `error: ${info.error}` : 'ok';
+          console.log(`  [tool] ${info.toolName} (${info.durationMs}ms) ${status}`);
+        },
+        onError: (err, { index }) => {
+          console.error(`  [error @ turn ${index}] ${err.message}`);
+        },
       },
     });
 
-    console.log(`\nResult: ${result}\n`);
+    console.log(`\n${formatResult(result)}\n`);
     rl.prompt();
   };
 
@@ -69,5 +153,3 @@ Step:  \n
     process.exit(0);
   });
 }
-
-// 帮我在 /Users/colepol/project/Coder/apps 目录新建一个贪吃蛇游戏，用 HTML 实现即可
