@@ -3,6 +3,7 @@ import { CoderAI, DEFAULT_MODEL, COMPACT_SUMMARY_MAX_TOKENS, OPENAI_REASONING_EF
 import z from 'zod';
 import { generateSystemPrompt } from '../prompt';
 
+
 const providerOptions = OPENAI_REASONING_EFFORT
   ? { openai: { reasoningEffort: OPENAI_REASONING_EFFORT } }
   : undefined;
@@ -31,6 +32,7 @@ export interface StreamOptions {
 }
 
 export const streamTextAI = (messages: ModelMessage[], tools: Record<string, Tool>, options?: StreamOptions) => {
+
   const finalMessages = [
     {
       role: 'system',

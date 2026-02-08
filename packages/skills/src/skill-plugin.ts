@@ -1,5 +1,6 @@
 import type { IPlugin, IExtensionContext } from '@coder/engine';
-import { SkillRegistry } from './registry/skill-registry.js';
+import { SkillRegistry } from './registry/skill-registry';
+import generateSkillTool from './tool';
 
 export const skillPlugin: IPlugin = {
   name: 'coder-skills',
@@ -10,11 +11,14 @@ export const skillPlugin: IPlugin = {
       provider: new SkillRegistry()
     }
   ],
-  
+
   async activate(context: IExtensionContext) {
     const registry = new SkillRegistry();
     await registry.initialize(process.cwd());
-    context.registerExtension('skill', registry);
+
+    const skills = registry.getAll();
+    const skillTool = generateSkillTool(skills);
+    context.registerTools('skill', skillTool);
   }
 };
 

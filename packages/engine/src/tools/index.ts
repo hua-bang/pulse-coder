@@ -3,6 +3,7 @@ import { WriteTool } from './write';
 import { LsTool } from './ls';
 import { BashTool } from './bash';
 import { TavilyTool } from './tavily';
+import { Tool } from 'ai';
 // import { SkillTool } from './skill;
 
 export const BuiltinTools = [
@@ -17,6 +18,13 @@ export const BuiltinToolsMap = BuiltinTools.reduce((acc, toolInstance) => {
   acc[toolInstance.name] = toolInstance;
   return acc;
 }, {} as Record<string, any>);
+
+export const getFinalToolsMap = (customTools?: Record<string, Tool>) => {
+  if (!customTools) {
+    return BuiltinToolsMap;
+  }
+  return { ...BuiltinToolsMap, ...customTools };
+};
 
 export {
   ReadTool,

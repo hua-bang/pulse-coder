@@ -1,6 +1,6 @@
 import type { FlexibleSchema, ModelMessage } from "ai";
 
-export interface Tool<Input, Output> {
+export interface Tool<Input = any, Output = any> {
   name: string;
   description: string;
   inputSchema: FlexibleSchema<Input>;
@@ -25,7 +25,7 @@ export interface Extension {
 }
 
 export interface IExtensionContext {
-  registerExtension(type: string, provider: any): void;
+  registerTools(toolName: string, tool: Tool<any, any>): void;
   logger: ILogger;
 }
 

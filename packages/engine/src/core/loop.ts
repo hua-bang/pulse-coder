@@ -1,4 +1,4 @@
-import { type StepResult } from "ai";
+import { Tool, type StepResult } from "ai";
 import type { Context } from "../shared/types";
 import { streamTextAI } from "../ai";
 import { maybeCompactContext } from "../context";
@@ -14,6 +14,8 @@ export interface LoopOptions {
   onToolResult?: (toolResult: any) => void;
   onStepFinish?: (step: StepResult<any>) => void;
   abortSignal?: AbortSignal;
+
+  tools?: Record<string, Tool>; // 允许传入工具覆盖默认工具
 }
 
 export async function loop(context: Context, options?: LoopOptions): Promise<string> {
@@ -31,7 +33,7 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
         }
       }
 
-      const tools = {}; // 这里需要从引擎获取工具
+      const tools = options?.tools || {}; // 允许传入工具覆盖默认工具
       const result = streamTextAI(context.messages, tools, {
         abortSignal: options?.abortSignal,
         onStepFinish: (step) => {

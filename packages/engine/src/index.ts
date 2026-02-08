@@ -1,19 +1,30 @@
 import type { IPlugin, Context } from './shared/types';
 import { loop, type LoopOptions } from './core/loop';
 import { BuiltinToolsMap } from './tools/index';
-import { streamTextAI } from './ai';
+import { Tool } from 'ai';
+
+interface EngineOptions {
+  plugins?: IPlugin[];
+}
 
 export class Engine {
   private plugins: IPlugin[] = [];
   private tools: Record<string, any> = { ...BuiltinToolsMap };
 
+  constructor(options?: EngineOptions) {
+    this.plugins = options?.plugins || [];
+
+    this.plugins.forEach((plugin) => {
+      this.tools[plugin.name] = plugin;
+    });
+  }
+
   async loadPlugin(plugin: IPlugin): Promise<void> {
     this.plugins.push(plugin);
     const context = {
-      registerExtension: (type: string, provider: any) => {
-        if (type === 'tool') {
-          this.tools[provider.name] = provider;
-        }
+      registerTools: (toolName: string, tool: Tool) => {
+        const name = toolName;
+        this.tools[name] = tool;
       },
       logger: console,
     };
@@ -23,18 +34,11 @@ export class Engine {
   async run(context: Context, options?: LoopOptions): Promise<string> {
     return loop(context, {
       ...options,
+      tools: this.tools, // 传入引擎的工具
       onToolCall: (toolCall) => {
         options?.onToolCall?.(toolCall);
       },
     });
-  }
-
-  getTools(): Record<string, any> {
-    return this.tools;
-  }
-
-  getPlugins(): IPlugin[] {
-    return this.plugins;
   }
 }
 
