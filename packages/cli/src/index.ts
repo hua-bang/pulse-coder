@@ -8,7 +8,7 @@ class CoderCLI {
   private context: Context;
 
   constructor() {
-    this.engine = new Engine();
+    this.engine = new Engine({ plugins: [skillPlugin] });
     this.context = { messages: [] };
   }
 
