@@ -1,8 +1,7 @@
-import type { IPlugin, Context } from './shared/types.js';
-import { loop, type LoopOptions } from './core/loop.js';
-import { BuiltinToolsMap } from './extensions/tools';
-import { streamTextAI } from './extensions/ai.js';
-import { maybeCompactContext } from './extensions/context.js';
+import type { IPlugin, Context } from './shared/types';
+import { loop, type LoopOptions } from './core/loop';
+import { BuiltinToolsMap } from './tools/index';
+import { streamTextAI } from './ai';
 
 export class Engine {
   private plugins: IPlugin[] = [];
@@ -39,9 +38,9 @@ export class Engine {
   }
 }
 
-export * from './shared/types.js';
-export { loop } from './core/loop.js';
-export { streamTextAI } from './extensions/ai.js';
-export { maybeCompactContext } from './extensions/context.js';
-export * from './extensions/tools';
+export * from './shared/types';
+export { loop } from './core/loop';
+export { streamTextAI } from './ai';
+export { maybeCompactContext } from './context';
+export * from './tools/index';
 export * from './config';

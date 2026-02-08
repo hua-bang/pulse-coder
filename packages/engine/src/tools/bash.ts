@@ -1,6 +1,6 @@
 import z from "zod";
 import { execSync } from "child_process";
-import type { Tool } from "../../shared/types";
+import type { Tool } from "../shared/types";
 import { truncateOutput } from "./utils";
 
 export const BashTool: Tool<

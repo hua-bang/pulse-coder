@@ -1,11 +1,11 @@
 import { type StepResult } from "ai";
-import type { Context } from "../shared/types.js";
-import { streamTextAI } from "../extensions/ai.js";
-import { maybeCompactContext } from "../extensions/context.js";
-import { 
-  MAX_COMPACTION_ATTEMPTS, 
-  MAX_ERROR_COUNT, 
-  MAX_STEPS 
+import type { Context } from "../shared/types";
+import { streamTextAI } from "../ai";
+import { maybeCompactContext } from "../context";
+import {
+  MAX_COMPACTION_ATTEMPTS,
+  MAX_ERROR_COUNT,
+  MAX_STEPS
 } from "../config/index.js";
 
 export interface LoopOptions {

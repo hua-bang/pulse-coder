@@ -1,9 +1,9 @@
-import { ReadTool } from './read.js';
-import { WriteTool } from './write.js';
-import { LsTool } from './ls.js';
-import { BashTool } from './bash.js';
-import { TavilyTool } from './tavily.js';
-// import { SkillTool } from './skill.js';
+import { ReadTool } from './read';
+import { WriteTool } from './write';
+import { LsTool } from './ls';
+import { BashTool } from './bash';
+import { TavilyTool } from './tavily';
+// import { SkillTool } from './skill;
 
 export const BuiltinTools = [
   ReadTool,

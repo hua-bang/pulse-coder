@@ -1,6 +1,6 @@
 import z from "zod";
 import { writeFileSync } from "fs";
-import type { Tool } from "../../shared/types";
+import type { Tool } from "../shared/types";
 
 export const WriteTool: Tool<
   { filePath: string; content: string },

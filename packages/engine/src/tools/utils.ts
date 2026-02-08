@@ -1,4 +1,4 @@
-import { MAX_TOOL_OUTPUT_LENGTH } from "../../config";
+import { MAX_TOOL_OUTPUT_LENGTH } from "../config";
 
 export const truncateOutput = (output: string): string => {
   if (output.length <= MAX_TOOL_OUTPUT_LENGTH) {

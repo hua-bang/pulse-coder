@@ -1,6 +1,6 @@
 import z from "zod";
 import { readdirSync } from "fs";
-import type { Tool } from "../../shared/types";
+import type { Tool } from "../shared/types";
 
 export const LsTool: Tool<
   { path?: string },

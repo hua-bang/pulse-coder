@@ -1,5 +1,5 @@
 import z from "zod";
-import type { Tool } from "../../shared/types";
+import type { Tool } from "../shared/types";
 import { truncateOutput } from "./utils";
 
 export const TavilyTool: Tool<

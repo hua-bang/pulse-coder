@@ -21,7 +21,7 @@ export const generateTextAI = (messages: ModelMessage[], tools: Record<string, T
     messages: finalMessages,
     tools,
     providerOptions,
-  });
+  }) as unknown as ReturnType<typeof generateText> & { steps: StepResult<any>[]; finishReason: string };
 }
 
 export interface StreamOptions {
@@ -47,7 +47,7 @@ export const streamTextAI = (messages: ModelMessage[], tools: Record<string, Too
     abortSignal: options?.abortSignal,
     onStepFinish: options?.onStepFinish,
     onChunk: options?.onChunk,
-  });
+  }) as unknown as ReturnType<typeof streamText> & { steps: StepResult<any>[]; finishReason: string };
 }
 
 export const summarizeMessages = async (

@@ -1,5 +1,5 @@
 import { pruneMessages, type ModelMessage } from "ai";
-import { summarizeMessages } from "./ai";
+import { summarizeMessages } from "../ai";
 import {
   COMPACT_TRIGGER,
   COMPACT_TARGET,
