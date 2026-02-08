@@ -1,3 +1,10 @@
+---
+name: mr-generator
+description: Automatically generate concise MR titles and descriptions based on current branch diff
+description_zh: 基于当前分支与远程 master 的 diff 自动生成简洁英文 MR 标题和描述的 skill。
+version: 1.0.0
+author: Coder Team
+---
 # MR Generator Skill
 
 基于当前分支与远程 master 的 diff 自动生成简洁英文 MR 标题和描述的 skill。
