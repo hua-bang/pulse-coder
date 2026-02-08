@@ -1,0 +1,26 @@
+{
+  "name": "@coder/cli",
+  "version": "1.0.0",
+  "description": "CLI interface for Coder",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "coder": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@coder/engine": "workspace:*",
+    "@coder/skills": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "tsup": "^8.0.0",
+    "vitest": "^1.0.0",
+    "@types/node": "^25.0.10"
+  }
+}
