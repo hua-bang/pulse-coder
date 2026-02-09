@@ -1,18 +1,16 @@
-import { generateText, streamText, tool, type ModelMessage, type StepResult, type Tool } from 'ai';
+import { generateText, streamText, type ModelMessage, type StepResult, type Tool } from 'ai';
 import { CoderAI, DEFAULT_MODEL, COMPACT_SUMMARY_MAX_TOKENS, OPENAI_REASONING_EFFORT } from '../config';
-import z from 'zod';
 import { generateSystemPrompt } from '../prompt';
-
 
 const providerOptions = OPENAI_REASONING_EFFORT
   ? { openai: { reasoningEffort: OPENAI_REASONING_EFFORT } }
   : undefined;
 
-export const generateTextAI = (messages: ModelMessage[], tools: Record<string, Tool>) => {
+export const generateTextAI = (messages: ModelMessage[], tools: Record<string, Tool>, options?: { systemPrompt?: string }) => {
   const finalMessages = [
     {
       role: 'system',
-      content: generateSystemPrompt(),
+      content: options?.systemPrompt ?? generateSystemPrompt(),
     },
     ...messages,
   ] as ModelMessage[];
@@ -29,6 +27,7 @@ export interface StreamOptions {
   abortSignal?: AbortSignal;
   onStepFinish?: (event: StepResult<any>) => void;
   onChunk?: (event: { chunk: any }) => void;
+  systemPrompt?: string;
 }
 
 export const streamTextAI = (messages: ModelMessage[], tools: Record<string, Tool>, options?: StreamOptions) => {
@@ -36,7 +35,7 @@ export const streamTextAI = (messages: ModelMessage[], tools: Record<string, Too
   const finalMessages = [
     {
       role: 'system',
-      content: generateSystemPrompt(),
+      content: options?.systemPrompt ?? generateSystemPrompt(),
     },
     ...messages,
   ] as ModelMessage[];

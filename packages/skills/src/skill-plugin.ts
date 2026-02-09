@@ -1,24 +1,18 @@
-import type { IPlugin, IExtensionContext } from '@coder/engine';
+import type { IPlugin, IPluginContext } from '@coder/engine';
 import { SkillRegistry } from './registry/skill-registry';
-import generateSkillTool from './tool';
 
 export const skillPlugin: IPlugin = {
   name: 'coder-skills',
   version: '1.0.0',
-  extensions: [
-    {
-      type: 'skill',
-      provider: new SkillRegistry()
-    }
-  ],
 
-  async activate(context: IExtensionContext) {
+  async activate(context: IPluginContext) {
     const registry = new SkillRegistry();
     await registry.initialize(process.cwd());
 
     const skills = registry.getAll();
-    const skillTool = generateSkillTool(skills);
-    context.registerTools('skill', skillTool);
+    context.registerSkills(skills);
+
+    context.logger.info(`[coder-skills] Registered ${skills.length} skill(s)`);
   }
 };
 

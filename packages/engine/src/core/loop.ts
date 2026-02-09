@@ -15,7 +15,8 @@ export interface LoopOptions {
   onStepFinish?: (step: StepResult<any>) => void;
   abortSignal?: AbortSignal;
 
-  tools?: Record<string, Tool>; // 允许传入工具覆盖默认工具
+  tools?: Record<string, Tool>;
+  systemPrompt?: string;
 }
 
 export async function loop(context: Context, options?: LoopOptions): Promise<string> {
@@ -33,9 +34,10 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
         }
       }
 
-      const tools = options?.tools || {}; // 允许传入工具覆盖默认工具
+      const tools = options?.tools || {};
       const result = streamTextAI(context.messages, tools, {
         abortSignal: options?.abortSignal,
+        systemPrompt: options?.systemPrompt,
         onStepFinish: (step) => {
           options?.onStepFinish?.(step);
         },
