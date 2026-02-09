@@ -1,40 +1,54 @@
 import type {
   IPlugin,
   IPluginContext,
+  IProvider,
+  Provider,
+  ToolProvider,
+  PromptProvider,
   Tool,
-  SkillInfo,
   PromptSegment,
-  MCPServerConfig,
 } from '../shared/types';
 
 export class PluginManager {
   private plugins: IPlugin[] = [];
+  private providers: IProvider[] = [];
   private tools: Map<string, Tool> = new Map();
   private prompts: PromptSegment[] = [];
-  private skills: SkillInfo[] = [];
-  private mcpServers: MCPServerConfig[] = [];
+
+  // ========== Provider Management ==========
+
+  registerProvider(provider: Provider): void {
+    this.providers.push(provider);
+
+    // ToolProvider and PromptProvider are processed directly by the engine
+    // (no plugin needed to handle them)
+    if (provider.type === 'tool') {
+      for (const tool of (provider as ToolProvider).tools) {
+        this.tools.set(tool.name, tool);
+      }
+    }
+
+    if (provider.type === 'prompt') {
+      this.prompts.push(...(provider as PromptProvider).prompts);
+    }
+  }
+
+  getProviders<T extends IProvider>(type: string): T[] {
+    return this.providers.filter((p) => p.type === type) as T[];
+  }
+
+  // ========== Plugin Management ==========
 
   async loadPlugin(plugin: IPlugin): Promise<void> {
     const context: IPluginContext = {
       registerTool: (tool) => {
         this.tools.set(tool.name, tool);
       },
-      registerTools: (tools) => {
-        for (const tool of tools) {
-          this.tools.set(tool.name, tool);
-        }
-      },
       registerPrompt: (prompt) => {
         this.prompts.push(prompt);
       },
-      registerSkill: (skill) => {
-        this.skills.push(skill);
-      },
-      registerSkills: (skills) => {
-        this.skills.push(...skills);
-      },
-      registerMCP: (config) => {
-        this.mcpServers.push(config);
+      getProviders: <T extends IProvider>(type: string) => {
+        return this.getProviders<T>(type);
       },
       logger: console,
     };
@@ -48,11 +62,12 @@ export class PluginManager {
       await plugin.deactivate?.();
     }
     this.plugins = [];
+    this.providers = [];
     this.tools.clear();
     this.prompts = [];
-    this.skills = [];
-    this.mcpServers = [];
   }
+
+  // ========== Getters ==========
 
   getTools(): Record<string, Tool> {
     return Object.fromEntries(this.tools);
@@ -62,14 +77,6 @@ export class PluginManager {
     return [...this.prompts].sort(
       (a, b) => (b.priority ?? 0) - (a.priority ?? 0)
     );
-  }
-
-  getSkills(): SkillInfo[] {
-    return [...this.skills];
-  }
-
-  getMCPServers(): MCPServerConfig[] {
-    return [...this.mcpServers];
   }
 
   getPlugins(): IPlugin[] {

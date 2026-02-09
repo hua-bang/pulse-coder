@@ -1,7 +1,7 @@
 import { Engine } from '@coder/engine';
-import { skillPlugin } from '@coder/skills';
-import * as readline from 'readline';
 import type { Context } from '@coder/engine';
+import { skillPlugin, createSkillProvider } from '@coder/skills';
+import * as readline from 'readline';
 import { SessionCommands } from './session-commands.js';
 
 class CoderCLI {
@@ -10,7 +10,7 @@ class CoderCLI {
   private sessionCommands: SessionCommands;
 
   constructor() {
-    this.engine = new Engine({ plugins: [skillPlugin] });
+    this.engine = new Engine();
     this.context = { messages: [] };
     this.sessionCommands = new SessionCommands();
   }
@@ -133,6 +133,12 @@ class CoderCLI {
     console.log('Commands starting with "/" will trigger command mode.\n');
 
     await this.sessionCommands.initialize();
+
+    // 1. Register providers (resources)
+    const skillProvider = await createSkillProvider(process.cwd());
+    this.engine.registerProvider(skillProvider);
+
+    // 2. Load plugins (mechanisms that consume providers)
     await this.engine.loadPlugin(skillPlugin);
 
     // Auto-create a new session

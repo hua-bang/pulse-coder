@@ -1,29 +1,26 @@
-import type { IPlugin, Context } from './shared/types';
+import type { IPlugin, Provider, Context } from './shared/types';
 import { loop, type LoopOptions } from './core/loop';
 import { BuiltinToolsMap } from './tools/index';
 import { PluginManager } from './plugin/plugin-manager';
-import { generateSkillTool } from './plugin/skill-tool';
 import { generateSystemPrompt } from './prompt';
-
-interface EngineOptions {
-  plugins?: IPlugin[];
-}
 
 export class Engine {
   private pluginManager = new PluginManager();
   private builtinTools: Record<string, any> = { ...BuiltinToolsMap };
 
-  constructor(options?: EngineOptions) {
-    if (options?.plugins) {
-      for (const plugin of options.plugins) {
-        this.pluginManager.loadPlugin(plugin);
-      }
-    }
+  // ========== Provider (Resource Layer) ==========
+
+  registerProvider(provider: Provider): void {
+    this.pluginManager.registerProvider(provider);
   }
+
+  // ========== Plugin (Mechanism Layer) ==========
 
   async loadPlugin(plugin: IPlugin): Promise<void> {
     await this.pluginManager.loadPlugin(plugin);
   }
+
+  // ========== Execution ==========
 
   async run(context: Context, options?: LoopOptions): Promise<string> {
     const tools = this.buildTools();
@@ -41,14 +38,7 @@ export class Engine {
 
   private buildTools(): Record<string, any> {
     const pluginTools = this.pluginManager.getTools();
-    const tools = { ...this.builtinTools, ...pluginTools };
-
-    const skills = this.pluginManager.getSkills();
-    if (skills.length > 0) {
-      tools['skill'] = generateSkillTool(skills);
-    }
-
-    return tools;
+    return { ...this.builtinTools, ...pluginTools };
   }
 
   private buildSystemPrompt(): string {

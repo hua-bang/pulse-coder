@@ -15,7 +15,7 @@ export interface Context {
   messages: ModelMessage[];
 }
 
-// ========== Plugin System ==========
+// ========== Shared Data Types ==========
 
 export interface SkillInfo {
   name: string;
@@ -40,6 +40,41 @@ export interface MCPServerConfig {
   env?: Record<string, string>;
 }
 
+// ========== Provider (Resource Layer) ==========
+// Providers are simple, declarative resource registrations.
+// External users register providers to supply data that plugins consume.
+
+export interface IProvider {
+  name: string;
+  type: string;
+}
+
+export interface ToolProvider extends IProvider {
+  type: 'tool';
+  tools: Tool[];
+}
+
+export interface PromptProvider extends IProvider {
+  type: 'prompt';
+  prompts: PromptSegment[];
+}
+
+export interface SkillProvider extends IProvider {
+  type: 'skill';
+  skills: SkillInfo[];
+}
+
+export interface MCPProvider extends IProvider {
+  type: 'mcp';
+  servers: MCPServerConfig[];
+}
+
+export type Provider = ToolProvider | PromptProvider | SkillProvider | MCPProvider;
+
+// ========== Plugin (Mechanism Layer) ==========
+// Plugins implement AI mechanisms (skill system, MCP protocol, subagent, etc.).
+// They consume providers via getProviders() and register tools/prompts into the engine.
+
 export interface IPlugin {
   name: string;
   version: string;
@@ -49,13 +84,12 @@ export interface IPlugin {
 
 export interface IPluginContext {
   registerTool(tool: Tool): void;
-  registerTools(tools: Tool[]): void;
   registerPrompt(prompt: PromptSegment): void;
-  registerSkill(skill: SkillInfo): void;
-  registerSkills(skills: SkillInfo[]): void;
-  registerMCP(config: MCPServerConfig): void;
+  getProviders<T extends IProvider>(type: string): T[];
   logger: ILogger;
 }
+
+// ========== Logger ==========
 
 export interface ILogger {
   debug(message: string, meta?: Record<string, unknown>): void;

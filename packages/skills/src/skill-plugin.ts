@@ -1,18 +1,19 @@
-import type { IPlugin, IPluginContext } from '@coder/engine';
-import { SkillRegistry } from './registry/skill-registry';
+import type { IPlugin, IPluginContext, SkillProvider } from '@coder/engine';
+import { generateSkillTool } from '@coder/engine';
 
 export const skillPlugin: IPlugin = {
   name: 'coder-skills',
   version: '1.0.0',
 
   async activate(context: IPluginContext) {
-    const registry = new SkillRegistry();
-    await registry.initialize(process.cwd());
+    const providers = context.getProviders<SkillProvider>('skill');
+    const allSkills = providers.flatMap((p) => p.skills);
 
-    const skills = registry.getAll();
-    context.registerSkills(skills);
+    if (allSkills.length > 0) {
+      context.registerTool(generateSkillTool(allSkills));
+    }
 
-    context.logger.info(`[coder-skills] Registered ${skills.length} skill(s)`);
+    context.logger.info(`[coder-skills] Registered ${allSkills.length} skill(s)`);
   }
 };
 
