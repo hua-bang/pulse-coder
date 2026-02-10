@@ -11,7 +11,15 @@
     "declarationMap": true,
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@coder/engine": ["./packages/engine/src/index.ts"],
+      "@coder/engine/*": ["./packages/engine/src/*"],
+      "@coder/skills": ["./packages/skills/src/index.ts"],
+      "@coder/skills/*": ["./packages/skills/src/*"],
+      "@coder/mcp-plugin": ["./packages/mcp-plugin/src/index.ts"],
+      "@coder/mcp-plugin/*": ["./packages/mcp-plugin/src/*"]
+    }
   },
   "exclude": ["node_modules", "dist"]
 }
