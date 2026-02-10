@@ -1,0 +1,19 @@
+{
+  "servers": [
+    {
+      "name": "example-server",
+      "url": "https://your-mcp-server.com/mcp",
+      "headers": {
+        "Authorization": "Bearer your-api-key-here"
+      },
+      "description": "Example MCP server with HTTP transport",
+      "enabled": true
+    },
+    {
+      "name": "local-server",
+      "url": "http://localhost:3000/mcp",
+      "description": "Local MCP server for development",
+      "enabled": false
+    }
+  ]
+}
