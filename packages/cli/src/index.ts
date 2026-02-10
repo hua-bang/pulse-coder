@@ -1,5 +1,6 @@
 import { Engine } from '@coder/engine';
 import { skillRegistryPlugin } from '@coder/skills';
+import { mcpPlugin } from '@coder/mcp-plugin';
 import * as readline from 'readline';
 import type { Context } from '@coder/engine';
 import { SessionCommands } from './session-commands.js';
@@ -12,7 +13,7 @@ class CoderCLI {
   constructor() {
     this.engine = new Engine({
       enginePlugins: {
-        plugins: [skillRegistryPlugin],
+        plugins: [skillRegistryPlugin, mcpPlugin],
         dirs: ['.coder/engine-plugins', '~/.coder/engine-plugins'],
         scan: true
       },

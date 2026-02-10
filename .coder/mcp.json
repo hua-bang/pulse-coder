@@ -1,0 +1,7 @@
+{
+  "servers": {
+    "eido_mind": {
+      "url": "http://localhost:3060/mcp/server"
+    }
+  }
+}
