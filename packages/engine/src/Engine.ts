@@ -45,6 +45,10 @@ export class Engine {
   async initialize(): Promise<void> {
     console.log('Initializing engine...', this.config);
 
+    // Register a lazy tools getter so plugins (e.g. task plugin) can
+    // access the full tools map at execution time, after all tools are merged.
+    this.pluginManager.registerService('getToolsMap', () => ({ ...this.tools }));
+
     // 插件管理器会自动处理加载顺序
     await this.pluginManager.initialize({
       enginePlugins: {
@@ -118,3 +122,5 @@ export { loop } from './core/loop.js';
 export { streamTextAI } from './ai/index.js';
 export { maybeCompactContext } from './context/index.js';
 export * from './tools/index.js';
+export { taskPlugin, createTaskTool } from './plugins/task/index.js';
+export type { TaskToolOptions } from './plugins/task/index.js';

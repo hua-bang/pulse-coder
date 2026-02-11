@@ -384,6 +384,13 @@ export class PluginManager {
   }
 
   /**
+   * 服务注册
+   */
+  registerService<T>(name: string, service: T): void {
+    this.services.set(name, service);
+  }
+
+  /**
    * 服务获取
    */
   getService<T>(name: string): T | undefined {

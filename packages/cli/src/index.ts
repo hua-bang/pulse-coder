@@ -1,4 +1,4 @@
-import { Engine } from '@coder/engine';
+import { Engine, taskPlugin } from '@coder/engine';
 import { skillRegistryPlugin } from '@coder/skills';
 import { mcpPlugin } from '@coder/mcp-plugin';
 import * as readline from 'readline';
@@ -15,7 +15,7 @@ class CoderCLI {
   constructor() {
     this.engine = new Engine({
       enginePlugins: {
-        plugins: [skillRegistryPlugin, mcpPlugin],
+        plugins: [skillRegistryPlugin, mcpPlugin, taskPlugin],
         dirs: ['.coder/engine-plugins', '~/.coder/engine-plugins'],
         scan: true
       },
