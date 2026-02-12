@@ -14,9 +14,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@coder/engine": "workspace:*",
-    "@coder/skills": "workspace:*",
-    "@coder/mcp-plugin": "workspace:*"
+    "@coder/engine": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.0.0",

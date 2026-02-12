@@ -1,10 +1,49 @@
-import { EnginePlugin, EnginePluginContext } from '@coder/engine';
-import { createMCPClient } from '@ai-sdk/mcp';
-import { loadMCPConfig } from './config-loader';
-import { createHTTPTransport } from './transport';
+/**
+ * Built-in MCP Plugin for Coder Engine
+ * 将 MCP 功能作为引擎内置插件
+ */
 
-export const mcpPlugin: EnginePlugin = {
-  name: '@coder/mcp-plugin',
+import { EnginePlugin, EnginePluginContext } from '../../plugin/EnginePlugin';
+import { createMCPClient } from '@ai-sdk/mcp';
+import { existsSync, readFileSync } from 'fs';
+import * as path from 'path';
+
+export interface MCPPluginConfig {
+  servers: Record<string, { url: string }>;
+}
+
+export async function loadMCPConfig(cwd: string): Promise<MCPPluginConfig> {
+  const configPath = path.join(cwd, '.coder', 'mcp.json');
+  
+  if (!existsSync(configPath)) {
+    return { servers: {} };
+  }
+
+  try {
+    const content = readFileSync(configPath, 'utf-8');
+    const parsed = JSON.parse(content);
+    
+    if (!parsed.servers || typeof parsed.servers !== 'object') {
+      console.warn('[MCP] Invalid config: missing "servers" object');
+      return { servers: {} };
+    }
+
+    return { servers: parsed.servers };
+  } catch (error) {
+    console.warn(`[MCP] Failed to load config: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    return { servers: {} };
+  }
+}
+
+function createHTTPTransport(config: { url: string }) {
+  return {
+    type: 'http' as const,
+    url: config.url
+  };
+}
+
+export const builtInMCPPlugin: EnginePlugin = {
+  name: '@coder/engine/built-in-mcp',
   version: '1.0.0',
 
   async initialize(context: EnginePluginContext) {
@@ -34,7 +73,7 @@ export const mcpPlugin: EnginePlugin = {
         const namespacedTools = Object.fromEntries(
           Object.entries(tools).map(([toolName, tool]) => [
             `mcp_${serverName}_${toolName}`,
-            tool as any // Type assertion to handle Tool type mismatch
+            tool as any
           ])
         );
 
@@ -59,4 +98,4 @@ export const mcpPlugin: EnginePlugin = {
   }
 };
 
-export default mcpPlugin;
+export default builtInMCPPlugin;

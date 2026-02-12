@@ -1,6 +1,4 @@
 import { Engine } from '@coder/engine';
-import { skillRegistryPlugin } from '@coder/skills';
-import { mcpPlugin } from '@coder/mcp-plugin';
 import * as readline from 'readline';
 import type { Context } from '@coder/engine';
 import { SessionCommands } from './session-commands.js';
@@ -13,9 +11,10 @@ class CoderCLI {
   private inputManager: InputManager;
 
   constructor() {
+    // 🎯 现在引擎自动包含内置插件，无需显式配置！
     this.engine = new Engine({
       enginePlugins: {
-        plugins: [skillRegistryPlugin, mcpPlugin],
+        // 只配置扩展插件目录，内置插件会自动加载
         dirs: ['.coder/engine-plugins', '~/.coder/engine-plugins'],
         scan: true
       },
@@ -23,6 +22,7 @@ class CoderCLI {
         dirs: ['.coder/config', '~/.coder/config'],
         scan: true
       }
+      // 注意：不再需要 plugins: [...] 配置
     });
     this.context = { messages: [] };
     this.sessionCommands = new SessionCommands();
@@ -148,6 +148,10 @@ class CoderCLI {
 
     await this.sessionCommands.initialize();
     await this.engine.initialize();
+
+    // 显示插件状态
+    const pluginStatus = this.engine.getPluginStatus();
+    console.log(`✅ Built-in plugins loaded: ${pluginStatus.enginePlugins.length} plugins`);
 
     // Auto-create a new session
     await this.sessionCommands.createSession();
