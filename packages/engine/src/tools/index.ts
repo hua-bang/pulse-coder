@@ -1,5 +1,7 @@
 import { ReadTool } from './read';
 import { WriteTool } from './write';
+import { EditTool } from './edit';
+import { GrepTool } from './grep';
 import { LsTool } from './ls';
 import { BashTool } from './bash';
 import { TavilyTool } from './tavily';
@@ -10,6 +12,8 @@ import { Tool } from 'ai';
 export const BuiltinTools = [
   ReadTool,
   WriteTool,
+  EditTool,
+  GrepTool,
   LsTool,
   BashTool,
   TavilyTool,
@@ -31,6 +35,8 @@ export const getFinalToolsMap = (customTools?: Record<string, Tool>) => {
 export {
   ReadTool,
   WriteTool,
+  EditTool,
+  GrepTool,
   LsTool,
   BashTool,
   TavilyTool,
