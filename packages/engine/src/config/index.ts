@@ -1,14 +1,21 @@
 import dotenv from "dotenv";
 import { createOpenAI } from '@ai-sdk/openai';
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { LanguageModel } from "ai";
 
 dotenv.config();
 
-export const CoderAI = createOpenAI({
-  apiKey: process.env.OPENAI_API_KEY || '',
-  baseURL: process.env.OPENAI_API_URL || 'https://api.openai.com/v1'
-});
+export const CoderAI = (process.env.USE_ANTHROPIC
+  ? createAnthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY || '',
+    baseURL: process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com/v1'
+  })
+  : createOpenAI({
+    apiKey: process.env.OPENAI_API_KEY || '',
+    baseURL: process.env.OPENAI_API_URL || 'https://api.openai.com/v1'
+  }).chat) as (model: string) => LanguageModel;
 
-export const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'novita/deepseek/deepseek_v3';
+export const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || process.env.OPENAI_MODEL || 'novita/deepseek/deepseek_v3';
 
 export const MAX_TURNS = 100;
 export const MAX_ERROR_COUNT = 3;

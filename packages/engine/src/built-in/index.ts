@@ -5,6 +5,7 @@
 
 import { builtInMCPPlugin } from './mcp-plugin';
 import { builtInSkillsPlugin } from './skills-plugin';
+import { SubAgentPlugin } from './sub-agent-plugin';
 
 /**
  * 默认内置插件列表
@@ -12,7 +13,8 @@ import { builtInSkillsPlugin } from './skills-plugin';
  */
 export const builtInPlugins = [
   builtInMCPPlugin,
-  builtInSkillsPlugin
+  builtInSkillsPlugin,
+  new SubAgentPlugin()
 ];
 
 /**
@@ -20,5 +22,6 @@ export const builtInPlugins = [
  */
 export { builtInMCPPlugin } from './mcp-plugin';
 export { builtInSkillsPlugin, BuiltInSkillRegistry } from './skills-plugin';
+export { SubAgentPlugin } from './sub-agent-plugin';
 
 export default builtInPlugins;

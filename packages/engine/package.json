@@ -30,8 +30,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.42",
     "@ai-sdk/mcp": "^1.0.19",
     "@ai-sdk/openai": "^3.0.21",
+    "@requesty/ai-sdk": "^3.1.0",
     "ai": "^6.0.57",
     "dotenv": "^17.2.3",
     "glob": "^11.0.0",

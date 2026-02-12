@@ -19,7 +19,7 @@ export const generateTextAI = (messages: ModelMessage[], tools: Record<string, T
   ] as ModelMessage[];
 
   return generateText({
-    model: CoderAI.chat(DEFAULT_MODEL),
+    model: CoderAI(DEFAULT_MODEL),
     messages: finalMessages,
     tools,
     providerOptions,
@@ -71,7 +71,7 @@ export const streamTextAI = (messages: ModelMessage[], tools: Record<string, Cod
     : tools;
 
   return streamText({
-    model: CoderAI.chat(DEFAULT_MODEL),
+    model: CoderAI(DEFAULT_MODEL),
     messages: finalMessages,
     tools: wrappedTools as Record<string, Tool>,
     providerOptions,
@@ -102,7 +102,7 @@ export const summarizeMessages = async (
   ].join('\n');
 
   const result = await generateText({
-    model: CoderAI.chat(DEFAULT_MODEL),
+    model: CoderAI(DEFAULT_MODEL),
     messages: [
       { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
       ...messages,
