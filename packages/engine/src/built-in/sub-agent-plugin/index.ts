@@ -15,22 +15,38 @@ interface AgentConfig {
 }
 
 class ConfigLoader {
-  async loadAgentConfigs(configDir = '.pulse-coder/agents'): Promise<AgentConfig[]> {
-    const configs: AgentConfig[] = [];
 
-    try {
-      await fs.access(configDir);
-    } catch {
-      return configs;
+  async getAgentFilesInfo(configDirs: string[]) {
+    const fileInfos: Array<{ files: string[], configDir: string }> = [];
+    for (let configDir of configDirs) {
+      try {
+        await fs.access(configDir);
+
+        const files = await fs.readdir(configDir);
+        fileInfos.push({ files, configDir });
+      } catch {
+        continue;
+      }
     }
 
-    try {
-      const files = await fs.readdir(configDir);
+    return fileInfos;
+  }
 
-      for (const file of files) {
-        if (file.endsWith('.md')) {
-          const config = await this.parseConfig(path.join(configDir, file));
-          if (config) configs.push(config);
+  async loadAgentConfigs(configDir: string | string[] = ['.pulse-coder/agents', '.coder/agents']): Promise<AgentConfig[]> {
+    const configs: AgentConfig[] = [];
+
+    const configDirs = Array.isArray(configDir) ? configDir : [configDir];
+
+    try {
+      const filesInfo = await this.getAgentFilesInfo(configDirs);
+
+      for (const fileInfo of filesInfo) {
+        const files = fileInfo.files;
+        for (const file of files) {
+          if (file.endsWith('.md')) {
+            const config = await this.parseConfig(path.join(fileInfo.configDir, file));
+            if (config) configs.push(config);
+          }
         }
       }
     } catch (error) {
@@ -134,7 +150,7 @@ export class SubAgentPlugin implements EnginePlugin {
         this.registerAgentTool(context, config, tools);
       }
 
-      context.logger.info(`SubAgentPlugin loaded ${configs.length} agents from .coder/agents/`);
+      context.logger.info(`SubAgentPlugin loaded ${configs.length} agents.`);
     } catch (error) {
       context.logger.error('Failed to initialize SubAgentPlugin', error as Error);
     }
