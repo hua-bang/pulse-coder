@@ -1,4 +1,5 @@
 export { Engine } from './Engine.js';
+export { Engine as PulseAgent } from './Engine.js'; // 添加 PulseAgent 别名
 
 // 插件系统导出
 export type { EnginePlugin, EnginePluginContext } from './plugin/EnginePlugin.js';
