@@ -14,11 +14,15 @@
     "dev": "pnpm -r dev",
     "test": "pnpm -r test",
     "start": "pnpm --filter pulse-coder-cli start",
-    "clean": "pnpm -r clean"
+    "clean": "pnpm -r clean",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm run build && changeset publish"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
+    "@changesets/cli": "^2.29.8",
     "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
     "vitest": "^1.0.0"
   }
 }

@@ -13,9 +13,15 @@
     "test": "vitest",
     "start": "node dist/index.cjs"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "dist"
   ],
+  "dependencies": {
+    "pulse-coder-engine": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.0.0",
     "tsup": "^8.0.0",
