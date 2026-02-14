@@ -1,6 +1,6 @@
 {
-  "name": "@pulse-coder/cli",
-  "version": "1.0.0",
+  "name": "pulse-coder-cli",
+  "version": "0.0.1",
   "description": "CLI interface for Pulse Coder",
   "type": "module",
   "main": "./dist/index.js",

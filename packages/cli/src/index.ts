@@ -1,18 +1,18 @@
-import { Engine } from '@pulse-coder/engine';
+import { PulseAgent } from '@pulse-coder/engine';
 import * as readline from 'readline';
 import type { Context } from '@pulse-coder/engine';
 import { SessionCommands } from './session-commands.js';
 import { InputManager } from './input-manager.js';
 
 class CoderCLI {
-  private engine: Engine;
+  private agent: PulseAgent;
   private context: Context;
   private sessionCommands: SessionCommands;
   private inputManager: InputManager;
 
   constructor() {
     // 🎯 现在引擎自动包含内置插件，无需显式配置！
-    this.engine = new Engine({
+    this.agent = new PulseAgent({
       enginePlugins: {
         // 只配置扩展插件目录，内置插件会自动加载
         dirs: ['.pulse-coder/engine-plugins', '.coder/engine-plugins', '~/.pulse-coder/engine-plugins', '~/.coder/engine-plugins'],
@@ -147,10 +147,10 @@ class CoderCLI {
     console.log('Commands starting with "/" will trigger command mode.\n');
 
     await this.sessionCommands.initialize();
-    await this.engine.initialize();
+    await this.agent.initialize();
 
     // 显示插件状态
-    const pluginStatus = this.engine.getPluginStatus();
+    const pluginStatus = this.agent.getPluginStatus();
     console.log(`✅ Built-in plugins loaded: ${pluginStatus.enginePlugins.length} plugins`);
 
     // Auto-create a new session
@@ -238,7 +238,7 @@ class CoderCLI {
       let sawText = false;
 
       try {
-        const result = await this.engine.run(this.context, {
+        const result = await this.agent.run(this.context, {
           abortSignal: ac.signal,
           onText: (delta) => {
             sawText = true;
