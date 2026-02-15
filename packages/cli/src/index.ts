@@ -279,11 +279,6 @@ class CoderCLI {
             console.log();
           }
 
-          this.context.messages.push({
-            role: 'assistant',
-            content: result,
-          });
-
           await this.sessionCommands.saveContext(this.context);
         }
       } catch (error) {
