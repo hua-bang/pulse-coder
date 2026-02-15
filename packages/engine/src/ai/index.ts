@@ -1,13 +1,16 @@
 import { generateText, streamText, tool, type ModelMessage, type StepResult, type Tool } from 'ai';
-import { CoderAI, DEFAULT_MODEL, COMPACT_SUMMARY_MAX_TOKENS, OPENAI_REASONING_EFFORT } from '../config';
+import { CoderAI, DEFAULT_MODEL, COMPACT_SUMMARY_MAX_TOKENS, OPENAI_REASONING_EFFORT, MAX_STEPS } from '../config';
 import z from 'zod';
 import { generateSystemPrompt } from '../prompt';
 import type { Tool as CoderTool, ToolExecutionContext, LLMProviderFactory, SystemPromptOption } from '../shared/types';
 
 
-const providerOptions = OPENAI_REASONING_EFFORT
-  ? { openai: { reasoningEffort: OPENAI_REASONING_EFFORT } }
-  : undefined;
+const providerOptions = {
+  openai: {
+    store: false,
+    ...(OPENAI_REASONING_EFFORT ? { reasoningEffort: OPENAI_REASONING_EFFORT } : {}),
+  },
+};
 
 /** Resolve a SystemPromptOption into a final string. */
 const resolveSystemPrompt = (option: SystemPromptOption | undefined): string => {
@@ -26,17 +29,10 @@ export const generateTextAI = (
   const provider = options?.provider ?? CoderAI;
   const model = options?.model ?? DEFAULT_MODEL;
 
-  const finalMessages = [
-    {
-      role: 'system',
-      content: resolveSystemPrompt(options?.systemPrompt),
-    },
-    ...messages,
-  ] as ModelMessage[];
-
   return generateText({
     model: provider(model),
-    messages: finalMessages,
+    system: resolveSystemPrompt(options?.systemPrompt),
+    messages,
     tools,
     providerOptions,
   }) as unknown as ReturnType<typeof generateText> & { steps: StepResult<any>[]; finishReason: string };
@@ -81,14 +77,6 @@ export const streamTextAI = (messages: ModelMessage[], tools: Record<string, Cod
   const provider = options?.provider ?? CoderAI;
   const model = options?.model ?? DEFAULT_MODEL;
 
-  const finalMessages = [
-    {
-      role: 'system',
-      content: resolveSystemPrompt(options?.systemPrompt),
-    },
-    ...messages,
-  ] as ModelMessage[];
-
   // Wrap tools with execution context if provided
   const wrappedTools = options?.toolExecutionContext
     ? wrapToolsWithContext(tools, options.toolExecutionContext)
@@ -96,8 +84,10 @@ export const streamTextAI = (messages: ModelMessage[], tools: Record<string, Cod
 
   return streamText({
     model: provider(model),
-    messages: finalMessages,
+    system: resolveSystemPrompt(options?.systemPrompt),
+    messages,
     tools: wrappedTools as Record<string, Tool>,
+    maxSteps: MAX_STEPS,
     providerOptions,
     abortSignal: options?.abortSignal,
     onStepFinish: options?.onStepFinish,
@@ -129,8 +119,8 @@ export const summarizeMessages = async (
 
   const result = await generateText({
     model: provider(model),
+    system: SUMMARY_SYSTEM_PROMPT,
     messages: [
-      { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
       ...messages,
       { role: 'user', content: SUMMARY_USER_PROMPT },
     ],
