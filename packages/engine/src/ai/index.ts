@@ -5,9 +5,12 @@ import { generateSystemPrompt } from '../prompt';
 import type { Tool as CoderTool, ToolExecutionContext, LLMProviderFactory, SystemPromptOption } from '../shared/types';
 
 
-const providerOptions = OPENAI_REASONING_EFFORT
-  ? { openai: { reasoningEffort: OPENAI_REASONING_EFFORT } }
-  : undefined;
+const providerOptions = {
+  openai: {
+    store: false,
+    ...(OPENAI_REASONING_EFFORT ? { reasoningEffort: OPENAI_REASONING_EFFORT } : {}),
+  },
+};
 
 /** Resolve a SystemPromptOption into a final string. */
 const resolveSystemPrompt = (option: SystemPromptOption | undefined): string => {
