@@ -1,5 +1,5 @@
 import { ToolSet, type StepResult, type ModelMessage } from "ai";
-import type { Context, ClarificationRequest, Tool } from "../shared/types";
+import type { Context, ClarificationRequest, Tool, LLMProviderFactory, SystemPromptOption, ToolHooks } from "../shared/types";
 import { streamTextAI } from "../ai";
 import { maybeCompactContext } from "../context";
 import {
@@ -19,6 +19,35 @@ export interface LoopOptions {
   abortSignal?: AbortSignal;
 
   tools?: Record<string, Tool>; // 允许传入工具覆盖默认工具
+
+  /** Custom LLM provider factory. Overrides the default provider when set. */
+  provider?: LLMProviderFactory;
+  /** Model name passed to the provider. Overrides DEFAULT_MODEL when set. */
+  model?: string;
+  /** Custom system prompt. See SystemPromptOption for the three supported forms. */
+  systemPrompt?: SystemPromptOption;
+  /** Hooks fired around every tool execution (before/after). */
+  hooks?: ToolHooks;
+}
+
+/** Wraps tools with ToolHooks so each call passes through before/after handlers. */
+function applyToolHooks(tools: Record<string, Tool>, hooks: ToolHooks): Record<string, Tool> {
+  const wrapped: Record<string, Tool> = {};
+  for (const [name, t] of Object.entries(tools)) {
+    wrapped[name] = {
+      ...t,
+      execute: async (input: any, ctx: any) => {
+        const finalInput = hooks.onBeforeToolCall
+          ? (await hooks.onBeforeToolCall(name, input)) ?? input
+          : input;
+        const output = await t.execute(finalInput, ctx);
+        return hooks.onAfterToolCall
+          ? (await hooks.onAfterToolCall(name, finalInput, output)) ?? output
+          : output;
+      },
+    };
+  }
+  return wrapped;
 }
 
 export async function loop(context: Context, options?: LoopOptions): Promise<string> {
@@ -29,7 +58,10 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
   while (true) {
     try {
       if (compactionAttempts < MAX_COMPACTION_ATTEMPTS) {
-        const { didCompact, newMessages } = await maybeCompactContext(context);
+        const { didCompact, newMessages } = await maybeCompactContext(context, {
+          provider: options?.provider,
+          model: options?.model,
+        });
         if (didCompact) {
           compactionAttempts++;
 
@@ -40,7 +72,12 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
         }
       }
 
-      const tools = options?.tools || {}; // 允许传入工具覆盖默认工具
+      let tools = options?.tools || {}; // 允许传入工具覆盖默认工具
+
+      // Apply tool hooks if provided
+      if (options?.hooks) {
+        tools = applyToolHooks(tools, options.hooks);
+      }
 
       // Prepare tool execution context
       const toolExecutionContext = {
@@ -51,6 +88,9 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
       const result = streamTextAI(context.messages, tools, {
         abortSignal: options?.abortSignal,
         toolExecutionContext,
+        provider: options?.provider,
+        model: options?.model,
+        systemPrompt: options?.systemPrompt,
         onStepFinish: (step) => {
           options?.onStepFinish?.(step);
         },
@@ -88,7 +128,11 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
 
       if (finishReason === 'length') {
         if (compactionAttempts < MAX_COMPACTION_ATTEMPTS) {
-          const { didCompact, newMessages } = await maybeCompactContext(context, { force: true });
+          const { didCompact, newMessages } = await maybeCompactContext(context, {
+          force: true,
+          provider: options?.provider,
+          model: options?.model,
+        });
           if (didCompact) {
             compactionAttempts++;
             if (newMessages) {

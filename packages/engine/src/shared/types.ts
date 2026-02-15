@@ -1,4 +1,57 @@
-import type { FlexibleSchema, ModelMessage } from "ai";
+import type { FlexibleSchema, ModelMessage, LanguageModel } from "ai";
+
+/**
+ * Custom LLM provider factory - receives a model name and returns a LanguageModel.
+ * Use this to plug in any Vercel AI SDK-compatible provider.
+ *
+ * @example
+ * import { createOpenAI } from '@ai-sdk/openai';
+ * const provider: LLMProviderFactory = createOpenAI({ apiKey: '...' }).chat;
+ *
+ * @example
+ * import { createAnthropic } from '@ai-sdk/anthropic';
+ * const provider: LLMProviderFactory = createAnthropic({ apiKey: '...' });
+ */
+export type LLMProviderFactory = (model: string) => LanguageModel;
+
+/**
+ * System prompt customization.
+ * - `string` — replaces the built-in prompt entirely.
+ * - `() => string` — factory evaluated on every request (supports dynamic prompts).
+ * - `{ append: string }` — appends extra content after the built-in prompt.
+ */
+export type SystemPromptOption =
+  | string
+  | (() => string)
+  | { append: string };
+
+/**
+ * Hooks that fire around every tool execution.
+ *
+ * @example
+ * const hooks: ToolHooks = {
+ *   onBeforeToolCall: (name, input) => {
+ *     if (name === 'bash') throw new Error('bash tool is disabled');
+ *     return input; // can return modified input
+ *   },
+ *   onAfterToolCall: (name, input, output) => {
+ *     auditLog(name, input, output);
+ *     return output; // can return modified output
+ *   },
+ * };
+ */
+export interface ToolHooks {
+  /**
+   * Called before a tool executes.
+   * Return a (possibly modified) input object, or throw to abort the call.
+   */
+  onBeforeToolCall?: (name: string, input: any) => any | Promise<any>;
+  /**
+   * Called after a tool executes.
+   * Return a (possibly modified) output value.
+   */
+  onAfterToolCall?: (name: string, input: any, output: any) => any | Promise<any>;
+}
 
 export interface ClarificationRequest {
   id: string;

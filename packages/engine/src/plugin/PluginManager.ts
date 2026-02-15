@@ -5,6 +5,7 @@ import { EventEmitter } from 'events';
 
 import type { EnginePlugin, EnginePluginContext, EnginePluginLoadOptions } from './EnginePlugin.js';
 import type { UserConfigPlugin, UserConfigPluginLoadOptions } from './UserConfigPlugin.js';
+import type { ILogger } from '../shared/types.js';
 import { ConfigVariableResolver } from './UserConfigPlugin.js';
 
 /**
@@ -19,12 +20,16 @@ export class PluginManager {
   private config = new Map<string, any>();
 
   private events = new EventEmitter();
-  private logger = {
-    debug: (msg: string, meta?: any) => console.debug(`[PluginManager] ${msg}`, meta),
-    info: (msg: string, meta?: any) => console.info(`[PluginManager] ${msg}`, meta),
-    warn: (msg: string, meta?: any) => console.warn(`[PluginManager] ${msg}`, meta),
-    error: (msg: string, error?: Error, meta?: any) => console.error(`[PluginManager] ${msg}`, error, meta)
-  };
+  private logger: ILogger;
+
+  constructor(logger?: ILogger) {
+    this.logger = logger ?? {
+      debug: (msg: string, meta?: any) => console.debug(`[PluginManager] ${msg}`, meta),
+      info: (msg: string, meta?: any) => console.info(`[PluginManager] ${msg}`, meta),
+      warn: (msg: string, meta?: any) => console.warn(`[PluginManager] ${msg}`, meta),
+      error: (msg: string, error?: Error, meta?: any) => console.error(`[PluginManager] ${msg}`, error, meta),
+    };
+  }
 
   /**
    * 初始化插件系统

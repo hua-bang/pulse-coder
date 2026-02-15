@@ -1,4 +1,4 @@
-import type { Context } from './shared/types';
+import type { Context, Tool, LLMProviderFactory, SystemPromptOption, ToolHooks, ILogger } from './shared/types';
 import type { LoopOptions } from './core/loop';
 import type { EnginePluginLoadOptions } from './plugin/EnginePlugin.js';
 import type { UserConfigPluginLoadOptions } from './plugin/UserConfigPlugin.js';
@@ -23,6 +23,89 @@ export interface EngineOptions {
 
   // 全局配置
   config?: Record<string, any>;
+
+  /**
+   * 自定义 LLM Provider。
+   * 接收模型名称，返回 Vercel AI SDK LanguageModel 实例。
+   * 未设置时使用环境变量配置的默认 Provider（OpenAI / Anthropic）。
+   *
+   * @example
+   * import { createOpenAI } from '@ai-sdk/openai';
+   * const engine = new Engine({
+   *   llmProvider: createOpenAI({ apiKey: 'sk-...', baseURL: 'https://my-proxy/v1' }).chat,
+   *   model: 'gpt-4o',
+   * });
+   */
+  llmProvider?: LLMProviderFactory;
+
+  /**
+   * 模型名称，传递给 llmProvider。未设置时使用 DEFAULT_MODEL。
+   */
+  model?: string;
+
+  /**
+   * 直接注册自定义工具，无需创建 EnginePlugin。
+   * 这些工具会与内置工具以及插件注册的工具合并。
+   * 若与内置工具同名，自定义工具优先级更高。
+   *
+   * @example
+   * import { z } from 'zod';
+   * const engine = new Engine({
+   *   tools: {
+   *     myTool: {
+   *       name: 'myTool',
+   *       description: '查询内部数据库',
+   *       inputSchema: z.object({ query: z.string() }),
+   *       execute: async ({ query }) => fetchFromDB(query),
+   *     },
+   *   },
+   * });
+   */
+  tools?: Record<string, Tool>;
+
+  /**
+   * 自定义 System Prompt，三种形式：
+   * - `string` — 完全替换内置 prompt
+   * - `() => string` — 工厂函数，每次请求调用（支持动态 prompt）
+   * - `{ append: string }` — 在内置 prompt 末尾追加业务上下文
+   *
+   * @example
+   * const engine = new Engine({
+   *   systemPrompt: { append: '公司规范：所有变量使用 camelCase。禁止使用 any 类型。' },
+   * });
+   */
+  systemPrompt?: SystemPromptOption;
+
+  /**
+   * Tool 执行钩子，在每次工具调用前/后触发。
+   * - `onBeforeToolCall` 可以修改入参，或抛错来拦截调用。
+   * - `onAfterToolCall` 可以修改返回值（如脱敏、截断）。
+   *
+   * @example
+   * const engine = new Engine({
+   *   hooks: {
+   *     onBeforeToolCall: (name, input) => {
+   *       if (name === 'bash') throw new Error('bash 工具已被禁用');
+   *     },
+   *     onAfterToolCall: (name, input, output) => {
+   *       auditLogger.log({ name, input, output });
+   *       return output;
+   *     },
+   *   },
+   * });
+   */
+  hooks?: ToolHooks;
+
+  /**
+   * 自定义日志实现。未设置时使用 console.*。
+   * 兼容 winston / pino 等主流日志库。
+   *
+   * @example
+   * import pino from 'pino';
+   * const logger = pino();
+   * const engine = new Engine({ logger });
+   */
+  logger?: ILogger;
 }
 
 /**
@@ -36,7 +119,7 @@ export class Engine {
   private config: Record<string, any> = {};
 
   constructor(options?: EngineOptions) {
-    this.pluginManager = new PluginManager();
+    this.pluginManager = new PluginManager(options?.logger);
 
     // 初始化全局配置
     this.config = options?.config || {};
@@ -48,7 +131,8 @@ export class Engine {
    * 自动包含内置插件
    */
   async initialize(): Promise<void> {
-    console.log('Initializing engine...', this.config);
+    const log = this.options.logger ?? console;
+    log.info('Initializing engine...');
 
     // 准备插件列表：内置插件 + 用户配置插件
     const allEnginePlugins = this.prepareEnginePlugins();
@@ -66,6 +150,11 @@ export class Engine {
     // 合并插件工具到引擎工具库
     const pluginTools = this.pluginManager.getTools();
     this.tools = { ...this.tools, ...pluginTools };
+
+    // 合并业务方直接传入的自定义工具（优先级最高，可覆盖内置工具）
+    if (this.options.tools) {
+      this.tools = { ...this.tools, ...this.options.tools };
+    }
   }
 
   /**
@@ -97,6 +186,11 @@ export class Engine {
     return loop(context, {
       ...options,
       tools: this.tools,
+      // Engine 级别选项作为默认值；调用方通过 options 传入可在单次调用中覆盖
+      provider: options?.provider ?? this.options.llmProvider,
+      model: options?.model ?? this.options.model,
+      systemPrompt: options?.systemPrompt ?? this.options.systemPrompt,
+      hooks: options?.hooks ?? this.options.hooks,
       onToolCall: (toolCall) => {
         options?.onToolCall?.(toolCall);
       },

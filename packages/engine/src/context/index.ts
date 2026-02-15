@@ -5,7 +5,7 @@ import {
   COMPACT_TARGET,
   KEEP_LAST_TURNS,
 } from "../config/index";
-import type { Context } from "../shared/types";
+import type { Context, LLMProviderFactory } from "../shared/types";
 
 type CompactResult = {
   didCompact: boolean;
@@ -86,7 +86,7 @@ const takeLastTurns = (messages: ModelMessage[], keepLastTurns: number): ModelMe
 
 export const maybeCompactContext = async (
   context: Context,
-  options?: { force?: boolean }
+  options?: { force?: boolean; provider?: LLMProviderFactory; model?: string }
 ): Promise<CompactResult> => {
   const { messages } = context;
   if (messages.length === 0) {
@@ -104,7 +104,10 @@ export const maybeCompactContext = async (
   }
 
   try {
-    const summary = await summarizeMessages(oldMessages);
+    const summary = await summarizeMessages(oldMessages, {
+      provider: options?.provider,
+      model: options?.model,
+    });
     const summaryText = ensureSummaryPrefix(summary);
     if (!summaryText) {
       throw new Error('Empty summary result');
