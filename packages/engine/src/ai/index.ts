@@ -1,5 +1,5 @@
 import { generateText, streamText, tool, type ModelMessage, type StepResult, type Tool } from 'ai';
-import { CoderAI, DEFAULT_MODEL, COMPACT_SUMMARY_MAX_TOKENS, OPENAI_REASONING_EFFORT } from '../config';
+import { CoderAI, DEFAULT_MODEL, COMPACT_SUMMARY_MAX_TOKENS, OPENAI_REASONING_EFFORT, MAX_STEPS } from '../config';
 import z from 'zod';
 import { generateSystemPrompt } from '../prompt';
 import type { Tool as CoderTool, ToolExecutionContext, LLMProviderFactory, SystemPromptOption } from '../shared/types';
@@ -84,6 +84,7 @@ export const streamTextAI = (messages: ModelMessage[], tools: Record<string, Cod
     system: resolveSystemPrompt(options?.systemPrompt),
     messages,
     tools: wrappedTools as Record<string, Tool>,
+    maxSteps: MAX_STEPS,
     providerOptions,
     abortSignal: options?.abortSignal,
     onStepFinish: options?.onStepFinish,
