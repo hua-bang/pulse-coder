@@ -13,7 +13,7 @@ export const CoderAI = (process.env.USE_ANTHROPIC
   : createOpenAI({
     apiKey: process.env.OPENAI_API_KEY || '',
     baseURL: process.env.OPENAI_API_URL || 'https://api.openai.com/v1'
-  }).chat) as (model: string) => LanguageModel;
+  }).responses) as (model: string) => LanguageModel;
 
 export const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || process.env.OPENAI_MODEL || 'novita/deepseek/deepseek_v3';
 

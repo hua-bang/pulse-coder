@@ -116,7 +116,6 @@ class AgentRunner {
   ): Promise<string> {
     const subContext: Context = {
       messages: [
-        { role: 'system', content: config.systemPrompt },
         { role: 'user', content: task }
       ]
     };
@@ -128,7 +127,7 @@ class AgentRunner {
       });
     }
 
-    return await loop(subContext, { tools });
+    return await loop(subContext, { tools, systemPrompt: config.systemPrompt });
   }
 }
 
