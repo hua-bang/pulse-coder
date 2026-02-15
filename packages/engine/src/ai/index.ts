@@ -26,17 +26,10 @@ export const generateTextAI = (
   const provider = options?.provider ?? CoderAI;
   const model = options?.model ?? DEFAULT_MODEL;
 
-  const finalMessages = [
-    {
-      role: 'system',
-      content: resolveSystemPrompt(options?.systemPrompt),
-    },
-    ...messages,
-  ] as ModelMessage[];
-
   return generateText({
     model: provider(model),
-    messages: finalMessages,
+    system: resolveSystemPrompt(options?.systemPrompt),
+    messages,
     tools,
     providerOptions,
   }) as unknown as ReturnType<typeof generateText> & { steps: StepResult<any>[]; finishReason: string };
@@ -81,14 +74,6 @@ export const streamTextAI = (messages: ModelMessage[], tools: Record<string, Cod
   const provider = options?.provider ?? CoderAI;
   const model = options?.model ?? DEFAULT_MODEL;
 
-  const finalMessages = [
-    {
-      role: 'system',
-      content: resolveSystemPrompt(options?.systemPrompt),
-    },
-    ...messages,
-  ] as ModelMessage[];
-
   // Wrap tools with execution context if provided
   const wrappedTools = options?.toolExecutionContext
     ? wrapToolsWithContext(tools, options.toolExecutionContext)
@@ -96,7 +81,8 @@ export const streamTextAI = (messages: ModelMessage[], tools: Record<string, Cod
 
   return streamText({
     model: provider(model),
-    messages: finalMessages,
+    system: resolveSystemPrompt(options?.systemPrompt),
+    messages,
     tools: wrappedTools as Record<string, Tool>,
     providerOptions,
     abortSignal: options?.abortSignal,
@@ -129,8 +115,8 @@ export const summarizeMessages = async (
 
   const result = await generateText({
     model: provider(model),
+    system: SUMMARY_SYSTEM_PROMPT,
     messages: [
-      { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
       ...messages,
       { role: 'user', content: SUMMARY_USER_PROMPT },
     ],
