@@ -16,6 +16,10 @@
   "files": [
     "dist"
   ],
+  "dependencies": {
+    "pulse-coder-engine": "workspace:*",
+    "pulse-sandbox": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.0.0",
     "tsup": "^8.0.0",
