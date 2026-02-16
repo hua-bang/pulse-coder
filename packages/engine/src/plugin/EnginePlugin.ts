@@ -42,9 +42,6 @@ export interface EnginePluginContext {
   registerRunHook(name: string, hook: EngineRunHook): void;
   getRunHook(name: string): EngineRunHook | undefined;
 
-  registerProtocol(name: string, handler: ProtocolHandler): void;
-  getProtocol(name: string): ProtocolHandler | undefined;
-
   registerService<T>(name: string, service: T): void;
   getService<T>(name: string): T | undefined;
 
@@ -59,11 +56,6 @@ export interface EnginePluginContext {
     warn(message: string, meta?: any): void;
     error(message: string, error?: Error, meta?: any): void;
   };
-}
-
-export interface ProtocolHandler {
-  name: string;
-  handle(message: any): Promise<any>;
 }
 
 export interface EnginePluginLoadOptions {

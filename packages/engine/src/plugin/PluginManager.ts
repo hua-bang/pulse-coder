@@ -17,7 +17,6 @@ export class PluginManager {
   private tools = new Map<string, any>();
   private runHooks = new Map<string, EngineRunHook>();
   private services = new Map<string, any>();
-  private protocols = new Map<string, any>();
   private config = new Map<string, any>();
 
   private events = new EventEmitter();
@@ -166,11 +165,6 @@ export class PluginManager {
           this.runHooks.set(name, hook);
         },
         getRunHook: (name) => this.runHooks.get(name),
-
-        registerProtocol: (name, handler) => {
-          this.protocols.set(name, handler);
-        },
-        getProtocol: (name) => this.protocols.get(name),
 
         registerService: (name, service) => {
           this.services.set(name, service);
@@ -439,13 +433,6 @@ export class PluginManager {
 
 
   /**
-   * 协议获取
-   */
-  getProtocol(name: string): any {
-    return this.protocols.get(name);
-  }
-
-  /**
    * 获取插件状态
    */
   getStatus() {
@@ -454,8 +441,7 @@ export class PluginManager {
       userConfigPlugins: this.userConfigPlugins.map(c => c.name || 'unnamed'),
       tools: Array.from(this.tools.keys()),
       runHooks: Array.from(this.runHooks.keys()),
-      services: Array.from(this.services.keys()),
-      protocols: Array.from(this.protocols.keys())
+      services: Array.from(this.services.keys())
     };
   }
 

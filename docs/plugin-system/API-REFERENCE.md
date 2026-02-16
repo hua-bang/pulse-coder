@@ -28,9 +28,6 @@ interface EngineContext {
   registerTool(tool: Tool): void;
   registerTools(tools: Record<string, Tool>): void;
   
-  // 协议注册
-  registerProtocol(name: string, handler: ProtocolHandler): void;
-  
   // 配置管理
   getConfig<T>(key: string): T | undefined;
   setConfig<T>(key: string, value: T): void;
@@ -104,7 +101,6 @@ const mcpPlugin: EnginePlugin = {
     await mcpClient.connect();
     
     context.registerService('mcpClient', mcpClient);
-    context.registerProtocol('mcp', mcpClient);
   },
   
   async destroy(context) {
@@ -132,21 +128,6 @@ interface DynamicToolPlugin extends EnginePlugin {
         execute: tool.handler
       });
     }
-  }
-}
-```
-
-#### 协议扩展
-```typescript
-interface ProtocolPlugin extends EnginePlugin {
-  async initialize(context) {
-    class CustomProtocolHandler {
-      async handle(message: ProtocolMessage) {
-        // 协议实现
-      }
-    }
-    
-    context.registerProtocol('custom', new CustomProtocolHandler());
   }
 }
 ```
