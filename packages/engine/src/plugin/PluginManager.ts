@@ -3,7 +3,7 @@ import path from 'path';
 import { glob } from 'glob';
 import { EventEmitter } from 'events';
 
-import type { EnginePlugin, EnginePluginContext, EnginePluginLoadOptions } from './EnginePlugin.js';
+import type { EnginePlugin, EnginePluginContext, EnginePluginLoadOptions, EngineRunHook } from './EnginePlugin.js';
 import type { UserConfigPlugin, UserConfigPluginLoadOptions } from './UserConfigPlugin.js';
 import type { ILogger } from '../shared/types.js';
 import { ConfigVariableResolver } from './UserConfigPlugin.js';
@@ -15,6 +15,7 @@ export class PluginManager {
   private enginePlugins = new Map<string, EnginePlugin>();
   private userConfigPlugins: UserConfigPlugin[] = [];
   private tools = new Map<string, any>();
+  private runHooks = new Map<string, EngineRunHook>();
   private services = new Map<string, any>();
   private protocols = new Map<string, any>();
   private config = new Map<string, any>();
@@ -159,6 +160,11 @@ export class PluginManager {
           });
         },
         getTool: (name) => this.tools.get(name),
+
+        registerRunHook: (name, hook) => {
+          this.runHooks.set(name, hook);
+        },
+        getRunHook: (name) => this.runHooks.get(name),
 
         registerProtocol: (name, handler) => {
           this.protocols.set(name, handler);
@@ -392,12 +398,21 @@ export class PluginManager {
     return Object.fromEntries(this.tools);
   }
 
+
+  /**
+   * 运行时钩子获取
+   */
+  getRunHooks(): EngineRunHook[] {
+    return Array.from(this.runHooks.values());
+  }
+
   /**
    * 服务获取
    */
   getService<T>(name: string): T | undefined {
     return this.services.get(name);
   }
+
 
   /**
    * 协议获取
@@ -414,6 +429,7 @@ export class PluginManager {
       enginePlugins: Array.from(this.enginePlugins.keys()),
       userConfigPlugins: this.userConfigPlugins.map(c => c.name || 'unnamed'),
       tools: Array.from(this.tools.keys()),
+      runHooks: Array.from(this.runHooks.keys()),
       services: Array.from(this.services.keys()),
       protocols: Array.from(this.protocols.keys())
     };

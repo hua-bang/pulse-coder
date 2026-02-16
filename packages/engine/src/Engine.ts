@@ -178,19 +178,59 @@ export class Engine {
       scan: userPlugins.scan !== false // 默认启用扫描
     };
   }
+  private async applyRunHooks(
+    context: Context,
+    systemPrompt?: SystemPromptOption,
+    hooks?: ToolHooks
+  ): Promise<{ systemPrompt?: SystemPromptOption; hooks?: ToolHooks }> {
+    let nextSystemPrompt = systemPrompt;
+    let nextHooks = hooks;
+
+    for (const runHook of this.pluginManager.getRunHooks()) {
+      const result = await runHook({
+        context,
+        messages: context.messages,
+        tools: this.tools,
+        systemPrompt: nextSystemPrompt,
+        hooks: nextHooks
+      });
+
+      if (!result) {
+        continue;
+      }
+
+      if ('systemPrompt' in result) {
+        nextSystemPrompt = result.systemPrompt;
+      }
+
+      if ('hooks' in result) {
+        nextHooks = result.hooks;
+      }
+    }
+
+    return {
+      systemPrompt: nextSystemPrompt,
+      hooks: nextHooks
+    };
+  }
 
   /**
    * 运行AI循环
    */
   async run(context: Context, options?: LoopOptions): Promise<string> {
+    const baseSystemPrompt = options?.systemPrompt ?? this.options.systemPrompt;
+    const baseHooks = options?.hooks ?? this.options.hooks;
+
+    const { systemPrompt, hooks } = await this.applyRunHooks(context, baseSystemPrompt, baseHooks);
+
     return loop(context, {
       ...options,
       tools: this.tools,
       // Engine 级别选项作为默认值；调用方通过 options 传入可在单次调用中覆盖
       provider: options?.provider ?? this.options.llmProvider,
       model: options?.model ?? this.options.model,
-      systemPrompt: options?.systemPrompt ?? this.options.systemPrompt,
-      hooks: options?.hooks ?? this.options.hooks,
+      systemPrompt,
+      hooks,
       onToolCall: (toolCall) => {
         options?.onToolCall?.(toolCall);
       },
