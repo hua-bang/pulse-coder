@@ -158,6 +158,36 @@ pnpm --filter pulse-coder-engine dev
 pnpm --filter @pulse-coder/skills dev
 ```
 
+### 🚢 Multi-package Release
+
+You can now release `cli`, `engine`, `pulse-sandbox`, and other workspace packages with one command:
+
+```bash
+# Default: release every package in packages/* with prerelease(alpha) + build + publish
+pnpm release
+
+# Release only core packages (engine + cli)
+pnpm release:core
+
+# Target selected packages with a specific bump strategy
+pnpm release -- --packages=engine,cli --bump=patch --tag=latest
+
+# Publish only (skip auto version bump and build)
+pnpm release -- --packages=engine,cli --skip-version --skip-build
+
+# Preview commands without mutating or publishing
+pnpm release -- --packages=engine,cli --dry-run
+```
+
+Available flags:
+- `--packages`: package directory names or package names, comma-separated, e.g. `engine,cli`
+- `--bump`: `major | minor | patch | prerelease | premajor | preminor | prepatch`
+- `--preid`: prerelease identifier, default `alpha`
+- `--tag`: npm dist-tag, defaults to `alpha` for prerelease bumps and `latest` for stable bumps
+- `--skip-version`: skip version bump
+- `--skip-build`: skip build step
+- `--dry-run`: print plan and commands only
+
 ### 🧪 Testing
 
 ```bash
