@@ -1,4 +1,5 @@
 import { PulseAgent } from 'pulse-coder-engine';
+import { createJsExecutor, createRunJsTool } from 'pulse-sandbox';
 import * as readline from 'readline';
 import type { Context } from 'pulse-coder-engine';
 import { SessionCommands } from './session-commands.js';
@@ -11,6 +12,10 @@ class CoderCLI {
   private inputManager: InputManager;
 
   constructor() {
+    const runJsTool = createRunJsTool({
+      executor: createJsExecutor()
+    });
+
     // 🎯 现在引擎自动包含内置插件，无需显式配置！
     this.agent = new PulseAgent({
       enginePlugins: {
@@ -21,6 +26,9 @@ class CoderCLI {
       userConfigPlugins: {
         dirs: ['.pulse-coder/config', '.coder/config', '~/.pulse-coder/config', '~/.coder/config'],
         scan: true
+      },
+      tools: {
+        [runJsTool.name]: runJsTool
       }
       // 注意：不再需要 plugins: [...] 配置
     });

@@ -1,7 +1,10 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: {
+    index: 'src/index.ts',
+    runner: 'src/sandbox-runner.ts'
+  },
   format: ['cjs'],
   dts: false,
   clean: true,
@@ -14,6 +17,6 @@ export default defineConfig({
   platform: 'node',
   // 确保所有依赖都打包进来，包括 workspace 依赖
   external: [],
-  noExternal: ['pulse-coder-engine'], // 强制包含这个 workspace 依赖
+  noExternal: ['pulse-coder-engine', 'pulse-sandbox'],
   outExtension: () => ({ js: '.cjs' })
 });
