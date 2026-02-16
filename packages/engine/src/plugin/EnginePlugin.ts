@@ -36,6 +36,8 @@ export interface EnginePluginContext {
   registerTool(name: string, tool: Tool): void;
   registerTools(tools: Record<string, Tool>): void;
   getTool(name: string): Tool | undefined;
+  /** Returns a snapshot of all tools registered by plugins so far. */
+  getTools(): Record<string, Tool>;
 
   registerRunHook(name: string, hook: EngineRunHook): void;
   getRunHook(name: string): EngineRunHook | undefined;
