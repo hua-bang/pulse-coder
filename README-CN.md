@@ -158,6 +158,36 @@ pnpm --filter pulse-coder-engine dev
 pnpm --filter @pulse-coder/skills dev
 ```
 
+### 🚢 多包发版
+
+现在可以用一条命令同时发版 `cli`、`engine`、`pulse-sandbox` 等包：
+
+```bash
+# 默认：所有 packages/* 包执行 prerelease(alpha) + build + publish
+pnpm release
+
+# 只发 core 包（engine + cli）
+pnpm release:core
+
+# 指定包 + 指定版本策略
+pnpm release -- --packages=engine,cli --bump=patch --tag=latest
+
+# 仅发布（跳过自动改版本和构建）
+pnpm release -- --packages=engine,cli --skip-version --skip-build
+
+# 预演执行步骤，不真正发布
+pnpm release -- --packages=engine,cli --dry-run
+```
+
+参数说明：
+- `--packages`: 包目录名或包名，支持逗号分隔，如 `engine,cli`
+- `--bump`: `major | minor | patch | prerelease | premajor | preminor | prepatch`
+- `--preid`: 预发布标识，默认 `alpha`
+- `--tag`: npm dist-tag，不传时预发布默认用 `alpha`，正式版本默认用 `latest`
+- `--skip-version`: 跳过版本递增
+- `--skip-build`: 跳过构建
+- `--dry-run`: 只打印执行计划和命令
+
 ### 🧪 测试
 
 ```bash
