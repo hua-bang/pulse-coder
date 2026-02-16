@@ -180,7 +180,7 @@ class BuiltInPlanModeService implements PlanModeService {
   constructor(
     private readonly logger: LoggerLike,
     private readonly eventEmitter: EventEmitter,
-    initialMode: PlanMode = 'planning'
+    initialMode: PlanMode = 'executing'
   ) {
     this.mode = initialMode;
     this.emitEvent('mode_entered', { reason: 'initialize' });
