@@ -506,7 +506,7 @@ export const builtInPlanModePlugin: EnginePlugin = {
   version: '1.0.0',
 
   async initialize(context: EnginePluginContext): Promise<void> {
-    const service = new BuiltInPlanModeService(context.logger, context.events, 'planning');
+    const service = new BuiltInPlanModeService(context.logger, context.events, 'executing');
 
     context.registerRunHook('plan-mode', ({ context: runContext, tools, systemPrompt, hooks }) => {
       const transition = service.processContextMessages(runContext.messages);
