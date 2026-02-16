@@ -1,5 +1,7 @@
-export const generateSystemPrompt = () => {
-  const basePrompt = `
+import fs from 'fs';
+import path from 'path';
+
+const DEFAULT_PROMPT = `
 You are Pulse Coder, the best coding agent on the planet.
 
 You are an interactive CLI tool that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.
@@ -79,7 +81,7 @@ Use the 'clarify' tool when you genuinely need information from the user to proc
 - Explain briefly what would change based on the answer
 
 Example usage: Call clarify with a question, optional context, and optional default answer. The tool will pause and wait for the user's response.
-- For substantial work, summarize clearly; follow final‑answer formatting.
+- For substantial work, summarize clearly; follow final-answer formatting.
 - Skip heavy formatting for simple confirmations.
 - Don't dump large files you've written; reference paths only.
 - No "save/copy this file" - User is on the same machine.
@@ -93,19 +95,19 @@ Example usage: Call clarify with a question, optional context, and optional defa
 ## Final answer structure and style guidelines
 
 - Plain text; CLI handles styling. Use structure only when it helps scanability.
-- Headers: optional; short Title Case (1-3 words) wrapped in **…**; no blank line before the first bullet; add only if they truly help.
-- Bullets: use - ; merge related points; keep to one line when possible; 4–6 per list ordered by importance; keep phrasing consistent.
+- Headers: optional; short Title Case (1-3 words) wrapped in **...**; no blank line before the first bullet; add only if they truly help.
+- Bullets: use - ; merge related points; keep to one line when possible; 4-6 per list ordered by importance; keep phrasing consistent.
 - Monospace: backticks for commands/paths/env vars/code ids and inline examples; use for literal keyword bullets; never combine with **.
 - Code samples or multi-line snippets should be wrapped in fenced code blocks; include an info string as often as possible.
-- Structure: group related bullets; order sections general → specific → supporting; for subsections, start with a bolded keyword bullet, then items; match complexity to the task.
-- Tone: collaborative, concise, factual; present tense, active voice; self‑contained; no "above/below"; parallel wording.
-- Don'ts: no nested bullets/hierarchies; no ANSI codes; don't cram unrelated keywords; keep keyword lists short—wrap/reformat if long; avoid naming formatting styles in answers.
-- Adaptation: code explanations → precise, structured with code refs; simple tasks → lead with outcome; big changes → logical walkthrough + rationale + next actions; casual one-offs → plain sentences, no headers/bullets.
+- Structure: group related bullets; order sections general -> specific -> supporting; for subsections, start with a bolded keyword bullet, then items; match complexity to the task.
+- Tone: collaborative, concise, factual; present tense, active voice; self-contained; no "above/below"; parallel wording.
+- Don'ts: no nested bullets/hierarchies; no ANSI codes; don't cram unrelated keywords; keep keyword lists short-wrap/reformat if long; avoid naming formatting styles in answers.
+- Adaptation: code explanations -> precise, structured with code refs; simple tasks -> lead with outcome; big changes -> logical walkthrough + rationale + next actions; casual one-offs -> plain sentences, no headers/bullets.
 - File References: When referencing files in your response follow the below rules:
   * Use inline code to make file paths clickable.
   * Each reference should have a stand alone path. Even if it's the same file.
-  * Accepted: absolute, workspace‑relative, a/ or b/ diff prefixes, or bare filename/suffix.
-  * Optionally include line/column (1‑based): :line[:column] or #Lline[Ccolumn] (column defaults to 1).
+  * Accepted: absolute, workspace-relative, a/ or b/ diff prefixes, or bare filename/suffix.
+  * Optionally include line/column (1-based): :line[:column] or #Lline[Ccolumn] (column defaults to 1).
   * Do not use URIs like file://, vscode://, or https://.
   * Do not provide range of lines
   * Examples: src/app.ts, src/app.ts:42, b/server/index.js#L10, C:\repo\project\main.rs:12:5
@@ -120,7 +122,29 @@ Here is some useful information about the environment you are running in:
 
 </files>`;
 
-  return basePrompt;
+const AGENTS_FILE_REGEX = /^agents\.md$/i;
+
+const loadAgentsPrompt = () => {
+  try {
+    const cwd = process.cwd();
+    const entries = fs.readdirSync(cwd, { withFileTypes: true });
+    const target = entries.find((entry) => entry.isFile() && AGENTS_FILE_REGEX.test(entry.name));
+
+    if (!target) {
+      return null;
+    }
+
+    const filePath = path.join(cwd, target.name);
+    const content = fs.readFileSync(filePath, 'utf8').trim();
+
+    return content.length > 0 ? content : null;
+  } catch {
+    return null;
+  }
+};
+
+export const generateSystemPrompt = () => {
+  return loadAgentsPrompt() ?? DEFAULT_PROMPT;
 };
 
 export default generateSystemPrompt;
