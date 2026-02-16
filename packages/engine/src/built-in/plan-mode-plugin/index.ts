@@ -509,6 +509,15 @@ export const builtInPlanModePlugin: EnginePlugin = {
     const service = new BuiltInPlanModeService(context.logger, context.events, 'executing');
 
     context.registerRunHook('plan-mode', ({ context: runContext, tools, systemPrompt, hooks }) => {
+      const mode = service.getMode();
+
+      if (mode === 'executing') {
+        return {
+          systemPrompt,
+          hooks
+        };
+      }
+
       const transition = service.processContextMessages(runContext.messages);
       const append = service.buildPromptAppend(Object.keys(tools), transition);
 
