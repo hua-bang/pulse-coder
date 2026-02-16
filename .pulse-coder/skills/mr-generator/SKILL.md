@@ -1,70 +1,90 @@
 ---
 name: mr-generator
 description: Automatically generate concise MR titles and descriptions based on current branch diff
-description_zh: 基于当前分支与远程 master 的 diff 自动生成简洁英文 MR 标题和描述的 skill。
-version: 1.0.0
+description_zh: Automatically generate concise MR titles and descriptions from the current branch diff, then create MR via gh after user confirmation.
+version: 1.2.0
 author: Pulse Coder Team
 ---
+
 # MR Generator Skill
 
-基于当前分支与远程 master 的 diff 自动生成简洁英文 MR 标题和描述的 skill。
+This skill generates concise English MR titles and descriptions based on the diff between the current branch and the target branch (default: `origin/master`), and creates the MR via `gh` only after explicit user confirmation.
 
-## 核心功能
+## Core Capabilities
 
-### 1. 智能 diff 分析
-- 分析文件变更类型和范围
-- 识别主要功能模块
-- 提取关键变更点
+### 1. Intelligent diff analysis
+- Analyze change types and scope
+- Detect primary modules/features affected
+- Extract key change points
 
-### 2. 自动标题生成
-- 基于变更类型选择合适的动词
-- 包含主要功能模块
-- 保持在 50 字符以内
+### 2. Automatic title generation
+- Select suitable verbs by change type
+- Include the main module/feature
+- Keep title within 50 characters when possible
 
-### 3. 简洁描述生成
-- 列出核心变更点
-- 使用项目符号格式
-- 英文简洁表达
+### 3. Concise description generation
+- List core change points
+- Use bullet-point format
+- Keep wording short and clear in English
 
-## 使用方式
+### 4. Create MR after user confirmation
+- Show generated title and description first
+- Ask for explicit confirmation before creating MR
+- Run `gh` create command only when confirmed
 
-### 基本使用
+## Required Execution Flow
+
+1. Read diff between current branch and target branch (default: `origin/master`).
+2. Generate an English MR title and description.
+3. Present the proposed title and description to the user and ask for one explicit confirmation.
+4. If user confirms (for example: `y`, `yes`, `confirm`):
+   - Run `gh` to create the MR:
+   ```bash
+   gh pr create --title "<generated_title>" --body "<generated_body>"
+   ```
+5. If user does not confirm (for example: `n`, `no`, `cancel`):
+   - Do not run `gh`.
+   - Tell the user they can edit title/description and retry.
+
+## Usage
+
+### Basic usage
 ```bash
-# 生成 MR 标题和描述
+# Generate title/description, then create MR after confirmation
 ./mr-generate.sh
 
-# 指定目标分支（默认 origin/master）
+# Set target branch (default: origin/master)
 ./mr-generate.sh --target origin/develop
 
-# 预览模式
+# Preview only (generate, do not create MR)
 ./mr-generate.sh --preview
 ```
 
-### 集成到工作流
+### Workflow integration
 ```bash
-# 在创建 MR 前运行
+# Run before MR creation
 git push origin HEAD
-./mr-generate.sh | gh pr create --title "$(head -1)" --body "$(tail -n +3)"
+./mr-generate.sh
 ```
 
-## 标题生成规则
+## Title Generation Rules
 
-### 变更类型映射
-- **新功能**: Add / Implement / Introduce
-- **修复**: Fix / Resolve / Correct
-- **重构**: Refactor / Improve / Optimize
-- **文档**: Update / Add docs
-- **测试**: Add tests / Improve coverage
-- **配置**: Update config / Setup
+### Change type mapping
+- **Feature**: Add / Implement / Introduce
+- **Fix**: Fix / Resolve / Correct
+- **Refactor**: Refactor / Improve / Optimize
+- **Docs**: Update / Add docs
+- **Tests**: Add tests / Improve coverage
+- **Config**: Update config / Setup
 
-### 模块提取
-- 基于文件路径识别主要模块
-- 优先使用业务功能名称
-- 简洁技术术语
+### Module extraction
+- Identify the main module based on file paths
+- Prefer business-facing feature names
+- Use concise technical terms
 
-## 描述格式
+## Description Format
 
-```
+```text
 Brief description of changes
 
 - Key change 1
@@ -72,13 +92,13 @@ Brief description of changes
 - Impact or improvement
 ```
 
-## 示例输出
+## Example Output
 
-### 功能开发
-**标题**: `Add user authentication with JWT`
+### Feature
+**Title**: `Add user authentication with JWT`
 
-**描述**:
-```
+**Description**:
+```text
 Implement secure user authentication using JWT tokens
 
 - Add login/logout endpoints
@@ -87,11 +107,11 @@ Implement secure user authentication using JWT tokens
 - Update API documentation
 ```
 
-### Bug 修复
-**标题**: `Fix login validation error`
+### Bug Fix
+**Title**: `Fix login validation error`
 
-**描述**:
-```
+**Description**:
+```text
 Resolve email validation issue in user login
 
 - Fix regex pattern for email validation
@@ -99,11 +119,11 @@ Resolve email validation issue in user login
 - Update unit tests for edge cases
 ```
 
-### 重构
-**标题**: `Refactor API response handling`
+### Refactor
+**Title**: `Refactor API response handling`
 
-**描述**:
-```
+**Description**:
+```text
 Improve API response consistency and error handling
 
 - Standardize response format across endpoints
