@@ -142,11 +142,8 @@ export class SubAgentPlugin implements EnginePlugin {
     try {
       const configs = await this.configLoader.loadAgentConfigs();
 
-      // 获取插件管理器提供的所有工具
-      const tools = this.getAvailableTools(context);
-
       for (const config of configs) {
-        this.registerAgentTool(context, config, tools);
+        this.registerAgentTool(context, config);
       }
 
       context.logger.info(`SubAgentPlugin loaded ${configs.length} agents.`);
@@ -155,20 +152,9 @@ export class SubAgentPlugin implements EnginePlugin {
     }
   }
 
-  private getAvailableTools(context: EnginePluginContext): Record<string, any> {
-    // 从插件上下文中获取所有注册的工具
-    // 在初始化阶段，所有工具已经通过插件系统注册
-    const allTools: Record<string, any> = {};
-
-    // 这里我们假设工具通过某种方式可用
-    // 实际使用时，引擎会提供所有可用的工具
-    return BuiltinToolsMap;
-  }
-
   private registerAgentTool(
     context: EnginePluginContext,
-    config: AgentConfig,
-    tools: Record<string, any>
+    config: AgentConfig
   ): void {
     const toolName = `${config.name}_agent`;
 
@@ -179,6 +165,9 @@ export class SubAgentPlugin implements EnginePlugin {
         context: z.any().optional().describe('任务上下文信息')
       }),
       execute: async ({ task, context: taskContext }: { task: string; context?: Record<string, any> }) => {
+        // 延迟求值：在工具真正被调用时合并 builtin 工具与所有已注册插件工具，
+        // 避免初始化阶段的静态快照导致后注册的插件工具缺失。
+        const tools = { ...BuiltinToolsMap, ...context.getTools() };
         try {
           context.logger.info(`Running agent ${config.name}: ${task}`);
           const result = await this.agentRunner.runAgent(config, task, taskContext, tools);

@@ -160,6 +160,7 @@ export class PluginManager {
           });
         },
         getTool: (name) => this.tools.get(name),
+        getTools: () => Object.fromEntries(this.tools),
 
         registerRunHook: (name, hook) => {
           this.runHooks.set(name, hook);
@@ -340,16 +341,39 @@ export class PluginManager {
 
   /**
    * 验证核心能力
+   *
+   * - requiredCapabilities: 任意一个别名匹配即可，缺失时 **抛错** 阻止启动。
+   * - recommendedCapabilities: 缺失时仅 warn，不影响启动。
    */
   private async validateCoreCapabilities(): Promise<void> {
-    // 检查必需的核心插件是否已加载
-    const requiredCapabilities = [
-      'skill-registry'  // 确保skill系统可用
+    // 目前引擎没有强制依赖某个具体插件，留空供未来扩展
+    const requiredCapabilities: Array<{ name: string; aliases: string[] }> = [];
+
+    for (const cap of requiredCapabilities) {
+      const found = cap.aliases.some((alias) => this.enginePlugins.has(alias));
+      if (!found) {
+        throw new Error(
+          `Missing required capability "${cap.name}". ` +
+          `Expected one of: ${cap.aliases.join(', ')}`
+        );
+      }
+    }
+
+    // 推荐能力：缺失只警告，不阻止启动
+    const recommendedCapabilities: Array<{ name: string; aliases: string[] }> = [
+      {
+        name: 'skills',
+        aliases: ['pulse-coder-engine/built-in-skills']
+      }
     ];
 
-    for (const capability of requiredCapabilities) {
-      if (!this.enginePlugins.has(capability) && !this.enginePlugins.has(`pulse-coder-engine-${capability}`)) {
-        this.logger.warn(`Missing core capability: ${capability}`);
+    for (const cap of recommendedCapabilities) {
+      const found = cap.aliases.some((alias) => this.enginePlugins.has(alias));
+      if (!found) {
+        this.logger.warn(
+          `Missing recommended capability "${cap.name}". ` +
+          `Expected one of: ${cap.aliases.join(', ')}`
+        );
       }
     }
   }
