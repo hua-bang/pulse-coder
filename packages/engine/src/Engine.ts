@@ -162,7 +162,7 @@ export class Engine {
    */
   private prepareEnginePlugins(): EnginePluginLoadOptions {
     const userPlugins = this.options.enginePlugins || {};
-    
+
     // 如果用户禁用了内置插件，只返回用户插件
     if (this.options.disableBuiltInPlugins) {
       return userPlugins;

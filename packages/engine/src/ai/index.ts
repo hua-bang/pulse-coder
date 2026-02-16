@@ -77,9 +77,11 @@ export const streamTextAI = (messages: ModelMessage[], tools: Record<string, Cod
     ? wrapToolsWithContext(tools, options.toolExecutionContext)
     : tools;
 
+  const finalSystemPrompt = resolveSystemPrompt(options?.systemPrompt);
+
   return streamText({
     model: provider(model),
-    system: resolveSystemPrompt(options?.systemPrompt),
+    system: finalSystemPrompt,
     messages,
     tools: wrappedTools as Record<string, Tool>,
     providerOptions,
