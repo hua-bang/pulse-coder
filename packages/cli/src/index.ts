@@ -1,5 +1,5 @@
 import { PulseAgent } from 'pulse-coder-engine';
-import { createJsExecutor, createRunJsTool } from 'pulse-sandbox';
+import { createJsExecutor, createRunJsTool } from 'pulse-sandbox/src';
 import * as readline from 'readline';
 import type { Context } from 'pulse-coder-engine';
 import { SessionCommands } from './session-commands.js';
@@ -51,6 +51,9 @@ class CoderCLI {
           console.log('/delete <id> - Delete a session');
           console.log('/clear - Clear current conversation');
           console.log('/status - Show current session status');
+          console.log('/mode - Show current plan mode');
+          console.log('/plan - Switch to planning mode');
+          console.log('/execute - Switch to executing mode');
           console.log('/save - Save current session explicitly');
           console.log('/exit - Exit the application');
           break;
@@ -121,6 +124,32 @@ class CoderCLI {
           console.log(`Messages: ${this.context.messages.length}`);
           if (currentId) {
             console.log(`To save this session, use: /save`);
+          }
+          break;
+
+        case 'mode':
+          const currentMode = this.agent.getMode();
+          if (!currentMode) {
+            console.log('\n⚠️ plan mode plugin unavailable');
+            break;
+          }
+
+          console.log(`\n🧭 Current mode: ${currentMode}`);
+          break;
+
+        case 'plan':
+          if (this.agent.setMode('planning', 'cli:/plan')) {
+            console.log('\n✅ Switched to planning mode');
+          } else {
+            console.log('\n❌ Failed to switch mode: plan mode plugin unavailable');
+          }
+          break;
+
+        case 'execute':
+          if (this.agent.setMode('executing', 'cli:/execute')) {
+            console.log('\n✅ Switched to executing mode');
+          } else {
+            console.log('\n❌ Failed to switch mode: plan mode plugin unavailable');
           }
           break;
 

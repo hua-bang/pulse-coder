@@ -2,6 +2,7 @@ import type { Context, Tool, LLMProviderFactory, SystemPromptOption, ToolHooks, 
 import type { LoopOptions } from './core/loop';
 import type { EnginePluginLoadOptions } from './plugin/EnginePlugin.js';
 import type { UserConfigPluginLoadOptions } from './plugin/UserConfigPlugin.js';
+import type { PlanMode, PlanModeService } from './built-in/index.js';
 
 import { loop } from './core/loop.js';
 import { BuiltinToolsMap } from './tools/index.js';
@@ -257,6 +258,33 @@ export class Engine {
    */
   getService<T>(name: string): T | undefined {
     return this.pluginManager.getService<T>(name);
+  }
+
+  /**
+   * 获取 plan mode 服务
+   */
+  private getPlanModeService(): PlanModeService | undefined {
+    return this.getService<PlanModeService>('planMode') ?? this.getService<PlanModeService>('planModeService');
+  }
+
+  /**
+   * 获取当前模式
+   */
+  getMode(): PlanMode | undefined {
+    return this.getPlanModeService()?.getMode();
+  }
+
+  /**
+   * 设置当前模式
+   */
+  setMode(mode: PlanMode, reason: string = 'manual'): boolean {
+    const planModeService = this.getPlanModeService();
+    if (!planModeService) {
+      return false;
+    }
+
+    planModeService.setMode(mode, reason);
+    return true;
   }
 
   /**
