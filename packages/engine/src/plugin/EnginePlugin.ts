@@ -1,25 +1,44 @@
-import type { Tool } from 'ai';
+import type { Tool, ModelMessage } from 'ai';
 import type { EventEmitter } from 'events';
 
-// 修复：确保类型正确导出
+import type { Context, SystemPromptOption, ToolHooks } from '../shared/types.js';
+
 export interface EnginePlugin {
   name: string;
   version: string;
   dependencies?: string[];
 
-  // 生命周期钩子 - 添加类型标注
   beforeInitialize?(context: EnginePluginContext): Promise<void>;
   initialize(context: EnginePluginContext): Promise<void>;
   afterInitialize?(context: EnginePluginContext): Promise<void>;
 
-  // 清理钩子
   destroy?(context: EnginePluginContext): Promise<void>;
 }
+
+export interface EngineRunHookInput {
+  context: Context;
+  messages: ModelMessage[];
+  tools: Record<string, Tool>;
+  systemPrompt?: SystemPromptOption;
+  hooks?: ToolHooks;
+}
+
+export interface EngineRunHookResult {
+  systemPrompt?: SystemPromptOption;
+  hooks?: ToolHooks;
+}
+
+export type EngineRunHook = (
+  input: EngineRunHookInput
+) => Promise<EngineRunHookResult | void> | EngineRunHookResult | void;
 
 export interface EnginePluginContext {
   registerTool(name: string, tool: Tool): void;
   registerTools(tools: Record<string, Tool>): void;
   getTool(name: string): Tool | undefined;
+
+  registerRunHook(name: string, hook: EngineRunHook): void;
+  getRunHook(name: string): EngineRunHook | undefined;
 
   registerProtocol(name: string, handler: ProtocolHandler): void;
   getProtocol(name: string): ProtocolHandler | undefined;

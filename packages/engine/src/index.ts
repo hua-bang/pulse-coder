@@ -7,7 +7,26 @@ export type { UserConfigPlugin, UserConfigPluginLoadOptions } from './plugin/Use
 export { PluginManager } from './plugin/PluginManager.js';
 
 // 内置插件导出
-export { builtInPlugins, builtInMCPPlugin, builtInSkillsPlugin, BuiltInSkillRegistry } from './built-in/index.js';
+export {
+  builtInPlugins,
+  builtInMCPPlugin,
+  builtInSkillsPlugin,
+  builtInPlanModePlugin,
+  BuiltInSkillRegistry,
+  BuiltInPlanModeService
+} from './built-in/index.js';
+export type {
+  PlanMode,
+  PlanIntentLabel,
+  ToolCategory,
+  ToolRisk,
+  ToolMeta,
+  ModePolicy,
+  PlanModeEvent,
+  PlanModeEventName,
+  PlanModeTransitionResult,
+  PlanModeService
+} from './built-in/index.js';
 
 // 原有导出保持不变
 export * from './shared/types.js';
