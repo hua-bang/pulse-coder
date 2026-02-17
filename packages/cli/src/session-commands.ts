@@ -1,9 +1,10 @@
-import { SessionManager } from './session.js';
+import { SessionManager, type Session } from './session.js';
 import type { Context } from 'pulse-coder-engine';
 
 export class SessionCommands {
   private sessionManager: SessionManager;
   private currentSessionId: string | null = null;
+  private currentTaskListId: string | null = null;
 
   constructor() {
     this.sessionManager = new SessionManager();
@@ -17,12 +18,40 @@ export class SessionCommands {
     return this.currentSessionId;
   }
 
+  getCurrentTaskListId(): string | null {
+    return this.currentTaskListId;
+  }
+
+  private buildSessionTaskListId(sessionId: string): string {
+    return `session-${sessionId}`;
+  }
+
+  private async ensureSessionTaskListId(session: Session): Promise<string> {
+    if (!session.metadata) {
+      session.metadata = { totalMessages: session.messages?.length ?? 0 };
+    }
+
+    const existing = session.metadata.taskListId?.trim();
+    if (existing) {
+      return existing;
+    }
+
+    const generated = this.buildSessionTaskListId(session.id);
+    session.metadata.taskListId = generated;
+    await this.sessionManager.saveSession(session);
+
+    return generated;
+  }
+
   async createSession(title?: string): Promise<string> {
     const session = await this.sessionManager.createSession(title);
     this.currentSessionId = session.id;
+    this.currentTaskListId = await this.ensureSessionTaskListId(session);
     console.log(`\n✅ New session created: ${session.title} (ID: ${session.id})`);
+    console.log(`🗂️ Task list: ${this.currentTaskListId}`);
     return session.id;
   }
+
 
   async resumeSession(id: string): Promise<boolean> {
     const session = await this.sessionManager.loadSession(id);
@@ -32,7 +61,9 @@ export class SessionCommands {
     }
 
     this.currentSessionId = session.id;
+    this.currentTaskListId = await this.ensureSessionTaskListId(session);
     console.log(`\n✅ Resumed session: ${session.title} (ID: ${session.id})`);
+    console.log(`🗂️ Task list: ${this.currentTaskListId}`);
     console.log(`📊 Loaded ${session.messages.length} messages`);
 
     // Show last few messages as context
@@ -67,6 +98,9 @@ export class SessionCommands {
       console.log(`${index + 1}. ${isActive} ${session.title}`);
       console.log(`   ID: ${session.id}`);
       console.log(`   Messages: ${session.messageCount} | Updated: ${date}`);
+      if (session.taskListId) {
+        console.log(`   Task List: ${session.taskListId}`);
+      }
       console.log(`   Preview: ${session.preview}`);
       console.log();
     });
@@ -77,6 +111,10 @@ export class SessionCommands {
 
     const session = await this.sessionManager.loadSession(this.currentSessionId);
     if (!session) return;
+
+    if (this.currentTaskListId) {
+      session.metadata.taskListId = this.currentTaskListId;
+    }
 
     // Sync messages from context
     session.messages = context.messages.map(msg => ({
@@ -93,6 +131,7 @@ export class SessionCommands {
     const session = await this.sessionManager.loadSession(this.currentSessionId);
     if (!session) return;
 
+    this.currentTaskListId = await this.ensureSessionTaskListId(session);
 
     // Load messages into context
     context.messages = session.messages.map(msg => ({
@@ -124,6 +163,7 @@ export class SessionCommands {
       console.log(`\n🗑️ Session ${id} deleted`);
       if (this.currentSessionId === id) {
         this.currentSessionId = null;
+        this.currentTaskListId = null;
       }
     } else {
       console.log(`\n❌ Failed to delete session ${id}`);

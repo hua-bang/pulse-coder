@@ -169,6 +169,26 @@ const KNOWN_TOOL_META: Record<string, Omit<ToolMeta, 'name'>> = {
     category: 'other',
     risk: 'low',
     description: 'Ask the user a targeted clarification question.'
+  },
+  task_create: {
+    category: 'other',
+    risk: 'low',
+    description: 'Create tracked task entries for planning and execution visibility.'
+  },
+  task_get: {
+    category: 'other',
+    risk: 'low',
+    description: 'Inspect a task entry by ID.'
+  },
+  task_list: {
+    category: 'other',
+    risk: 'low',
+    description: 'List task tracking entries and status summary.'
+  },
+  task_update: {
+    category: 'other',
+    risk: 'low',
+    description: 'Update task tracking fields and status.'
   }
 };
 

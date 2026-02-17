@@ -6,6 +6,7 @@
 import { builtInMCPPlugin } from './mcp-plugin';
 import { builtInSkillsPlugin } from './skills-plugin';
 import { builtInPlanModePlugin } from './plan-mode-plugin';
+import { builtInTaskTrackingPlugin } from './task-tracking-plugin';
 import { SubAgentPlugin } from './sub-agent-plugin';
 
 /**
@@ -16,6 +17,7 @@ export const builtInPlugins = [
   builtInMCPPlugin,
   builtInSkillsPlugin,
   builtInPlanModePlugin,
+  builtInTaskTrackingPlugin,
   new SubAgentPlugin()
 ];
 
@@ -25,6 +27,8 @@ export const builtInPlugins = [
 export { builtInMCPPlugin } from './mcp-plugin';
 export { builtInSkillsPlugin, BuiltInSkillRegistry } from './skills-plugin';
 export { builtInPlanModePlugin, BuiltInPlanModeService } from './plan-mode-plugin';
+export { builtInTaskTrackingPlugin, TaskListService } from './task-tracking-plugin';
+export type { TaskStatus, WorkTask, WorkTaskListSnapshot } from './task-tracking-plugin';
 export type {
   PlanMode,
   PlanIntentLabel,
