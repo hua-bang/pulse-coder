@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "test": "vitest",
+    "test": "vitest run",
     "start": "node --enable-source-maps dist/index.cjs",
     "start:debug": "node --inspect --enable-source-maps dist/index.cjs"
   },
