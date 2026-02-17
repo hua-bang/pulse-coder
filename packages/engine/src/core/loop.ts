@@ -90,6 +90,10 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
 
   while (true) {
     try {
+      if (options?.abortSignal?.aborted) {
+        return 'Request aborted.';
+      }
+
       if (compactionAttempts < MAX_COMPACTION_ATTEMPTS) {
         const { didCompact, newMessages } = await maybeCompactContext(context, {
           provider: options?.provider,
@@ -103,6 +107,10 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
           }
           continue;
         }
+      }
+
+      if (options?.abortSignal?.aborted) {
+        return 'Request aborted.';
       }
 
       let tools = options?.tools || {};
@@ -135,6 +143,10 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
         onClarificationRequest: options?.onClarificationRequest,
         abortSignal: options?.abortSignal
       };
+
+      if (options?.abortSignal?.aborted) {
+        return 'Request aborted.';
+      }
 
       const result = streamTextAI(context.messages, tools, {
         abortSignal: options?.abortSignal,
@@ -178,6 +190,10 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
         for (const hook of loopHooks.afterLLMCall) {
           await hook({ context, finishReason, text });
         }
+      }
+
+      if (options?.abortSignal?.aborted) {
+        return 'Request aborted.';
       }
 
       if (finishReason === 'stop') {
@@ -237,7 +253,7 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
 
       if (isRetryableError(error)) {
         const delay = Math.min(2000 * Math.pow(2, errorCount - 1), 30000);
-        await sleep(delay);
+        await sleep(delay, options?.abortSignal);
         continue;
       }
 
@@ -251,6 +267,36 @@ function isRetryableError(error: any): boolean {
   return status === 429 || status === 500 || status === 502 || status === 503;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, abortSignal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (abortSignal?.aborted) {
+      const abortError = new Error('Aborted');
+      abortError.name = 'AbortError';
+      reject(abortError);
+      return;
+    }
+
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    const onAbort = () => {
+      clearTimeout(timeoutId);
+      if (abortSignal) {
+        abortSignal.removeEventListener('abort', onAbort);
+      }
+      const abortError = new Error('Aborted');
+      abortError.name = 'AbortError';
+      reject(abortError);
+    };
+
+    timeoutId = setTimeout(() => {
+      if (abortSignal) {
+        abortSignal.removeEventListener('abort', onAbort);
+      }
+      resolve();
+    }, ms);
+
+    if (abortSignal) {
+      abortSignal.addEventListener('abort', onAbort, { once: true });
+    }
+  });
 }
