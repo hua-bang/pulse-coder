@@ -1,5 +1,6 @@
 import { ToolSet, type StepResult, type ModelMessage } from "ai";
-import type { Context, ClarificationRequest, Tool, LLMProviderFactory, SystemPromptOption, ToolHooks } from "../shared/types";
+import type { Context, ClarificationRequest, Tool, LLMProviderFactory, SystemPromptOption } from "../shared/types";
+import type { EngineHookMap } from "../plugin/EnginePlugin.js";
 import { streamTextAI } from "../ai";
 import { maybeCompactContext } from "../context";
 import {
@@ -7,6 +8,17 @@ import {
   MAX_ERROR_COUNT,
   MAX_STEPS
 } from "../config/index.js";
+
+/**
+ * Hook arrays passed into the loop by Engine.
+ * Each array may contain handlers from multiple plugins + EngineOptions.
+ */
+export interface LoopHooks {
+  beforeLLMCall?: Array<EngineHookMap['beforeLLMCall']>;
+  afterLLMCall?: Array<EngineHookMap['afterLLMCall']>;
+  beforeToolCall?: Array<EngineHookMap['beforeToolCall']>;
+  afterToolCall?: Array<EngineHookMap['afterToolCall']>;
+}
 
 export interface LoopOptions {
   onText?: (delta: string) => void;
@@ -18,7 +30,7 @@ export interface LoopOptions {
   onResponse?: (messages: StepResult<ToolSet>['response']['messages']) => void;
   abortSignal?: AbortSignal;
 
-  tools?: Record<string, Tool>; // 允许传入工具覆盖默认工具
+  tools?: Record<string, Tool>;
 
   /** Custom LLM provider factory. Overrides the default provider when set. */
   provider?: LLMProviderFactory;
@@ -26,24 +38,43 @@ export interface LoopOptions {
   model?: string;
   /** Custom system prompt. See SystemPromptOption for the three supported forms. */
   systemPrompt?: SystemPromptOption;
-  /** Hooks fired around every tool execution (before/after). */
-  hooks?: ToolHooks;
+
+  /** Engine hook arrays – managed by Engine, not by callers directly. */
+  hooks?: LoopHooks;
 }
 
-/** Wraps tools with ToolHooks so each call passes through before/after handlers. */
-function applyToolHooks(tools: Record<string, Tool>, hooks: ToolHooks): Record<string, Tool> {
+/** Wraps tools so each execute() passes through beforeToolCall / afterToolCall hooks. */
+function wrapToolsWithHooks(
+  tools: Record<string, Tool>,
+  beforeHooks: Array<EngineHookMap['beforeToolCall']>,
+  afterHooks: Array<EngineHookMap['afterToolCall']>,
+): Record<string, Tool> {
   const wrapped: Record<string, Tool> = {};
   for (const [name, t] of Object.entries(tools)) {
     wrapped[name] = {
       ...t,
       execute: async (input: any, ctx: any) => {
-        const finalInput = hooks.onBeforeToolCall
-          ? (await hooks.onBeforeToolCall(name, input)) ?? input
-          : input;
+        // Run all beforeToolCall hooks sequentially
+        let finalInput = input;
+        for (const hook of beforeHooks) {
+          const result = await hook({ name, input: finalInput });
+          if (result && 'input' in result) {
+            finalInput = result.input;
+          }
+        }
+
         const output = await t.execute(finalInput, ctx);
-        return hooks.onAfterToolCall
-          ? (await hooks.onAfterToolCall(name, finalInput, output)) ?? output
-          : output;
+
+        // Run all afterToolCall hooks sequentially
+        let finalOutput = output;
+        for (const hook of afterHooks) {
+          const result = await hook({ name, input: finalInput, output: finalOutput });
+          if (result && 'output' in result) {
+            finalOutput = result.output;
+          }
+        }
+
+        return finalOutput;
       },
     };
   }
@@ -54,6 +85,8 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
   let errorCount = 0;
   let totalSteps = 0;
   let compactionAttempts = 0;
+
+  const loopHooks = options?.hooks ?? {};
 
   while (true) {
     try {
@@ -72,11 +105,29 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
         }
       }
 
-      let tools = options?.tools || {}; // 允许传入工具覆盖默认工具
+      let tools = options?.tools || {};
+      let systemPrompt = options?.systemPrompt;
 
-      // Apply tool hooks if provided
-      if (options?.hooks) {
-        tools = applyToolHooks(tools, options.hooks);
+      // --- beforeLLMCall hooks ---
+      if (loopHooks.beforeLLMCall?.length) {
+        for (const hook of loopHooks.beforeLLMCall) {
+          const result = await hook({ context, systemPrompt, tools });
+          if (result) {
+            if ('systemPrompt' in result && result.systemPrompt !== undefined) {
+              systemPrompt = result.systemPrompt;
+            }
+            if ('tools' in result && result.tools !== undefined) {
+              tools = result.tools;
+            }
+          }
+        }
+      }
+
+      // Wrap tools with beforeToolCall / afterToolCall hooks
+      const beforeToolHooks = loopHooks.beforeToolCall ?? [];
+      const afterToolHooks = loopHooks.afterToolCall ?? [];
+      if (beforeToolHooks.length || afterToolHooks.length) {
+        tools = wrapToolsWithHooks(tools, beforeToolHooks, afterToolHooks);
       }
 
       // Prepare tool execution context
@@ -90,7 +141,7 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
         toolExecutionContext,
         provider: options?.provider,
         model: options?.model,
-        systemPrompt: options?.systemPrompt,
+        systemPrompt,
         onStepFinish: (step) => {
           options?.onStepFinish?.(step);
         },
@@ -119,6 +170,13 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
         if (step.response?.messages?.length) {
           const messages = [...step.response.messages];
           options?.onResponse?.(messages);
+        }
+      }
+
+      // --- afterLLMCall hooks ---
+      if (loopHooks.afterLLMCall?.length) {
+        for (const hook of loopHooks.afterLLMCall) {
+          await hook({ context, finishReason, text });
         }
       }
 

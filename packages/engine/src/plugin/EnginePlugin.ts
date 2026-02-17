@@ -1,7 +1,97 @@
-import type { Tool, ModelMessage } from 'ai';
 import type { EventEmitter } from 'events';
 
-import type { Context, SystemPromptOption, ToolHooks } from '../shared/types.js';
+import type { Context, SystemPromptOption } from '../shared/types.js';
+
+// ---------------------------------------------------------------------------
+// Hook input / result types
+// ---------------------------------------------------------------------------
+
+/** Convenience: a value that may be wrapped in a Promise. */
+export type Promisable<T> = T | Promise<T>;
+
+// -- beforeRun / beforeLLMCall share the same shape --
+
+export interface BeforeRunInput {
+  context: Context;
+  systemPrompt?: SystemPromptOption;
+  tools: Record<string, any>;
+}
+
+export interface BeforeRunResult {
+  systemPrompt?: SystemPromptOption;
+  tools?: Record<string, any>;
+}
+
+export type BeforeLLMCallInput = BeforeRunInput;
+export type BeforeLLMCallResult = BeforeRunResult;
+
+// -- afterRun --
+
+export interface AfterRunInput {
+  context: Context;
+  result: string;
+}
+
+// -- afterLLMCall --
+
+export interface AfterLLMCallInput {
+  context: Context;
+  finishReason: string;
+  text: string;
+}
+
+// -- beforeToolCall --
+
+export interface BeforeToolCallInput {
+  name: string;
+  input: any;
+}
+
+export interface BeforeToolCallResult {
+  input?: any;
+}
+
+// -- afterToolCall --
+
+export interface AfterToolCallInput {
+  name: string;
+  input: any;
+  output: any;
+}
+
+export interface AfterToolCallResult {
+  output?: any;
+}
+
+// ---------------------------------------------------------------------------
+// Hook map – the definitive list of engine hooks and their signatures
+// ---------------------------------------------------------------------------
+
+export interface EngineHookMap {
+  /** Fires once at the start of Engine.run(), before entering the loop. */
+  beforeRun: (input: BeforeRunInput) => Promisable<BeforeRunResult | void>;
+
+  /** Fires once when Engine.run() finishes. Read-only. */
+  afterRun: (input: AfterRunInput) => Promisable<void>;
+
+  /** Fires before each LLM call inside the loop (including retries after tool-calls). */
+  beforeLLMCall: (input: BeforeLLMCallInput) => Promisable<BeforeLLMCallResult | void>;
+
+  /** Fires after each LLM call completes. Read-only. */
+  afterLLMCall: (input: AfterLLMCallInput) => Promisable<void>;
+
+  /** Fires before each individual tool execution. Can modify input or throw to abort. */
+  beforeToolCall: (input: BeforeToolCallInput) => Promisable<BeforeToolCallResult | void>;
+
+  /** Fires after each individual tool execution. Can modify output. */
+  afterToolCall: (input: AfterToolCallInput) => Promisable<AfterToolCallResult | void>;
+}
+
+export type EngineHookName = keyof EngineHookMap;
+
+// ---------------------------------------------------------------------------
+// Plugin interface
+// ---------------------------------------------------------------------------
 
 export interface EnginePlugin {
   name: string;
@@ -15,41 +105,33 @@ export interface EnginePlugin {
   destroy?(context: EnginePluginContext): Promise<void>;
 }
 
-export interface EngineRunHookInput {
-  context: Context;
-  messages: ModelMessage[];
-  tools: Record<string, Tool>;
-  systemPrompt?: SystemPromptOption;
-  hooks?: ToolHooks;
-}
-
-export interface EngineRunHookResult {
-  systemPrompt?: SystemPromptOption;
-  hooks?: ToolHooks;
-}
-
-export type EngineRunHook = (
-  input: EngineRunHookInput
-) => Promise<EngineRunHookResult | void> | EngineRunHookResult | void;
+// ---------------------------------------------------------------------------
+// Plugin context – passed to every plugin during its lifecycle
+// ---------------------------------------------------------------------------
 
 export interface EnginePluginContext {
-  registerTool(name: string, tool: Tool): void;
-  registerTools(tools: Record<string, Tool>): void;
-  getTool(name: string): Tool | undefined;
+  // Tool registration
+  registerTool(name: string, tool: any): void;
+  registerTools(tools: Record<string, any>): void;
+  getTool(name: string): any;
   /** Returns a snapshot of all tools registered by plugins so far. */
-  getTools(): Record<string, Tool>;
+  getTools(): Record<string, any>;
 
-  registerRunHook(name: string, hook: EngineRunHook): void;
-  getRunHook(name: string): EngineRunHook | undefined;
+  // Hook registration (replaces the old registerRunHook)
+  registerHook<K extends EngineHookName>(hookName: K, handler: EngineHookMap[K]): void;
 
+  // Service registration
   registerService<T>(name: string, service: T): void;
   getService<T>(name: string): T | undefined;
 
+  // Configuration
   getConfig<T>(key: string): T | undefined;
   setConfig<T>(key: string, value: T): void;
 
+  // Event system
   events: EventEmitter;
 
+  // Logger
   logger: {
     debug(message: string, meta?: any): void;
     info(message: string, meta?: any): void;
@@ -57,6 +139,10 @@ export interface EnginePluginContext {
     error(message: string, error?: Error, meta?: any): void;
   };
 }
+
+// ---------------------------------------------------------------------------
+// Plugin loading options
+// ---------------------------------------------------------------------------
 
 export interface EnginePluginLoadOptions {
   plugins?: EnginePlugin[];

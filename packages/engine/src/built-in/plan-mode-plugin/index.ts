@@ -1,7 +1,7 @@
 import type { EventEmitter } from 'events';
 import type { ModelMessage } from 'ai';
 
-import type { ToolHooks, SystemPromptOption } from '../../shared/types';
+import type { SystemPromptOption } from '../../shared/types';
 import type { EnginePlugin, EnginePluginContext } from '../../plugin/EnginePlugin';
 
 export type PlanMode = 'planning' | 'executing';
@@ -53,7 +53,6 @@ export interface PlanModeService {
   getModePolicy(mode?: PlanMode): ModePolicy;
   getToolMetadata(toolNames: string[]): ToolMeta[];
   buildPromptAppend(toolNames: string[], transition?: PlanModeTransitionResult): string;
-  applyHooks(baseHooks?: ToolHooks): ToolHooks;
   getEvents(limit?: number): PlanModeEvent[];
 }
 
@@ -320,34 +319,11 @@ class BuiltInPlanModeService implements PlanModeService {
     return lines.join('\n');
   }
 
-  applyHooks(baseHooks?: ToolHooks): ToolHooks {
-    return {
-      onBeforeToolCall: async (name, input) => {
-        this.observePotentialPolicyViolation(name, input);
-
-        if (baseHooks?.onBeforeToolCall) {
-          const nextInput = await baseHooks.onBeforeToolCall(name, input);
-          return nextInput ?? input;
-        }
-
-        return input;
-      },
-      onAfterToolCall: async (name, input, output) => {
-        if (baseHooks?.onAfterToolCall) {
-          const nextOutput = await baseHooks.onAfterToolCall(name, input, output);
-          return nextOutput ?? output;
-        }
-
-        return output;
-      }
-    };
-  }
-
   getEvents(limit: number = 50): PlanModeEvent[] {
     return this.events.slice(-Math.max(0, limit));
   }
 
-  private observePotentialPolicyViolation(toolName: string, input: unknown): void {
+  observePotentialPolicyViolation(toolName: string, input: unknown): void {
     if (this.mode !== 'planning') {
       return;
     }
@@ -508,25 +484,23 @@ export const builtInPlanModePlugin: EnginePlugin = {
   async initialize(context: EnginePluginContext): Promise<void> {
     const service = new BuiltInPlanModeService(context.logger, context.events, 'executing');
 
-    context.registerRunHook('plan-mode', ({ context: runContext, tools, systemPrompt, hooks }) => {
+    // Inject plan-mode system prompt before each LLM call
+    context.registerHook('beforeLLMCall', ({ context: runContext, tools, systemPrompt }) => {
       const mode = service.getMode();
-
       if (mode === 'executing') {
-        return {
-          systemPrompt,
-          hooks
-        };
+        return;
       }
 
       const transition = service.processContextMessages(runContext.messages);
       const append = service.buildPromptAppend(Object.keys(tools), transition);
-
       const finalSystemPrompt = appendSystemPrompt(systemPrompt, append);
 
-      return {
-        systemPrompt: finalSystemPrompt,
-        hooks: service.applyHooks(hooks)
-      };
+      return { systemPrompt: finalSystemPrompt };
+    });
+
+    // Observe tool calls for policy violations in planning mode
+    context.registerHook('beforeToolCall', ({ name, input }) => {
+      service.observePotentialPolicyViolation(name, input);
     });
 
     context.registerService('planMode', service);
