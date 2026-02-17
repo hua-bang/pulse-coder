@@ -76,6 +76,7 @@ class CoderCLI {
           console.log('/rename <id> <new-title> - Rename a session');
           console.log('/delete <id> - Delete a session');
           console.log('/clear - Clear current conversation');
+          console.log('/compact - Force compact current conversation context');
           console.log('/skills [list|<name|index> <message>] - Run one message with a selected skill');
           console.log('/status - Show current session status');
           console.log('/mode - Show current plan mode');
@@ -146,6 +147,27 @@ class CoderCLI {
         case 'clear':
           this.context.messages = [];
           console.log('\n🧹 Current conversation cleared!');
+          break;
+
+        case 'compact':
+          if (this.context.messages.length === 0) {
+            console.log('\nℹ️ Context is empty, nothing to compact.');
+            break;
+          }
+
+          const beforeCount = this.context.messages.length;
+          const compactResult = await this.agent.compactContext(this.context, { force: true });
+
+          if (!compactResult.didCompact || !compactResult.newMessages) {
+            console.log('\nℹ️ No compaction was applied.');
+            break;
+          }
+
+          this.context.messages = compactResult.newMessages;
+          await this.sessionCommands.saveContext(this.context);
+
+          const reasonSuffix = compactResult.reason ? ` (reason: ${compactResult.reason})` : '';
+          console.log(`\n🧩 Context compacted: ${beforeCount} -> ${this.context.messages.length} messages${reasonSuffix}`);
           break;
 
         case 'skills':
