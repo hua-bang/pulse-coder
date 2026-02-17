@@ -11,7 +11,8 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest",
-    "start": "node dist/index.cjs"
+    "start": "node --enable-source-maps dist/index.cjs",
+    "start:debug": "node --inspect --enable-source-maps dist/index.cjs"
   },
   "files": [
     "dist"
