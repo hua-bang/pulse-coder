@@ -11,9 +11,11 @@
   ],
   "scripts": {
     "build": "pnpm -r build",
-    "dev": "pnpm -r dev",
+    "dev": "pnpm --parallel --filter \"./packages/*\" dev",
+    "dev:all": "pnpm -r --parallel dev",
     "test": "pnpm -r test",
     "start": "pnpm --filter pulse-coder-cli start",
+    "start:debug": "pnpm --filter pulse-coder-cli start:debug",
     "clean": "pnpm -r clean",
     "release": "node ./scripts/release-packages.mjs",
     "release:core": "node ./scripts/release-packages.mjs --packages=engine,cli"
