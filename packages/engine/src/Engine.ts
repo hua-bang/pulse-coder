@@ -1,5 +1,5 @@
 import type { Context, Tool, LLMProviderFactory, SystemPromptOption, ToolHooks, ILogger } from './shared/types';
-import type { LoopOptions } from './core/loop';
+import type { LoopOptions, LoopHooks } from './core/loop';
 import type { EnginePluginLoadOptions } from './plugin/EnginePlugin.js';
 import type { UserConfigPluginLoadOptions } from './plugin/UserConfigPlugin.js';
 import type { PlanMode, PlanModeService } from './built-in/index.js';
@@ -81,6 +81,9 @@ export interface EngineOptions {
    * Tool 执行钩子，在每次工具调用前/后触发。
    * - `onBeforeToolCall` 可以修改入参，或抛错来拦截调用。
    * - `onAfterToolCall` 可以修改返回值（如脱敏、截断）。
+   *
+   * Backward-compatible shorthand — internally converted to
+   * beforeToolCall / afterToolCall engine hooks.
    *
    * @example
    * const engine = new Engine({
@@ -179,64 +182,83 @@ export class Engine {
       scan: userPlugins.scan !== false // 默认启用扫描
     };
   }
-  private async applyRunHooks(
-    context: Context,
-    systemPrompt?: SystemPromptOption,
-    hooks?: ToolHooks
-  ): Promise<{ systemPrompt?: SystemPromptOption; hooks?: ToolHooks }> {
-    let nextSystemPrompt = systemPrompt;
-    let nextHooks = hooks;
 
-    for (const runHook of this.pluginManager.getRunHooks()) {
-      const result = await runHook({
-        context,
-        messages: context.messages,
-        tools: this.tools,
-        systemPrompt: nextSystemPrompt,
-        hooks: nextHooks
+  /**
+   * Collect all hooks for a given loop invocation.
+   * Merges plugin hooks with the legacy EngineOptions.hooks (ToolHooks).
+   */
+  private collectLoopHooks(): LoopHooks {
+    const loopHooks: LoopHooks = {
+      beforeLLMCall: this.pluginManager.getHooks('beforeLLMCall'),
+      afterLLMCall: this.pluginManager.getHooks('afterLLMCall'),
+      beforeToolCall: [...this.pluginManager.getHooks('beforeToolCall')],
+      afterToolCall: [...this.pluginManager.getHooks('afterToolCall')],
+    };
+
+    // Convert legacy EngineOptions.hooks (ToolHooks) to hook entries
+    const legacyHooks = this.options.hooks;
+    if (legacyHooks?.onBeforeToolCall) {
+      const legacyBefore = legacyHooks.onBeforeToolCall;
+      loopHooks.beforeToolCall!.push(async ({ name, input }) => {
+        const modified = await legacyBefore(name, input);
+        return modified !== undefined ? { input: modified } : undefined;
       });
-
-      if (!result) {
-        continue;
-      }
-
-      if ('systemPrompt' in result) {
-        nextSystemPrompt = result.systemPrompt;
-      }
-
-      if ('hooks' in result) {
-        nextHooks = result.hooks;
-      }
+    }
+    if (legacyHooks?.onAfterToolCall) {
+      const legacyAfter = legacyHooks.onAfterToolCall;
+      loopHooks.afterToolCall!.push(async ({ name, input, output }) => {
+        const modified = await legacyAfter(name, input, output);
+        return modified !== undefined ? { output: modified } : undefined;
+      });
     }
 
-    return {
-      systemPrompt: nextSystemPrompt,
-      hooks: nextHooks
-    };
+    return loopHooks;
   }
 
   /**
    * 运行AI循环
    */
   async run(context: Context, options?: LoopOptions): Promise<string> {
-    const baseSystemPrompt = options?.systemPrompt ?? this.options.systemPrompt;
-    const baseHooks = options?.hooks ?? this.options.hooks;
+    let systemPrompt = options?.systemPrompt ?? this.options.systemPrompt;
+    let tools = { ...this.tools };
 
-    const { systemPrompt, hooks } = await this.applyRunHooks(context, baseSystemPrompt, baseHooks);
+    // --- beforeRun hooks ---
+    const beforeRunHooks = this.pluginManager.getHooks('beforeRun');
+    for (const hook of beforeRunHooks) {
+      const result = await hook({ context, systemPrompt, tools });
+      if (result) {
+        if ('systemPrompt' in result && result.systemPrompt !== undefined) {
+          systemPrompt = result.systemPrompt;
+        }
+        if ('tools' in result && result.tools !== undefined) {
+          tools = result.tools;
+        }
+      }
+    }
 
-    return loop(context, {
+    // Collect all hook arrays for the loop
+    const loopHooks = this.collectLoopHooks();
+
+    const resultText = await loop(context, {
       ...options,
-      tools: this.tools,
-      // Engine 级别选项作为默认值；调用方通过 options 传入可在单次调用中覆盖
+      tools,
       provider: options?.provider ?? this.options.llmProvider,
       model: options?.model ?? this.options.model,
       systemPrompt,
-      hooks,
+      hooks: loopHooks,
       onToolCall: (toolCall) => {
         options?.onToolCall?.(toolCall);
       },
       onClarificationRequest: options?.onClarificationRequest,
     });
+
+    // --- afterRun hooks ---
+    const afterRunHooks = this.pluginManager.getHooks('afterRun');
+    for (const hook of afterRunHooks) {
+      await hook({ context, result: resultText });
+    }
+
+    return resultText;
   }
 
   /**
@@ -307,6 +329,7 @@ export * from './shared/types.js';
 export * from './plugin/EnginePlugin.js';
 export * from './plugin/UserConfigPlugin.js';
 export { loop } from './core/loop.js';
+export type { LoopOptions, LoopHooks } from './core/loop.js';
 export { streamTextAI } from './ai/index.js';
 export { maybeCompactContext } from './context/index.js';
 export * from './tools/index.js';

@@ -3,10 +3,15 @@ import path from 'path';
 import { glob } from 'glob';
 import { EventEmitter } from 'events';
 
-import type { EnginePlugin, EnginePluginContext, EnginePluginLoadOptions, EngineRunHook } from './EnginePlugin.js';
+import type { EnginePlugin, EnginePluginContext, EnginePluginLoadOptions, EngineHookMap, EngineHookName } from './EnginePlugin.js';
 import type { UserConfigPlugin, UserConfigPluginLoadOptions } from './UserConfigPlugin.js';
 import type { ILogger } from '../shared/types.js';
 import { ConfigVariableResolver } from './UserConfigPlugin.js';
+
+// Internal storage: each hook name maps to an array of handlers
+type HookStore = {
+  [K in EngineHookName]: Array<EngineHookMap[K]>;
+};
 
 /**
  * 插件管理器 - 管理双轨插件系统
@@ -15,9 +20,15 @@ export class PluginManager {
   private enginePlugins = new Map<string, EnginePlugin>();
   private userConfigPlugins: UserConfigPlugin[] = [];
   private tools = new Map<string, any>();
-  private runHooks = new Map<string, EngineRunHook>();
+  private hooks: HookStore = {
+    beforeRun: [],
+    afterRun: [],
+    beforeLLMCall: [],
+    afterLLMCall: [],
+    beforeToolCall: [],
+    afterToolCall: [],
+  };
   private services = new Map<string, any>();
-  private protocols = new Map<string, any>();
   private config = new Map<string, any>();
 
   private events = new EventEmitter();
@@ -162,15 +173,10 @@ export class PluginManager {
         getTool: (name) => this.tools.get(name),
         getTools: () => Object.fromEntries(this.tools),
 
-        registerRunHook: (name, hook) => {
-          this.runHooks.set(name, hook);
+        registerHook: (hookName, handler) => {
+          this.hooks[hookName].push(handler as any);
+          this.logger.debug(`Plugin "${plugin.name}" registered hook: ${hookName}`);
         },
-        getRunHook: (name) => this.runHooks.get(name),
-
-        registerProtocol: (name, handler) => {
-          this.protocols.set(name, handler);
-        },
-        getProtocol: (name) => this.protocols.get(name),
 
         registerService: (name, service) => {
           this.services.set(name, service);
@@ -422,12 +428,11 @@ export class PluginManager {
     return Object.fromEntries(this.tools);
   }
 
-
   /**
-   * 运行时钩子获取
+   * 获取指定类型的 hook 处理函数数组
    */
-  getRunHooks(): EngineRunHook[] {
-    return Array.from(this.runHooks.values());
+  getHooks<K extends EngineHookName>(hookName: K): Array<EngineHookMap[K]> {
+    return [...this.hooks[hookName]] as Array<EngineHookMap[K]>;
   }
 
   /**
@@ -435,14 +440,6 @@ export class PluginManager {
    */
   getService<T>(name: string): T | undefined {
     return this.services.get(name);
-  }
-
-
-  /**
-   * 协议获取
-   */
-  getProtocol(name: string): any {
-    return this.protocols.get(name);
   }
 
   /**
@@ -453,9 +450,10 @@ export class PluginManager {
       enginePlugins: Array.from(this.enginePlugins.keys()),
       userConfigPlugins: this.userConfigPlugins.map(c => c.name || 'unnamed'),
       tools: Array.from(this.tools.keys()),
-      runHooks: Array.from(this.runHooks.keys()),
-      services: Array.from(this.services.keys()),
-      protocols: Array.from(this.protocols.keys())
+      hooks: Object.fromEntries(
+        Object.entries(this.hooks).map(([k, v]) => [k, (v as any[]).length])
+      ),
+      services: Array.from(this.services.keys())
     };
   }
 

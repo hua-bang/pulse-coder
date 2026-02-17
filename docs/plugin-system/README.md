@@ -52,9 +52,6 @@ interface EngineContext {
   registerTool(tool: Tool): void;
   registerTools(tools: Record<string, Tool>): void;
   
-  // 协议注册
-  registerProtocol(protocol: string, handler: ProtocolHandler): void;
-  
   // 配置管理
   getConfig<T>(key: string): T | undefined;
   setConfig<T>(key: string, value: T): void;
@@ -112,7 +109,6 @@ export default {
     const mcpClient = new MCPClient();
     await mcpClient.connect();
     
-    context.registerProtocol('mcp', mcpClient);
     context.registerTool(createMcpTool(mcpClient));
     
     context.logger.info('MCP client plugin initialized');
@@ -336,7 +332,7 @@ describe('MCP Plugin', () => {
     const context = createTestContext();
     await mcpPlugin.initialize(context);
     
-    expect(context.hasProtocol('mcp')).toBe(true);
+    expect(context.getService('mcpClient')).toBeDefined();
   });
 });
 ```

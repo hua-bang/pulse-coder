@@ -2,7 +2,22 @@ export { Engine } from './Engine.js';
 export { Engine as PulseAgent } from './Engine.js'; // 添加 PulseAgent 别名
 
 // 插件系统导出
-export type { EnginePlugin, EnginePluginContext } from './plugin/EnginePlugin.js';
+export type {
+  EnginePlugin,
+  EnginePluginContext,
+  EngineHookMap,
+  EngineHookName,
+  BeforeRunInput,
+  BeforeRunResult,
+  BeforeLLMCallInput,
+  BeforeLLMCallResult,
+  AfterRunInput,
+  AfterLLMCallInput,
+  BeforeToolCallInput,
+  BeforeToolCallResult,
+  AfterToolCallInput,
+  AfterToolCallResult,
+} from './plugin/EnginePlugin.js';
 export type { UserConfigPlugin, UserConfigPluginLoadOptions } from './plugin/UserConfigPlugin.js';
 export { PluginManager } from './plugin/PluginManager.js';
 

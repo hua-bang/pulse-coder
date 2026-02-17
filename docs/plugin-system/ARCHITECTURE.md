@@ -19,7 +19,6 @@ graph TD
     C3 --> E[MCP客户端]
     C3 --> F[SubAgent管理]
     C3 --> G[新工具类型]
-    C3 --> H[协议扩展]
     
     D3 --> I[工具配置]
     D3 --> J[提示词定制]
@@ -151,7 +150,6 @@ class PluginRegistry {
 ```typescript
 // 引擎插件能力
 interface EngineCapabilities {
-  registerProtocol(name: string, handler: ProtocolHandler): void;
   registerToolType(type: string, factory: ToolFactory): void;
   extendContextProcessor(processor: ContextProcessor): void;
 }
