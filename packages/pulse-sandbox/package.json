@@ -1,6 +1,6 @@
 {
   "name": "pulse-sandbox",
-  "version": "0.0.1-alpha.6",
+  "version": "0.0.1-alpha.7",
   "description": "Sandboxed JavaScript runtime and engine tool adapter for Pulse Coder",
   "type": "module",
   "main": "./dist/index.js",
