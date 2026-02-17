@@ -4,12 +4,14 @@ import * as readline from 'readline';
 import type { Context, TaskListService } from 'pulse-coder-engine';
 import { SessionCommands } from './session-commands.js';
 import { InputManager } from './input-manager.js';
+import { SkillCommands } from './skill-commands.js';
 
 class CoderCLI {
   private agent: PulseAgent;
   private context: Context;
   private sessionCommands: SessionCommands;
   private inputManager: InputManager;
+  private skillCommands: SkillCommands;
 
   constructor() {
     const runJsTool = createRunJsTool({
@@ -35,6 +37,7 @@ class CoderCLI {
     this.context = { messages: [] };
     this.sessionCommands = new SessionCommands();
     this.inputManager = new InputManager();
+    this.skillCommands = new SkillCommands(this.agent);
   }
 
   private async syncSessionTaskListBinding(): Promise<void> {
@@ -73,6 +76,7 @@ class CoderCLI {
           console.log('/rename <id> <new-title> - Rename a session');
           console.log('/delete <id> - Delete a session');
           console.log('/clear - Clear current conversation');
+          console.log('/skills [list|<name|index> <message>] - Run one message with a selected skill');
           console.log('/status - Show current session status');
           console.log('/mode - Show current plan mode');
           console.log('/plan - Switch to planning mode');
@@ -140,6 +144,10 @@ class CoderCLI {
         case 'clear':
           this.context.messages = [];
           console.log('\n🧹 Current conversation cleared!');
+          break;
+
+        case 'skills':
+          console.log('\nℹ️ Use /skills <name|index> <message> directly in input for one-shot skill execution.');
           break;
 
         case 'status':
@@ -275,6 +283,8 @@ class CoderCLI {
         return;
       }
 
+      let messageInput = trimmedInput;
+
       // Handle commands
       if (trimmedInput.startsWith('/')) {
         const commandLine = trimmedInput.substring(1);
@@ -289,16 +299,27 @@ class CoderCLI {
         const command = parts[0];
         const args = parts.slice(1);
 
-        await this.handleCommand(command, args);
-        rl.prompt();
-        return;
+        if (command.toLowerCase() === 'skills') {
+          const transformedMessage = await this.skillCommands.transformSkillsCommandToMessage(args);
+          if (!transformedMessage) {
+            rl.prompt();
+            return;
+          }
+
+          messageInput = transformedMessage;
+        } else {
+          await this.handleCommand(command, args);
+          rl.prompt();
+          return;
+        }
       }
 
       // Regular message processing
       this.context.messages.push({
         role: 'user',
-        content: trimmedInput,
+        content: messageInput,
       });
+
 
       console.log('\n🔄 Processing...\n');
 
