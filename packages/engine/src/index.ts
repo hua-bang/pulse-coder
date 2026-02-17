@@ -27,8 +27,10 @@ export {
   builtInMCPPlugin,
   builtInSkillsPlugin,
   builtInPlanModePlugin,
+  builtInTaskTrackingPlugin,
   BuiltInSkillRegistry,
-  BuiltInPlanModeService
+  BuiltInPlanModeService,
+  TaskListService,
 } from './built-in/index.js';
 export type {
   PlanMode,
@@ -40,7 +42,10 @@ export type {
   PlanModeEvent,
   PlanModeEventName,
   PlanModeTransitionResult,
-  PlanModeService
+  PlanModeService,
+  TaskStatus,
+  WorkTask,
+  WorkTaskListSnapshot
 } from './built-in/index.js';
 
 // 原有导出保持不变

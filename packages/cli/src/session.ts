@@ -24,6 +24,7 @@ export interface Session {
     totalMessages: number;
     lastMessageAt?: number;
     tags?: string[];
+    taskListId?: string;
   };
 }
 
@@ -34,6 +35,7 @@ export interface SessionSummary {
   updatedAt: number;
   messageCount: number;
   preview: string;
+  taskListId?: string;
 }
 
 export class SessionManager {
@@ -41,6 +43,10 @@ export class SessionManager {
 
   constructor() {
     this.sessionsDir = path.join(homedir(), '.pulse-coder', 'sessions');
+  }
+
+  private buildTaskListId(sessionId: string): string {
+    return `session-${sessionId}`;
   }
 
   async initialize(): Promise<void> {
@@ -52,14 +58,16 @@ export class SessionManager {
   }
 
   async createSession(title?: string): Promise<Session> {
+    const sessionId = randomUUID();
     const session: Session = {
-      id: randomUUID(),
+      id: sessionId,
       title: title || `Session ${new Date().toLocaleString()}`,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
       metadata: {
         totalMessages: 0,
+        taskListId: this.buildTaskListId(sessionId),
       },
     };
 
@@ -118,9 +126,10 @@ export class SessionManager {
           createdAt: session.createdAt,
           updatedAt: session.updatedAt,
           messageCount: session.messages.length,
-          preview: session.messages.length > 0 
+          preview: session.messages.length > 0
             ? this.safeContent(session.messages[session.messages.length - 1].content).substring(0, 100) + '...'
             : 'No messages',
+          taskListId: session.metadata?.taskListId,
         }));
     } catch (error) {
       return [];

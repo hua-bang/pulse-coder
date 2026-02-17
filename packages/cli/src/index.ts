@@ -1,7 +1,7 @@
 import { PulseAgent } from 'pulse-coder-engine';
 import { createJsExecutor, createRunJsTool } from 'pulse-sandbox/src';
 import * as readline from 'readline';
-import type { Context } from 'pulse-coder-engine';
+import type { Context, TaskListService } from 'pulse-coder-engine';
 import { SessionCommands } from './session-commands.js';
 import { InputManager } from './input-manager.js';
 
@@ -37,6 +37,29 @@ class CoderCLI {
     this.inputManager = new InputManager();
   }
 
+  private async syncSessionTaskListBinding(): Promise<void> {
+    const taskListId = this.sessionCommands.getCurrentTaskListId();
+    if (!taskListId) {
+      return;
+    }
+
+    process.env.PULSE_CODER_TASK_LIST_ID = taskListId;
+
+    const service = this.agent.getService<TaskListService>('taskListService');
+    if (!service?.setTaskListId) {
+      return;
+    }
+
+    try {
+      const result = await service.setTaskListId(taskListId);
+      if (result.switched) {
+        console.log(`🗂️ Switched task list to ${result.taskListId}`);
+      }
+    } catch (error: any) {
+      console.warn(`⚠️ Failed to switch task list binding: ${error?.message ?? String(error)}`);
+    }
+  }
+
   private async handleCommand(command: string, args: string[]): Promise<void> {
     try {
       switch (command.toLowerCase()) {
@@ -62,6 +85,7 @@ class CoderCLI {
           const newTitle = args.join(' ') || undefined;
           await this.sessionCommands.createSession(newTitle);
           this.context.messages = [];
+          await this.syncSessionTaskListBinding();
           break;
 
         case 'resume':
@@ -74,6 +98,7 @@ class CoderCLI {
           const success = await this.sessionCommands.resumeSession(sessionId);
           if (success) {
             await this.sessionCommands.loadContext(this.context);
+            await this.syncSessionTaskListBinding();
           }
           break;
 
@@ -119,8 +144,10 @@ class CoderCLI {
 
         case 'status':
           const currentId = this.sessionCommands.getCurrentSessionId();
+          const currentTaskListId = this.sessionCommands.getCurrentTaskListId();
           console.log(`\n📊 Session Status:`);
           console.log(`Current Session: ${currentId || 'None (new session)'}`);
+          console.log(`Task List: ${currentTaskListId || 'None'}`);
           console.log(`Messages: ${this.context.messages.length}`);
           if (currentId) {
             console.log(`To save this session, use: /save`);
@@ -192,6 +219,7 @@ class CoderCLI {
 
     // Auto-create a new session
     await this.sessionCommands.createSession();
+    await this.syncSessionTaskListBinding();
 
     const rl = readline.createInterface({
       input: process.stdin,
@@ -281,6 +309,8 @@ class CoderCLI {
       let sawText = false;
 
       try {
+        await this.syncSessionTaskListBinding();
+
         const result = await this.agent.run(this.context, {
           abortSignal: ac.signal,
           onText: (delta) => {

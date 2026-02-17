@@ -5,11 +5,10 @@
 
 import { EnginePlugin, EnginePluginContext } from '../../plugin/EnginePlugin';
 import { Tool } from '../../shared/types';
-import { existsSync, readFileSync } from 'fs';
+import { readFileSync } from 'fs';
 import { globSync } from 'glob';
 import matter from 'gray-matter';
 import { homedir } from 'os';
-import * as path from 'path';
 import { z } from 'zod';
 
 /**
@@ -123,17 +122,51 @@ export class BuiltInSkillRegistry {
   }
 
   /**
-   * 根据名称获取技能
+   * 注册或更新一个技能（支持插件在运行期追加技能）
+   */
+  registerSkill(skill: SkillInfo): { skillName: string; replaced: boolean; total: number } {
+    const name = skill.name?.trim();
+    if (!name) {
+      throw new Error('Skill name is required');
+    }
+
+    const existingKey = Array.from(this.skills.keys()).find((key) => key.toLowerCase() === name.toLowerCase());
+    const replaced = existingKey !== undefined;
+
+    if (existingKey && existingKey !== name) {
+      this.skills.delete(existingKey);
+    }
+
+    this.skills.set(name, {
+      ...skill,
+      name
+    });
+
+    return {
+      skillName: name,
+      replaced,
+      total: this.skills.size
+    };
+  }
+
+  /**
+   * 根据名称获取技能（大小写不敏感）
    */
   get(name: string): SkillInfo | undefined {
-    return this.skills.get(name);
+    const exact = this.skills.get(name);
+    if (exact) {
+      return exact;
+    }
+
+    const target = name.toLowerCase();
+    return this.getAll().find((skill) => skill.name.toLowerCase() === target);
   }
 
   /**
    * 检查技能是否存在
    */
   has(name: string): boolean {
-    return this.skills.has(name);
+    return !!this.get(name);
   }
 
   /**
@@ -161,7 +194,7 @@ type SkillToolInput = z.infer<typeof skillToolSchema>;
 /**
  * 生成技能工具
  */
-function generateSkillTool(skills: SkillInfo[]): Tool<SkillToolInput, SkillInfo> {
+function generateSkillTool(registry: BuiltInSkillRegistry): Tool<SkillToolInput, SkillInfo> {
   const getSkillsPrompt = (availableSkills: SkillInfo[]) => {
     return [
       "If query matches an available skill's description or instruction [use skill], use the skill tool to get detailed instructions.",
@@ -183,10 +216,10 @@ function generateSkillTool(skills: SkillInfo[]): Tool<SkillToolInput, SkillInfo>
 
   return {
     name: "skill",
-    description: getSkillsPrompt(skills),
+    description: getSkillsPrompt(registry.getAll()),
     inputSchema: skillToolSchema,
     execute: async ({ name }) => {
-      const skill = skills.find((skill) => skill.name === name);
+      const skill = registry.get(name);
       if (!skill) {
         throw new Error(`Skill ${name} not found`);
       }
@@ -206,15 +239,23 @@ export const builtInSkillsPlugin: EnginePlugin = {
     const registry = new BuiltInSkillRegistry();
     await registry.initialize(process.cwd());
 
+    context.registerService('skillRegistry', registry);
+    context.registerTool('skill', generateSkillTool(registry));
+
+    context.registerHook('beforeRun', ({ tools }) => {
+      return {
+        tools: {
+          ...tools,
+          skill: generateSkillTool(registry)
+        }
+      };
+    });
+
     const skills = registry.getAll();
     if (skills.length === 0) {
       console.log('[Skills] No skills found');
       return;
     }
-
-    const skillTool = generateSkillTool(skills);
-    context.registerTool('skill', skillTool);
-    context.registerService('skillRegistry', registry);
 
     console.log(`[Skills] Registered ${skills.length} skill(s)`);
   }
