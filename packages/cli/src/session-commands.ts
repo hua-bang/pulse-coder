@@ -135,9 +135,7 @@ export class SessionCommands {
 
     // Load messages into context
     context.messages = session.messages.map(msg => ({
-      ...msg,
-      role: msg.role as 'user' | 'assistant' | 'system',
-      content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+      ...msg
     }));
   }
 
