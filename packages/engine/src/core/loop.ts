@@ -181,16 +181,19 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
       }
 
       if (finishReason === 'stop') {
+        if (!text) {
+          continue;
+        }
         return text || 'Task completed.';
       }
 
       if (finishReason === 'length') {
         if (compactionAttempts < MAX_COMPACTION_ATTEMPTS) {
           const { didCompact, newMessages } = await maybeCompactContext(context, {
-          force: true,
-          provider: options?.provider,
-          model: options?.model,
-        });
+            force: true,
+            provider: options?.provider,
+            model: options?.model,
+          });
           if (didCompact) {
             compactionAttempts++;
             if (newMessages) {
@@ -214,6 +217,10 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
         if (totalSteps >= MAX_STEPS) {
           return text || 'Max steps reached, task may be incomplete.';
         }
+        continue;
+      }
+
+      if (!text) {
         continue;
       }
 
