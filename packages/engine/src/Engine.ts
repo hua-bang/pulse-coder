@@ -5,6 +5,7 @@ import type { UserConfigPluginLoadOptions } from './plugin/UserConfigPlugin.js';
 import type { PlanMode, PlanModeService } from './built-in/index.js';
 
 import { loop } from './core/loop.js';
+import { maybeCompactContext } from './context/index.js';
 import { BuiltinToolsMap } from './tools/index.js';
 import { PluginManager } from './plugin/PluginManager.js';
 import { builtInPlugins } from './built-in/index.js';
@@ -259,6 +260,21 @@ export class Engine {
     }
 
     return resultText;
+  }
+
+  /**
+   * 手动触发上下文压缩
+   * 默认复用 Engine 初始化时配置的 provider/model
+   */
+  async compactContext(
+    context: Context,
+    options?: { force?: boolean; provider?: LLMProviderFactory; model?: string }
+  ): Promise<{ didCompact: boolean; reason?: string; newMessages?: Context['messages'] }> {
+    return await maybeCompactContext(context, {
+      force: options?.force,
+      provider: options?.provider ?? this.options.llmProvider,
+      model: options?.model ?? this.options.model,
+    });
   }
 
   /**

@@ -58,6 +58,7 @@ coder
 /search <query>       - 搜索会话
 /rename <id> <title>  - 重命名会话
 /delete <id>          - 删除会话
+/compact              - 强制压缩当前上下文
 /save                 - 保存当前会话
 /status               - 显示会话状态
 /exit                 - 退出并保存
