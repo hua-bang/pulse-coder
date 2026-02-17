@@ -80,8 +80,7 @@ export class SessionCommands {
 
     // Sync messages from context
     session.messages = context.messages.map(msg => ({
-      role: msg.role as 'user' | 'assistant' | 'system',
-      content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+      ...msg,
       timestamp: Date.now(),
     }));
 
@@ -94,10 +93,12 @@ export class SessionCommands {
     const session = await this.sessionManager.loadSession(this.currentSessionId);
     if (!session) return;
 
+
     // Load messages into context
     context.messages = session.messages.map(msg => ({
-      role: msg.role,
-      content: msg.content,
+      ...msg,
+      role: msg.role as 'user' | 'assistant' | 'system',
+      content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
     }));
   }
 
