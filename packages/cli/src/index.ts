@@ -83,6 +83,8 @@ class CoderCLI {
           console.log('/execute - Switch to executing mode');
           console.log('/save - Save current session explicitly');
           console.log('/exit - Exit the application');
+          console.log('Esc (while processing) - Stop current response and accept next input');
+          console.log('Ctrl+C - Exit CLI immediately');
           break;
 
         case 'new':
@@ -216,6 +218,8 @@ class CoderCLI {
   async start() {
     console.log('🚀 Pulse Coder CLI is running...');
     console.log('Type your messages and press Enter. Type "exit" to quit.');
+    console.log('Press Esc to stop current response and continue with new input.');
+    console.log('Press Ctrl+C to exit CLI.');
     console.log('Commands starting with "/" will trigger command mode.\n');
 
     await this.sessionCommands.initialize();
@@ -237,25 +241,54 @@ class CoderCLI {
 
     let currentAbortController: AbortController | null = null;
     let isProcessing = false;
+    const queuedInputs: string[] = [];
+
+    readline.emitKeypressEvents(process.stdin);
+
+    const requestStopCurrentRun = (): boolean => {
+      if (isProcessing) {
+        if (currentAbortController && !currentAbortController.signal.aborted) {
+          currentAbortController.abort();
+          console.log('\n[Abort] Request cancelled by Esc. You can type the next message now.');
+        } else {
+          console.log('\n[Abort] Cancellation already requested. Waiting for current step to finish...');
+        }
+        rl.prompt();
+        return true;
+      }
+
+      if (this.inputManager.hasPendingRequest()) {
+        this.inputManager.cancel('User interrupted with Esc');
+        console.log('\n[Abort] Clarification cancelled.');
+        rl.prompt();
+        return true;
+      }
+
+      return false;
+    };
+
+    const onKeypress = (_char: string, key: readline.Key) => {
+      if (key?.name === 'escape') {
+        requestStopCurrentRun();
+      }
+    };
+
+    process.stdin.on('keypress', onKeypress);
 
     // Handle SIGINT gracefully
     process.on('SIGINT', () => {
+      process.stdin.off('keypress', onKeypress);
+
       if (isProcessing && currentAbortController && !currentAbortController.signal.aborted) {
         currentAbortController.abort();
-        console.log('\n[Abort] Request cancelled.');
-        return;
       }
 
-      // Cancel any pending clarification request
       if (this.inputManager.hasPendingRequest()) {
         this.inputManager.cancel('User interrupted with Ctrl+C');
-        console.log('\n[Abort] Clarification cancelled.');
-        rl.prompt();
-        return;
       }
 
       console.log('\n💾 Saving current session...');
-      this.sessionCommands.saveContext(this.context).then(() => {
+      this.sessionCommands.saveContext(this.context).finally(() => {
         console.log('👋 Goodbye!');
         process.exit(0);
       });
@@ -267,6 +300,24 @@ class CoderCLI {
 
       // Handle clarification requests first
       if (this.inputManager.handleUserInput(trimmedInput)) {
+        return;
+      }
+
+      if (isProcessing) {
+        if (currentAbortController?.signal.aborted) {
+          if (!trimmedInput) {
+            rl.prompt();
+            return;
+          }
+
+          queuedInputs.push(trimmedInput);
+          console.log('\n📝 Input queued. It will run right after the current step finishes.');
+          rl.prompt();
+          return;
+        }
+
+        console.log('\n⏳ Still processing. Press Esc to stop current request first.');
+        rl.prompt();
         return;
       }
 
@@ -378,6 +429,18 @@ class CoderCLI {
       } finally {
         isProcessing = false;
         currentAbortController = null;
+
+        if (queuedInputs.length > 0) {
+          const nextInput = queuedInputs.shift();
+          if (nextInput) {
+            console.log('\n▶️ Running queued input...');
+            setImmediate(() => {
+              void handleInput(nextInput);
+            });
+            return;
+          }
+        }
+
         rl.prompt();
       }
     };
@@ -388,6 +451,7 @@ class CoderCLI {
 
     // Handle terminal close
     rl.on('close', async () => {
+      process.stdin.off('keypress', onKeypress);
       console.log('\n💾 Saving current session...');
       await this.sessionCommands.saveContext(this.context);
       console.log('👋 Goodbye!');
