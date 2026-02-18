@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
+import { getConnInfo } from '@hono/node-server/conninfo';
 import { createLarkClient, sendTextMessage } from '../adapters/feishu/client.js';
 import { engine } from '../core/engine-singleton.js';
 import { sessionStore } from '../core/session-store.js';
@@ -45,6 +46,14 @@ const DEFAULT_SKILL_PROMPT = 'Please execute this skill and return the final res
 const DEFAULT_ASK_POLICY: AskPolicy = 'never';
 
 export const internalRouter = new Hono();
+
+internalRouter.use('*', async (c, next) => {
+  if (!isLocalInternalRequest(c)) {
+    return c.json({ ok: false, error: 'Forbidden: local requests only' }, 403);
+  }
+
+  await next();
+});
 
 internalRouter.post('/agent/run', async (c) => {
   if (!verifyInternalAuth(c.req.header('authorization'), c.req.header('x-internal-api-key'))) {
@@ -157,10 +166,25 @@ internalRouter.post('/agent/run', async (c) => {
   }
 });
 
+
+function isLocalInternalRequest(c: Context): boolean {
+  const connInfo = getConnInfo(c);
+  return isLoopbackAddress(connInfo.remote.address);
+}
+
+function isLoopbackAddress(address?: string): boolean {
+  if (!address) {
+    return false;
+  }
+
+  const normalized = address.trim().toLowerCase();
+  return normalized === '127.0.0.1' || normalized === '::1' || normalized === '::ffff:127.0.0.1';
+}
+
 function verifyInternalAuth(authHeader?: string, internalApiKey?: string): boolean {
-  const secret = process.env.INTERNAL_API_SECRET;
+  const secret = process.env.INTERNAL_API_SECRET?.trim();
   if (!secret) {
-    return true;
+    return process.env.NODE_ENV !== 'production';
   }
 
   if (authHeader === `Bearer ${secret}`) {
