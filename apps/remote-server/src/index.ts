@@ -23,6 +23,7 @@ async function main() {
   // console.log(`  GET  /api/stream/:streamId`);
   // console.log(`  POST /api/clarify/:streamId`);
   console.log(`  POST /webhooks/feishu`);
+  console.log(`  POST /internal/agent/run`);
   // console.log(`  POST /webhooks/telegram`);
 }
 
@@ -30,3 +31,4 @@ main().catch((err) => {
   console.error('[remote-server] Fatal error:', err);
   process.exit(1);
 });
+

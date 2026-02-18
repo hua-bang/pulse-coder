@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 // import { apiRouter } from './routes/api.js';
 // import { telegramRouter } from './routes/telegram.js';
 import { feishuRouter } from './routes/feishu.js';
+import { internalRouter } from './routes/internal.js';
 
 export function createApp(): Hono {
   const app = new Hono();
@@ -17,6 +18,9 @@ export function createApp(): Hono {
   // Platform webhook routes
   app.route('/webhooks/feishu', feishuRouter);
   // app.route('/webhooks/telegram', telegramRouter);
+
+  // Internal automation routes
+  app.route('/internal', internalRouter);
 
   // Web REST + SSE routes
   // app.route('/api', apiRouter);
