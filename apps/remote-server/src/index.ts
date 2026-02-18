@@ -23,7 +23,7 @@ async function main() {
   console.log(`  GET  /api/stream/:streamId`);
   console.log(`  POST /api/clarify/:streamId`);
   console.log(`  POST /webhooks/feishu`);
-  console.log(`  POST /webhooks/telegram`);
+  // console.log(`  POST /webhooks/telegram`);
 }
 
 main().catch((err) => {

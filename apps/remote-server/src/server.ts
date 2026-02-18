@@ -16,7 +16,7 @@ export function createApp(): Hono {
 
   // Platform webhook routes
   app.route('/webhooks/feishu', feishuRouter);
-  app.route('/webhooks/telegram', telegramRouter);
+  // app.route('/webhooks/telegram', telegramRouter);
 
   // Web REST + SSE routes
   app.route('/api', apiRouter);
