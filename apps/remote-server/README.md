@@ -33,4 +33,4 @@ pm2 startup
 pm2 save
 ```
 
-> `ecosystem.config.cjs` is configured to run `dist/index.js` in fork mode with autorestart and memory guard.
+> `ecosystem.config.cjs` is configured to run `dist/index.cjs` in fork mode with autorestart and memory guard.

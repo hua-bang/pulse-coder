@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsup",
-    "start": "node dist/index.js",
+    "start": "node dist/index.cjs",
     "pm2:start": "npm run build && pm2 start ecosystem.config.cjs --env production",
     "pm2:restart": "npm run build && pm2 restart remote-server --update-env",
     "pm2:stop": "pm2 stop remote-server",

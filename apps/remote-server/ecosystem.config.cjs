@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'remote-server',
       cwd: __dirname,
-      script: 'dist/index.js',
+      script: 'dist/index.cjs',
       interpreter: 'node',
       exec_mode: 'fork',
       instances: 1,
