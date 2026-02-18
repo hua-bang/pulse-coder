@@ -35,11 +35,12 @@ export class FeishuAdapter implements PlatformAdapter {
   // SDK Client — handles token refresh, retries, domain routing
   private larkClient = createLarkClient();
 
-  // EventDispatcher — handles URL verification, decryption, dedup, and event routing
-  private eventDispatcher = new lark.EventDispatcher({
+  // EventDispatcher config — a fresh dispatcher is created per request to avoid
+  // "handle already registered" errors when the same event type is registered multiple times.
+  private readonly dispatcherConfig = {
     encryptKey: process.env.FEISHU_ENCRYPT_KEY ?? '',
     verificationToken: process.env.FEISHU_VERIFICATION_TOKEN ?? '',
-  });
+  };
 
   // Map from platformKey -> { chatId, chatIdType }
   // Set during event dispatch, read in createStreamHandle
@@ -74,9 +75,9 @@ export class FeishuAdapter implements PlatformAdapter {
       // not JSON — fall through to SDK handling
     }
 
-    // Register the im.message.receive_v1 handler for this invocation
-    // The SDK deduplicates events and handles URL verification automatically
-    const dispatcher = this.eventDispatcher.register({
+    // Create a fresh EventDispatcher per request so each invocation gets its own
+    // handler registration — avoids SDK "handle already registered" errors.
+    const dispatcher = new lark.EventDispatcher(this.dispatcherConfig).register({
       'im.message.receive_v1': async (data) => {
         const openId = data.sender?.sender_id?.open_id;
         const message = data.message;
