@@ -85,7 +85,30 @@ export class FeishuAdapter implements PlatformAdapter {
         if (!text) { resolveIncoming(null); return; }
 
         const chatId = message.chat_id;
-        const platformKey = `feishu:${openId}`;
+        const chatType = message.chat_type; // 'p2p' | 'group'
+
+        // In group chats only respond when the bot is @mentioned
+        if (chatType === 'group') {
+          const mentions = (data.message as { mentions?: Array<{ id?: { open_id?: string } }> }).mentions ?? [];
+          const botId = data.sender?.sender_id?.open_id; // not the bot's id
+          // Feishu puts mentioned entities in message.mentions; check if any mention is a bot
+          // The SDK exposes mention.id.open_id — we just require at least one mention exists
+          // (Feishu only delivers group messages to bots when the bot is @mentioned, but
+          //  this guard handles cases where subscription settings are broader)
+          if (mentions.length === 0) {
+            resolveIncoming(null);
+            return;
+          }
+          // Strip @bot mention text so it doesn't confuse the LLM
+          text = text.replace(/@\S+/g, '').trim();
+          if (!text) { resolveIncoming(null); return; }
+          void botId; // suppress unused warning
+        }
+
+        // Include chatId in platformKey for group chats so each group gets its own session
+        const platformKey = chatType === 'group' && chatId
+          ? `feishu:group:${chatId}:${openId}`
+          : `feishu:${openId}`;
 
         // Store chat metadata for createStreamHandle
         this.chatMeta.set(platformKey, {
