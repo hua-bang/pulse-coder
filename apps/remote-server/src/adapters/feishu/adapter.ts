@@ -1,4 +1,3 @@
-import * as lark from '@larksuiteoapi/node-sdk';
 import type { HonoRequest, Context as HonoContext } from 'hono';
 import type { PlatformAdapter, IncomingMessage, StreamHandle } from '../../core/types.js';
 import type { ClarificationRequest } from '../../core/types.js';
@@ -16,17 +15,12 @@ import {
 } from './client.js';
 
 /**
- * Feishu (Lark) adapter using the official @larksuiteoapi/node-sdk.
+ * Feishu (Lark) adapter.
  *
- * The SDK handles:
- *   - tenant_access_token refresh automatically
- *   - URL verification challenge (via EventDispatcher)
- *   - Payload decryption (if encryptKey is set)
- *   - Event deduplication
- *
- * We bridge EventDispatcher → Hono manually since there's no official Hono adapter.
- * The bridge extracts the parsed event from EventDispatcher and passes it to our
- * dispatcher via a Promise that resolves when the event handler fires.
+ * Uses the SDK client for sending messages (token refresh, retries).
+ * Event routing is handled manually by parsing the JSON body directly —
+ * the SDK's EventDispatcher.invoke() bridge was unreliable in Hono context
+ * ("no undefined handle" — event_type not extractable via the bridge).
  */
 
 export class FeishuAdapter implements PlatformAdapter {
@@ -35,140 +29,96 @@ export class FeishuAdapter implements PlatformAdapter {
   // SDK Client — handles token refresh, retries, domain routing
   private larkClient = createLarkClient();
 
-  // EventDispatcher config — a fresh dispatcher is created per request to avoid
-  // "handle already registered" errors when the same event type is registered multiple times.
-  private readonly dispatcherConfig = {
-    encryptKey: process.env.FEISHU_ENCRYPT_KEY ?? '',
-    verificationToken: process.env.FEISHU_VERIFICATION_TOKEN ?? '',
-  };
-
   // Map from platformKey -> { chatId, chatIdType }
-  // Set during event dispatch, read in createStreamHandle
+  // Set during parseIncoming, read in createStreamHandle
   private chatMeta = new Map<string, { chatId: string; chatIdType: 'open_id' | 'chat_id' }>();
 
+  // Dedup cache — prevent processing the same message_id twice
+  private seenMessageIds = new Set<string>();
+
   verifyRequest(_req: HonoRequest): boolean {
-    // Signature verification is handled inside EventDispatcher.invoke()
     return true;
   }
 
   async parseIncoming(req: HonoRequest): Promise<IncomingMessage | null> {
-    const rawBody = await req.text();
-
-    // Collect headers for the SDK (it expects a plain object)
-    const headers: Record<string, string> = {};
-    req.raw.headers.forEach((value, key) => { headers[key] = value; });
-
-    // Wrap in a Promise so we can extract the event from the EventDispatcher callback
-    let resolveIncoming!: (msg: IncomingMessage | null) => void;
-    const incomingPromise = new Promise<IncomingMessage | null>((res) => { resolveIncoming = res; });
-
-    // Handle URL verification before the SDK — Feishu sends this as plaintext even when
-    // encryption is enabled. Intercepting here avoids relying on SDK-specific error shapes.
+    let body: Record<string, unknown>;
     try {
-      const parsedBody = JSON.parse(rawBody) as Record<string, unknown>;
-      if (parsedBody['type'] === 'url_verification') {
-        this.pendingChallenge = parsedBody['challenge'] as string;
-        resolveIncoming(null);
-        return incomingPromise;
-      }
+      body = await req.json() as Record<string, unknown>;
     } catch {
-      // not JSON — fall through to SDK handling
+      return null;
     }
 
-    // Create a fresh EventDispatcher per request so each invocation gets its own
-    // handler registration — avoids SDK "handle already registered" errors.
-    const dispatcher = new lark.EventDispatcher(this.dispatcherConfig).register({
-      'im.message.receive_v1': async (data) => {
-        const openId = data.sender?.sender_id?.open_id;
-        const message = data.message;
+    // URL verification
+    if (body['type'] === 'url_verification') {
+      this.pendingChallenge = body['challenge'] as string;
+      return null;
+    }
 
-        if (!openId || message?.message_type !== 'text') {
-          resolveIncoming(null);
-          return;
-        }
+    // Extract event — supports both v1 (type: "event_callback") and v2 (schema: "2.0")
+    const event = body['event'] as Record<string, unknown> | undefined;
+    if (!event) return null;
 
-        let text: string;
-        try {
-          const content = JSON.parse(message.content ?? '{}') as { text?: string };
-          text = content.text?.trim() ?? '';
-        } catch {
-          resolveIncoming(null);
-          return;
-        }
+    const message = event['message'] as Record<string, unknown> | undefined;
+    const sender = event['sender'] as Record<string, unknown> | undefined;
+    if (!message || !sender) return null;
 
-        if (!text) { resolveIncoming(null); return; }
+    // Dedup by message_id
+    const messageId = message['message_id'] as string | undefined;
+    if (messageId) {
+      if (this.seenMessageIds.has(messageId)) return null;
+      this.seenMessageIds.add(messageId);
+      if (this.seenMessageIds.size > 500) {
+        this.seenMessageIds.delete(this.seenMessageIds.values().next().value!);
+      }
+    }
 
-        const chatId = message.chat_id;
-        const chatType = message.chat_type; // 'p2p' | 'group'
+    const openId = (sender['sender_id'] as Record<string, unknown> | undefined)?.['open_id'] as string | undefined;
+    if (!openId) return null;
+    if (message['message_type'] !== 'text') return null;
 
-        // In group chats only respond when the bot is @mentioned
-        if (chatType === 'group') {
-          const mentions = (data.message as { mentions?: Array<{ id?: { open_id?: string } }> }).mentions ?? [];
-          const botId = data.sender?.sender_id?.open_id; // not the bot's id
-          // Feishu puts mentioned entities in message.mentions; check if any mention is a bot
-          // The SDK exposes mention.id.open_id — we just require at least one mention exists
-          // (Feishu only delivers group messages to bots when the bot is @mentioned, but
-          //  this guard handles cases where subscription settings are broader)
-          if (mentions.length === 0) {
-            resolveIncoming(null);
-            return;
-          }
-          // Strip @bot mention text so it doesn't confuse the LLM
-          text = text.replace(/@\S+/g, '').trim();
-          if (!text) { resolveIncoming(null); return; }
-          void botId; // suppress unused warning
-        }
+    let text: string;
+    try {
+      const content = JSON.parse(message['content'] as string ?? '{}') as { text?: string };
+      text = content.text?.trim() ?? '';
+    } catch {
+      return null;
+    }
+    if (!text) return null;
 
-        // Include chatId in platformKey for group chats so each group gets its own session
-        const platformKey = chatType === 'group' && chatId
-          ? `feishu:group:${chatId}:${openId}`
-          : `feishu:${openId}`;
+    const chatId = message['chat_id'] as string | undefined;
+    const chatType = message['chat_type'] as string | undefined; // 'p2p' | 'group'
 
-        // Store chat metadata for createStreamHandle
-        this.chatMeta.set(platformKey, {
-          chatId: chatId ?? openId,
-          chatIdType: chatId ? 'chat_id' : 'open_id',
-        });
+    // Group chats: only respond when @mentioned
+    if (chatType === 'group') {
+      const mentions = (message['mentions'] as unknown[] | undefined) ?? [];
+      if (mentions.length === 0) return null;
+      text = text.replace(/@\S+/g, '').trim();
+      if (!text) return null;
+    }
 
-        // Route to pending clarification if one is waiting
-        const activeStreamId = getActiveStreamId(platformKey);
-        if (activeStreamId && clarificationQueue.hasPending(activeStreamId)) {
-          const pending = clarificationQueue.getPending(activeStreamId);
-          if (pending) {
-            clarificationQueue.submitAnswer(activeStreamId, pending.request.id, text);
-            const sendTo = chatId ?? openId;
-            const idType: 'chat_id' | 'open_id' = chatId ? 'chat_id' : 'open_id';
-            await sendTextMessage(this.larkClient, sendTo, idType, `✅ Got it: "${text}"`).catch(console.error);
-          }
-          resolveIncoming(null);
-          return;
-        }
+    const platformKey = chatType === 'group' && chatId
+      ? `feishu:group:${chatId}:${openId}`
+      : `feishu:${openId}`;
 
-        resolveIncoming({ platformKey, text });
-      },
+    this.chatMeta.set(platformKey, {
+      chatId: chatId ?? openId,
+      chatIdType: chatId ? 'chat_id' : 'open_id',
     });
 
-    // Feed the raw request into the SDK dispatcher
-    // SDK handles: URL verification challenge, decryption, dedup, signature
-    try {
-      await dispatcher.invoke({
-        headers,
-        body: JSON.parse(rawBody),
-      } as any);
-    } catch (err: any) {
-      // URL verification: SDK throws with the challenge value in the message
-      // Shape: { code: 0, challenge: '...' } or similar — capture it
-      if (err?.challenge) {
-        resolveIncoming(null);
-        // Store challenge so ackRequest can return it
-        this.pendingChallenge = err.challenge as string;
-      } else {
-        console.error('[feishu] EventDispatcher error:', err);
-        resolveIncoming(null);
+    // Route to pending clarification if one is waiting
+    const activeStreamId = getActiveStreamId(platformKey);
+    if (activeStreamId && clarificationQueue.hasPending(activeStreamId)) {
+      const pending = clarificationQueue.getPending(activeStreamId);
+      if (pending) {
+        clarificationQueue.submitAnswer(activeStreamId, pending.request.id, text);
+        const sendTo = chatId ?? openId;
+        const idType: 'chat_id' | 'open_id' = chatId ? 'chat_id' : 'open_id';
+        await sendTextMessage(this.larkClient, sendTo, idType, `✅ Got it: "${text}"`).catch(console.error);
       }
+      return null;
     }
 
-    return incomingPromise;
+    return { platformKey, text };
   }
 
   // URL verification challenge to return in ackRequest
