@@ -144,32 +144,75 @@ export class FeishuAdapter implements PlatformAdapter {
 
     let cardMessageId: string | null = null;
     let accumulatedText = '';
-    let debounceHandle: ReturnType<typeof setTimeout> | null = null;
+    let latestToolHint = '';
+
+    const PROGRESS_UPDATE_INTERVAL_MS = 800;
+    let throttleHandle: ReturnType<typeof setTimeout> | null = null;
+    let lastProgressUpdateAt = 0;
+    let updateChain: Promise<void> = Promise.resolve();
+    let finalized = false;
+
+    const queueCardUpdate = (cardFactory: () => object) => {
+      if (!cardMessageId || finalized) return;
+      updateChain = updateChain.then(async () => {
+        if (!cardMessageId || finalized) return;
+        await updateCardMessage(larkClient, cardMessageId, cardFactory()).catch(console.error);
+      });
+    };
+
+    const renderProgressText = (): string => {
+      if (accumulatedText) {
+        return latestToolHint
+          ? `${latestToolHint}\n\n${accumulatedText}`
+          : accumulatedText;
+      }
+      return latestToolHint || '⏳ Working on it...';
+    };
+
+    const clearScheduledProgress = () => {
+      if (throttleHandle) {
+        clearTimeout(throttleHandle);
+        throttleHandle = null;
+      }
+    };
+
+    const scheduleProgressUpdate = (force = false) => {
+      if (!cardMessageId || finalized) return;
+
+      const now = Date.now();
+      const elapsed = now - lastProgressUpdateAt;
+
+      if (!force && elapsed < PROGRESS_UPDATE_INTERVAL_MS) {
+        if (throttleHandle) return;
+        throttleHandle = setTimeout(() => {
+          throttleHandle = null;
+          scheduleProgressUpdate(true);
+        }, PROGRESS_UPDATE_INTERVAL_MS - elapsed);
+        return;
+      }
+
+      lastProgressUpdateAt = now;
+      queueCardUpdate(() => buildProgressCard(renderProgressText()));
+    };
 
     // Send initial "thinking" card
     try {
       cardMessageId = await sendCardMessage(larkClient, chatId, idType, buildThinkingCard());
+      lastProgressUpdateAt = Date.now();
     } catch (err) {
       console.error('[feishu] Failed to send thinking card:', err);
     }
 
-    const scheduleUpdate = () => {
-      if (debounceHandle) clearTimeout(debounceHandle);
-      debounceHandle = setTimeout(async () => {
-        if (cardMessageId && accumulatedText) {
-          await updateCardMessage(larkClient, cardMessageId, buildProgressCard(accumulatedText)).catch(console.error);
-        }
-      }, 500);
-    };
 
     return {
       async onText(delta) {
         accumulatedText += delta;
-        scheduleUpdate();
+        scheduleProgressUpdate();
       },
 
-      async onToolCall(_name, _input) {
-        // Card shows progress text — no-op
+      async onToolCall(name, _input) {
+        latestToolHint = `🛠️ Calling tool: \`${name}\``;
+        scheduleProgressUpdate();
       },
 
       async onClarification(req: ClarificationRequest) {
@@ -180,7 +223,10 @@ export class FeishuAdapter implements PlatformAdapter {
       },
 
       async onDone(result) {
-        if (debounceHandle) clearTimeout(debounceHandle);
+        clearScheduledProgress();
+        finalized = true;
+        await updateChain;
+
         if (cardMessageId) {
           await updateCardMessage(larkClient, cardMessageId, buildDoneCard(result)).catch(console.error);
         } else {
@@ -189,7 +235,10 @@ export class FeishuAdapter implements PlatformAdapter {
       },
 
       async onError(err) {
-        if (debounceHandle) clearTimeout(debounceHandle);
+        clearScheduledProgress();
+        finalized = true;
+        await updateChain;
+
         if (cardMessageId) {
           await updateCardMessage(larkClient, cardMessageId, buildErrorCard(err.message)).catch(console.error);
         } else {
