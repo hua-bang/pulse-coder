@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "eido_mind": {
+      "transport": "http",
+      "url": "http://localhost:3060/mcp/server"
+    }
+  }
+}
