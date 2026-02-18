@@ -19,9 +19,9 @@ async function main() {
   console.log(`[remote-server] Listening on http://localhost:${port}`);
   console.log(`[remote-server] Endpoints:`);
   console.log(`  GET  /health`);
-  console.log(`  POST /api/chat`);
-  console.log(`  GET  /api/stream/:streamId`);
-  console.log(`  POST /api/clarify/:streamId`);
+  // console.log(`  POST /api/chat`);
+  // console.log(`  GET  /api/stream/:streamId`);
+  // console.log(`  POST /api/clarify/:streamId`);
   console.log(`  POST /webhooks/feishu`);
   // console.log(`  POST /webhooks/telegram`);
 }
