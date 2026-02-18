@@ -8,15 +8,16 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "pulse-coder-engine": "workspace:*",
-    "hono": "^4.6.0",
     "@hono/node-server": "^1.13.0",
-    "dotenv": "^16.4.7"
+    "@larksuiteoapi/node-sdk": "^1.59.0",
+    "dotenv": "^16.4.7",
+    "hono": "^4.6.0",
+    "pulse-coder-engine": "workspace:*"
   },
   "devDependencies": {
-    "tsx": "^4.19.2",
+    "@types/node": "^20.0.0",
     "tsup": "^8.4.0",
-    "typescript": "^5.0.0",
-    "@types/node": "^20.0.0"
+    "tsx": "^4.19.2",
+    "typescript": "^5.0.0"
   }
 }

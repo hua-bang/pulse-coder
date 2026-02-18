@@ -1,166 +1,119 @@
-import { createHmac } from 'crypto';
+import * as lark from '@larksuiteoapi/node-sdk';
 
 /**
- * Feishu (Lark) Bot API client using native fetch.
- * Handles tenant_access_token auto-refresh (expires every 2 hours).
+ * Create a Feishu SDK Client instance.
+ * Token refresh, retry, and domain routing are all handled by the SDK.
  */
-export class FeishuClient {
-  private appId: string;
-  private appSecret: string;
-  private token: string | null = null;
-  private tokenExpiry = 0;
-  private readonly apiBase = 'https://open.feishu.cn/open-apis';
-
-  constructor(appId: string, appSecret: string) {
-    this.appId = appId;
-    this.appSecret = appSecret;
+export function createLarkClient(): lark.Client {
+  const appId = process.env.FEISHU_APP_ID;
+  const appSecret = process.env.FEISHU_APP_SECRET;
+  if (!appId || !appSecret) {
+    throw new Error('FEISHU_APP_ID and FEISHU_APP_SECRET are required');
   }
+  return new lark.Client({
+    appId,
+    appSecret,
+    appType: lark.AppType.SelfBuild,
+    domain: lark.Domain.Feishu,
+  });
+}
 
-  private async getToken(): Promise<string> {
-    if (this.token && Date.now() < this.tokenExpiry) {
-      return this.token;
-    }
+type ReceiveIdType = 'open_id' | 'chat_id' | 'user_id' | 'union_id' | 'email';
 
-    const res = await fetch(`${this.apiBase}/auth/v3/tenant_access_token/internal`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ app_id: this.appId, app_secret: this.appSecret }),
-    });
-    const json = await res.json() as { code: number; tenant_access_token: string; expire: number; msg?: string };
-
-    if (json.code !== 0) {
-      throw new Error(`Feishu auth error: ${json.msg}`);
-    }
-
-    this.token = json.tenant_access_token;
-    // expire is in seconds; subtract 60s buffer
-    this.tokenExpiry = Date.now() + (json.expire - 60) * 1000;
-    return this.token;
-  }
-
-  private async call<T>(method: 'GET' | 'POST' | 'PATCH', path: string, body?: unknown): Promise<T> {
-    const token = await this.getToken();
-    const res = await fetch(`${this.apiBase}${path}`, {
-      method,
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    });
-    const json = await res.json() as { code: number; data: T; msg?: string };
-    if (json.code !== 0) {
-      throw new Error(`Feishu API error (${path}): ${json.msg} (code ${json.code})`);
-    }
-    return json.data;
-  }
-
-  /**
-   * Send a plain text message to a chat.
-   */
-  async sendTextMessage(receiveId: string, receiveIdType: 'open_id' | 'chat_id', text: string): Promise<{ message_id: string }> {
-    const data = await this.call<{ message_id: string }>('POST', '/im/v1/messages', {
-      receive_id_type: receiveIdType,
+/**
+ * Send a plain text message.
+ * Returns the message_id of the sent message.
+ */
+export async function sendTextMessage(
+  client: lark.Client,
+  receiveId: string,
+  receiveIdType: ReceiveIdType,
+  text: string,
+): Promise<string> {
+  const res = await client.im.message.create({
+    params: { receive_id_type: receiveIdType },
+    data: {
       receive_id: receiveId,
       msg_type: 'text',
       content: JSON.stringify({ text }),
-    });
-    return data;
-  }
-
-  /**
-   * Send a card message (interactive card with markdown body).
-   */
-  async sendCardMessage(receiveId: string, receiveIdType: 'open_id' | 'chat_id', cardContent: object): Promise<{ message_id: string }> {
-    const data = await this.call<{ message_id: string }>('POST', '/im/v1/messages', {
-      receive_id_type: receiveIdType,
-      receive_id: receiveId,
-      msg_type: 'interactive',
-      content: JSON.stringify(cardContent),
-    });
-    return data;
-  }
-
-  /**
-   * Update an existing card message.
-   */
-  async updateCardMessage(messageId: string, cardContent: object): Promise<void> {
-    await this.call<void>('PATCH', `/im/v1/messages/${messageId}`, {
-      content: JSON.stringify(cardContent),
-    });
-  }
-
-  /**
-   * Verify a Feishu webhook event signature.
-   * https://open.feishu.cn/document/uAjLw4CM/uYjL24iN/security-guidance/signature-verification
-   */
-  verifySignature(timestamp: string, nonce: string, encryptKey: string, body: string, signature: string): boolean {
-    const payload = timestamp + nonce + encryptKey + body;
-    const expected = createHmac('sha256', '').update(payload).digest('hex');
-    return expected === signature;
-  }
+    },
+  });
+  return res.data?.message_id ?? '';
 }
 
 /**
- * Build a "thinking..." card to send while the agent is running.
+ * Send an interactive card message.
+ * Returns the message_id of the sent message.
  */
+export async function sendCardMessage(
+  client: lark.Client,
+  receiveId: string,
+  receiveIdType: ReceiveIdType,
+  card: object,
+): Promise<string> {
+  const res = await client.im.message.create({
+    params: { receive_id_type: receiveIdType },
+    data: {
+      receive_id: receiveId,
+      msg_type: 'interactive',
+      content: JSON.stringify(card),
+    },
+  });
+  return res.data?.message_id ?? '';
+}
+
+/**
+ * Update (patch) an existing card message with new content.
+ */
+export async function updateCardMessage(
+  client: lark.Client,
+  messageId: string,
+  card: object,
+): Promise<void> {
+  await client.im.message.patch({
+    path: { message_id: messageId },
+    data: { content: JSON.stringify(card) },
+  });
+}
+
+// ─── Card builders ────────────────────────────────────────────────────────────
+
 export function buildThinkingCard(): object {
   return {
     schema: '2.0',
     config: { enable_forward: false },
     body: {
-      elements: [{
-        tag: 'markdown',
-        content: '⏳ Working on it...',
-      }],
+      elements: [{ tag: 'markdown', content: '⏳ Working on it...' }],
     },
   };
 }
 
-/**
- * Build a progress card with accumulated text.
- */
 export function buildProgressCard(text: string): object {
   return {
     schema: '2.0',
     config: { enable_forward: false },
     body: {
-      elements: [{
-        tag: 'markdown',
-        content: text || '⏳ Working on it...',
-      }],
+      elements: [{ tag: 'markdown', content: text || '⏳ Working on it...' }],
     },
   };
 }
 
-/**
- * Build a done card with the final result.
- */
 export function buildDoneCard(text: string): object {
   return {
     schema: '2.0',
     config: { enable_forward: true },
     body: {
-      elements: [{
-        tag: 'markdown',
-        content: text || '✅ Done',
-      }],
+      elements: [{ tag: 'markdown', content: text || '✅ Done' }],
     },
   };
 }
 
-/**
- * Build an error card.
- */
 export function buildErrorCard(message: string): object {
   return {
     schema: '2.0',
     config: { enable_forward: false },
     body: {
-      elements: [{
-        tag: 'markdown',
-        content: `❌ Error: ${message}`,
-      }],
+      elements: [{ tag: 'markdown', content: `❌ Error: ${message}` }],
     },
   };
 }
