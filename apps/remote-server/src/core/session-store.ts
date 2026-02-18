@@ -131,6 +131,27 @@ class RemoteSessionStore {
     return result.sessionId;
   }
 
+
+  /**
+   * Load the currently attached session context for a user.
+   */
+  async getCurrent(platformKey: string): Promise<{ sessionId: string; context: Context } | null> {
+    const sessionId = this.index[platformKey];
+    if (!sessionId) {
+      return null;
+    }
+
+    const session = await this.readSession(sessionId);
+    if (!session || session.platformKey !== platformKey) {
+      return null;
+    }
+
+    return {
+      sessionId,
+      context: { messages: session.messages as Context['messages'] },
+    };
+  }
+
   /**
    * Get the currently attached session id for a user.
    */
