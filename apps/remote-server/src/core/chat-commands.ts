@@ -30,7 +30,7 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
   if (tokens.length === 0) {
     return {
       type: 'handled',
-      message: '⚠️ 请输入命令，例如 `/new`、`/clear`、`/resume`、`/skills`。',
+      message: '⚠️ 请输入命令，例如 `/new`、`/clear`、`/compact`、`/resume`、`/skills`。',
     };
   }
 
@@ -70,6 +70,9 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
 
     case 'skills':
       return handleSkillsCommand(args);
+
+    case 'compact':
+      return await handleCompactCommand(incoming.platformKey);
 
     default:
       return {
@@ -116,6 +119,52 @@ async function handleResumeCommand(platformKey: string, args: string[]): Promise
     type: 'handled',
     message: `✅ 已恢复会话：${sessionId}`,
   };
+}
+
+
+async function handleCompactCommand(platformKey: string): Promise<CommandResult> {
+  const current = await sessionStore.getCurrent(platformKey);
+  if (!current) {
+    return {
+      type: 'handled',
+      message: 'ℹ️ 当前没有可压缩的会话。先发送一条普通消息开始会话。',
+    };
+  }
+
+  if (current.context.messages.length === 0) {
+    return {
+      type: 'handled',
+      message: 'ℹ️ 当前会话为空，无需压缩。',
+    };
+  }
+
+  const beforeCount = current.context.messages.length;
+
+  try {
+    const compactResult = await engine.compactContext(current.context, { force: true });
+
+    if (!compactResult.didCompact || !compactResult.newMessages) {
+      return {
+        type: 'handled',
+        message: 'ℹ️ 本次没有触发压缩。',
+      };
+    }
+
+    current.context.messages = compactResult.newMessages;
+    await sessionStore.save(current.sessionId, current.context);
+
+    const reasonSuffix = compactResult.reason ? `（原因: ${compactResult.reason}）` : '';
+    return {
+      type: 'handled',
+      message: `🧩 已压缩上下文: ${beforeCount} -> ${current.context.messages.length} 条消息${reasonSuffix}`,
+    };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    return {
+      type: 'handled',
+      message: `❌ 压缩失败: ${errorMessage}`,
+    };
+  }
 }
 
 function handleSkillsCommand(args: string[]): CommandResult {
@@ -227,6 +276,7 @@ function buildHelpMessage(): string {
     '📋 可用命令：',
     '/new - 创建新会话',
     '/clear - 清空当前会话上下文',
+    '/compact - 强制压缩当前会话上下文',
     '/resume - 查看历史会话（最近 10 条）',
     '/resume <session-id> - 恢复指定会话',
     '/skills list - 查看可用技能',
