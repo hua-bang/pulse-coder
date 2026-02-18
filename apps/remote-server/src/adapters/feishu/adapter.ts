@@ -61,6 +61,19 @@ export class FeishuAdapter implements PlatformAdapter {
     let resolveIncoming!: (msg: IncomingMessage | null) => void;
     const incomingPromise = new Promise<IncomingMessage | null>((res) => { resolveIncoming = res; });
 
+    // Handle URL verification before the SDK — Feishu sends this as plaintext even when
+    // encryption is enabled. Intercepting here avoids relying on SDK-specific error shapes.
+    try {
+      const parsedBody = JSON.parse(rawBody) as Record<string, unknown>;
+      if (parsedBody['type'] === 'url_verification') {
+        this.pendingChallenge = parsedBody['challenge'] as string;
+        resolveIncoming(null);
+        return incomingPromise;
+      }
+    } catch {
+      // not JSON — fall through to SDK handling
+    }
+
     // Register the im.message.receive_v1 handler for this invocation
     // The SDK deduplicates events and handles URL verification automatically
     const dispatcher = this.eventDispatcher.register({
