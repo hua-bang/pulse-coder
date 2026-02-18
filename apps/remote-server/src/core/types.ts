@@ -12,7 +12,7 @@ export interface IncomingMessage {
   platformKey: string;
   /** The user's text input */
   text: string;
-  /** True when the user issues a /new command to start a fresh session */
+  /** True when the platform payload explicitly requests a fresh session */
   forceNewSession?: boolean;
   /**
    * Pre-allocated streamId — set by adapters that need to return it in ackRequest

@@ -15,8 +15,7 @@ import { TelegramClient } from './client.js';
  * in parseIncoming via getActiveStreamId + clarificationQueue.hasPending().
  *
  * Special commands:
- *   /new → forceNewSession: true
- *   /start → welcome message (returns null to skip agent run)
+ *   /start → welcome/help message (returns null to skip agent run)
  */
 
 function createTelegramClient(): TelegramClient {
@@ -52,7 +51,10 @@ export class TelegramAdapter implements PlatformAdapter {
 
     // Handle /start command — send welcome, skip agent run
     if (text === '/start') {
-      await this.client.sendMessage(chatId, 'Hi! I\'m your AI coding assistant. Send me a message to get started.\n\nCommands:\n`/new` — Start a new conversation');
+      await this.client.sendMessage(
+        chatId,
+        'Hi! I\'m your AI coding assistant.\n\nAvailable commands:\n/new - Start a new session\n/clear - Clear current session context\n/resume - List recent sessions\n/resume <id> - Resume a specific session\n/skills list - Show available skills\n/skills <name|index> <message> - Run one message with a skill'
+      );
       return null;
     }
 
@@ -65,15 +67,6 @@ export class TelegramAdapter implements PlatformAdapter {
         await this.client.sendMessage(chatId, `Got it: "${text}"`);
       }
       return null; // Skip normal agent dispatch
-    }
-
-    // Handle /new command
-    if (text === '/new') {
-      return {
-        platformKey,
-        text: '(new session)',
-        forceNewSession: true,
-      };
     }
 
     return { platformKey, text };

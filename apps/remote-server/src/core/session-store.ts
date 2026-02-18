@@ -15,6 +15,25 @@ interface RemoteSession {
   messages: unknown[]; // Stored as-is; cast to Context['messages'] on load
 }
 
+export interface RemoteSessionSummary {
+  id: string;
+  createdAt: number;
+  updatedAt: number;
+  messageCount: number;
+  preview: string;
+}
+
+export interface AttachSessionResult {
+  ok: boolean;
+  reason?: string;
+}
+
+export interface ClearSessionResult {
+  ok: boolean;
+  sessionId: string;
+  createdNew: boolean;
+}
+
 /**
  * Lightweight session store for the remote server.
  *
@@ -58,6 +77,19 @@ class RemoteSessionStore {
     return join(this.sessionsDir, `${sessionId}.json`);
   }
 
+  private async readSession(sessionId: string): Promise<RemoteSession | null> {
+    try {
+      const raw = await fs.readFile(this.sessionPath(sessionId), 'utf-8');
+      return JSON.parse(raw) as RemoteSession;
+    } catch {
+      return null;
+    }
+  }
+
+  private async writeSession(session: RemoteSession): Promise<void> {
+    await fs.writeFile(this.sessionPath(session.id), JSON.stringify(session, null, 2), 'utf-8');
+  }
+
   /**
    * Find the current session for a platform user, or create a new one.
    * Returns a Context whose messages array is directly usable by engine.run().
@@ -66,14 +98,12 @@ class RemoteSessionStore {
     let sessionId = forceNew ? undefined : this.index[platformKey];
 
     if (sessionId) {
-      try {
-        const raw = await fs.readFile(this.sessionPath(sessionId), 'utf-8');
-        const session: RemoteSession = JSON.parse(raw);
+      const session = await this.readSession(sessionId);
+      if (session) {
         return { sessionId, context: { messages: session.messages as Context['messages'] }, isNew: false };
-      } catch {
-        // Session file missing — create fresh
-        sessionId = undefined;
       }
+      // Session file missing — create fresh
+      sessionId = undefined;
     }
 
     // Create new session
@@ -85,7 +115,8 @@ class RemoteSessionStore {
       updatedAt: Date.now(),
       messages: [],
     };
-    await fs.writeFile(this.sessionPath(sessionId), JSON.stringify(session, null, 2), 'utf-8');
+
+    await this.writeSession(session);
     this.index[platformKey] = sessionId;
     await this.saveIndex();
 
@@ -93,27 +124,169 @@ class RemoteSessionStore {
   }
 
   /**
+   * Create and attach a brand-new session for the user.
+   */
+  async createNewSession(platformKey: string): Promise<string> {
+    const result = await this.getOrCreate(platformKey, true);
+    return result.sessionId;
+  }
+
+  /**
+   * Get the currently attached session id for a user.
+   */
+  getCurrentSessionId(platformKey: string): string | undefined {
+    return this.index[platformKey];
+  }
+
+  /**
    * Persist the updated context back to disk after a run completes.
    */
   async save(sessionId: string, context: Context): Promise<void> {
+    const session = await this.readSession(sessionId);
+    if (!session) {
+      console.error(`[session-store] Failed to save session ${sessionId}: session not found`);
+      return;
+    }
+
+    session.messages = context.messages as unknown[];
+    session.updatedAt = Date.now();
+
     try {
-      const raw = await fs.readFile(this.sessionPath(sessionId), 'utf-8');
-      const session: RemoteSession = JSON.parse(raw);
-      session.messages = context.messages as unknown[];
-      session.updatedAt = Date.now();
-      await fs.writeFile(this.sessionPath(sessionId), JSON.stringify(session, null, 2), 'utf-8');
+      await this.writeSession(session);
     } catch (err) {
       console.error(`[session-store] Failed to save session ${sessionId}:`, err);
     }
   }
 
   /**
-   * Detach a platform user from their current session (for /new command).
+   * Detach a platform user from their current session.
    * The old session data is kept on disk; the user will get a fresh session next time.
    */
   async detach(platformKey: string): Promise<void> {
     delete this.index[platformKey];
     await this.saveIndex();
+  }
+
+  /**
+   * Attach an existing session to the user.
+   * Session must belong to the same platformKey.
+   */
+  async attach(platformKey: string, sessionId: string): Promise<AttachSessionResult> {
+    const session = await this.readSession(sessionId);
+    if (!session) {
+      return { ok: false, reason: `Session not found: ${sessionId}` };
+    }
+
+    if (session.platformKey !== platformKey) {
+      return { ok: false, reason: 'Session does not belong to current user' };
+    }
+
+    this.index[platformKey] = sessionId;
+    await this.saveIndex();
+    return { ok: true };
+  }
+
+  /**
+   * Clear current session context while keeping the session attached.
+   * If no current session exists (or file is missing), create a fresh one.
+   */
+  async clearCurrent(platformKey: string): Promise<ClearSessionResult> {
+    const sessionId = this.index[platformKey];
+
+    if (!sessionId) {
+      const newSessionId = await this.createNewSession(platformKey);
+      return { ok: true, sessionId: newSessionId, createdNew: true };
+    }
+
+    const session = await this.readSession(sessionId);
+    if (!session || session.platformKey !== platformKey) {
+      const newSessionId = await this.createNewSession(platformKey);
+      return { ok: true, sessionId: newSessionId, createdNew: true };
+    }
+
+    session.messages = [];
+    session.updatedAt = Date.now();
+    await this.writeSession(session);
+
+    return { ok: true, sessionId, createdNew: false };
+  }
+
+  /**
+   * List sessions owned by the platform user.
+   */
+  async listSessions(platformKey: string, limit = 20): Promise<RemoteSessionSummary[]> {
+    const files = await fs.readdir(this.sessionsDir, { withFileTypes: true });
+    const sessions: RemoteSessionSummary[] = [];
+
+    for (const file of files) {
+      if (!file.isFile() || !file.name.endsWith('.json')) continue;
+
+      const sessionId = file.name.replace(/\.json$/, '');
+      const session = await this.readSession(sessionId);
+      if (!session || session.platformKey !== platformKey) continue;
+
+      sessions.push({
+        id: session.id,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        messageCount: session.messages.length,
+        preview: this.buildPreview(session.messages),
+      });
+    }
+
+    return sessions
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, Math.max(1, limit));
+  }
+
+  private buildPreview(messages: unknown[]): string {
+    if (messages.length === 0) return '(empty session)';
+
+    const lastMessage = messages[messages.length - 1];
+    if (typeof lastMessage === 'string') {
+      return this.truncate(lastMessage.trim());
+    }
+
+    if (typeof lastMessage === 'object' && lastMessage !== null) {
+      const content = (lastMessage as { content?: unknown }).content;
+      return this.truncate(this.contentToText(content));
+    }
+
+    return this.truncate(String(lastMessage));
+  }
+
+  private contentToText(content: unknown): string {
+    if (typeof content === 'string') {
+      return content.trim();
+    }
+
+    if (Array.isArray(content)) {
+      const parts = content
+        .map((part) => {
+          if (typeof part === 'string') return part;
+          if (typeof part === 'object' && part !== null && 'text' in part) {
+            const text = (part as { text?: unknown }).text;
+            return typeof text === 'string' ? text : '';
+          }
+          return '';
+        })
+        .filter((part) => part.length > 0);
+
+      if (parts.length > 0) {
+        return parts.join(' ').trim();
+      }
+    }
+
+    try {
+      return JSON.stringify(content);
+    } catch {
+      return String(content);
+    }
+  }
+
+  private truncate(text: string, max = 120): string {
+    if (!text) return '(no text)';
+    return text.length > max ? `${text.slice(0, max)}...` : text;
   }
 }
 
