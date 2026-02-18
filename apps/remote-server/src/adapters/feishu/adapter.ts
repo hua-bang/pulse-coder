@@ -152,6 +152,9 @@ export class FeishuAdapter implements PlatformAdapter {
     const idType = meta?.chatIdType ?? 'open_id';
     const { larkClient } = this;
 
+    // Clean up chatMeta after reading — it's only needed to bridge parseIncoming → createStreamHandle
+    this.chatMeta.delete(incoming.platformKey);
+
     let cardMessageId: string | null = null;
     let accumulatedText = '';
     let debounceHandle: ReturnType<typeof setTimeout> | null = null;
