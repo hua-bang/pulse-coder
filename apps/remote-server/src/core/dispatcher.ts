@@ -4,6 +4,7 @@ import type { PlatformAdapter, ActiveRun, IncomingMessage } from './types.js';
 import { engine } from './engine-singleton.js';
 import { sessionStore } from './session-store.js';
 import { clarificationQueue } from './clarification-queue.js';
+import { processIncomingCommand, type CommandResult } from './chat-commands.js';
 
 /**
  * In-flight agent runs, keyed by platformKey.
@@ -50,13 +51,35 @@ export async function dispatch(adapter: PlatformAdapter, c: HonoContext): Promis
 }
 
 async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage): Promise<void> {
-  const { platformKey, text, forceNewSession } = incoming;
+  const { platformKey, forceNewSession } = incoming;
+  let text = incoming.text;
 
   // Prevent concurrent runs for the same user
   if (activeRuns.has(platformKey)) {
     const handle = await adapter.createStreamHandle(incoming, 'busy');
     await handle.onError(new Error('正在处理上一条消息，请稍候再试。'));
     return;
+  }
+
+  // Handle slash commands before entering agent run loop
+  let commandResult: CommandResult;
+  try {
+    commandResult = await processIncomingCommand(incoming);
+  } catch (err) {
+    const commandStreamId = incoming.streamId ?? randomUUID();
+    const handle = await adapter.createStreamHandle(incoming, commandStreamId);
+    await handle.onError(err instanceof Error ? err : new Error(String(err)));
+    return;
+  }
+  if (commandResult.type === 'handled') {
+    const commandStreamId = incoming.streamId ?? randomUUID();
+    const handle = await adapter.createStreamHandle(incoming, commandStreamId);
+    await handle.onDone(commandResult.message);
+    return;
+  }
+
+  if (commandResult.type === 'transformed') {
+    text = commandResult.text;
   }
 
   // Use pre-allocated streamId if the adapter set one (e.g. Web adapter), else generate

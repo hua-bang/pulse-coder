@@ -83,6 +83,14 @@ apiRouter.post('/clarify/:streamId', async (c) => {
  * Query: ?platformKey=web:user-xyz
  */
 apiRouter.get('/sessions', async (c) => {
-  // This is a placeholder — a full implementation would list sessions from the store
-  return c.json({ sessions: [], note: 'Session listing not yet implemented' });
+  const platformKey = c.req.query('platformKey');
+  if (!platformKey) {
+    return c.json({ error: 'platformKey is required' }, 400);
+  }
+
+  const sessions = await sessionStore.listSessions(platformKey, 50);
+  const currentSessionId = sessionStore.getCurrentSessionId(platformKey) ?? null;
+
+  return c.json({ sessions, currentSessionId });
 });
+
