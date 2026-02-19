@@ -72,4 +72,5 @@ export interface PlatformAdapter {
 export interface ActiveRun {
   streamId: string;
   ac: AbortController;
+  startedAt: number;
 }

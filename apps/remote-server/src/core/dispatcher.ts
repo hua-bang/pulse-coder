@@ -1,16 +1,16 @@
 import { randomUUID } from 'crypto';
 import type { Context as HonoContext } from 'hono';
-import type { PlatformAdapter, ActiveRun, IncomingMessage, StreamHandle } from './types.js';
+import type { PlatformAdapter, IncomingMessage, StreamHandle } from './types.js';
 import { engine } from './engine-singleton.js';
 import { sessionStore } from './session-store.js';
 import { clarificationQueue } from './clarification-queue.js';
 import { processIncomingCommand, type CommandResult } from './chat-commands.js';
-
-/**
- * In-flight agent runs, keyed by platformKey.
- * Prevents a user from running two concurrent agent instances.
- */
-const activeRuns = new Map<string, ActiveRun>();
+import {
+  hasActiveRun,
+  setActiveRun,
+  clearActiveRun,
+  getActiveStreamId as getActiveStreamIdFromStore,
+} from './active-run-store.js';
 
 /**
  * Main entry point for all platform webhook routes.
@@ -54,13 +54,6 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
   const { platformKey, forceNewSession } = incoming;
   let text = incoming.text;
 
-  // Prevent concurrent runs for the same user
-  if (activeRuns.has(platformKey)) {
-    const handle = await adapter.createStreamHandle(incoming, 'busy');
-    await handle.onError(new Error('正在处理上一条消息，请稍候再试。'));
-    return;
-  }
-
   // Handle slash commands before entering agent run loop
   let commandResult: CommandResult;
   try {
@@ -71,6 +64,7 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
     await handle.onError(err instanceof Error ? err : new Error(String(err)));
     return;
   }
+
   if (commandResult.type === 'handled') {
     const commandStreamId = incoming.streamId ?? randomUUID();
     const handle = await adapter.createStreamHandle(incoming, commandStreamId);
@@ -78,14 +72,25 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
     return;
   }
 
+  if (commandResult.type === 'handled_silent') {
+    return;
+  }
+
   if (commandResult.type === 'transformed') {
     text = commandResult.text;
+  }
+
+  // Prevent concurrent runs for the same user
+  if (hasActiveRun(platformKey)) {
+    const handle = await adapter.createStreamHandle(incoming, 'busy');
+    await handle.onError(new Error('正在处理上一条消息，请稍候再试。'));
+    return;
   }
 
   // Use pre-allocated streamId if the adapter set one (e.g. Web adapter), else generate
   const streamId = incoming.streamId ?? randomUUID();
   const ac = new AbortController();
-  activeRuns.set(platformKey, { streamId, ac });
+  setActiveRun(platformKey, { streamId, ac, startedAt: Date.now() });
 
   let sessionId: string | undefined;
   let handle: StreamHandle | null = null;
@@ -128,11 +133,6 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
     // Cancel any pending clarification for this stream
     clarificationQueue.cancel(streamId, 'Agent run failed');
 
-    // Best-effort: save whatever context we have
-    if (sessionId) {
-      // We don't have context in catch scope; that's OK — partial context already saved on disk
-    }
-
     const runError = err instanceof Error ? err : new Error(String(err));
 
     // Reuse the original handle whenever available to preserve adapter state
@@ -140,17 +140,27 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
       if (!handle) {
         handle = await adapter.createStreamHandle(incoming, streamId);
       }
-      await handle.onError(runError);
+
+      if (ac.signal.aborted || isAbortError(runError)) {
+        await handle.onDone('⏹️ 当前任务已停止。');
+      } else {
+        await handle.onError(runError);
+      }
     } catch (sendErr) {
       console.error(`[dispatcher] Could not send error to ${platformKey}:`, sendErr);
       console.error('[dispatcher] Original run error:', runError);
     }
   } finally {
-    activeRuns.delete(platformKey);
+    clearActiveRun(platformKey);
   }
+}
+
+function isAbortError(error: Error): boolean {
+  const text = `${error.name} ${error.message}`.toLowerCase();
+  return text.includes('abort') || text.includes('cancel');
 }
 
 /** Expose activeRuns for adapters that need to look up the current streamId by platformKey. */
 export function getActiveStreamId(platformKey: string): string | undefined {
-  return activeRuns.get(platformKey)?.streamId;
+  return getActiveStreamIdFromStore(platformKey);
 }

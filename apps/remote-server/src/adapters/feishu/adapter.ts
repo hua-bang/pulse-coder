@@ -2,7 +2,7 @@ import type { HonoRequest, Context as HonoContext } from 'hono';
 import type { PlatformAdapter, IncomingMessage, StreamHandle } from '../../core/types.js';
 import type { ClarificationRequest } from '../../core/types.js';
 import { clarificationQueue } from '../../core/clarification-queue.js';
-import { getActiveStreamId } from '../../core/dispatcher.js';
+import { getActiveStreamId } from '../../core/active-run-store.js';
 import {
   createLarkClient,
   sendTextMessage,

@@ -1,6 +1,7 @@
 import { engine } from './engine-singleton.js';
 import { sessionStore } from './session-store.js';
 import type { IncomingMessage } from './types.js';
+import { abortActiveRun, getActiveRun } from './active-run-store.js';
 
 interface SkillSummary {
   name: string;
@@ -15,7 +16,10 @@ interface SkillRegistryService {
 export type CommandResult =
   | { type: 'none' }
   | { type: 'handled'; message: string }
+  | { type: 'handled_silent' }
   | { type: 'transformed'; text: string };
+
+const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop']);
 
 /**
  * Parse and execute slash commands for remote chat channels.
@@ -30,12 +34,20 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
   if (tokens.length === 0) {
     return {
       type: 'handled',
-      message: '⚠️ 请输入命令，例如 `/new`、`/clear`、`/compact`、`/resume`、`/skills`。',
+      message: '⚠️ 请输入命令，例如 `/new`、`/clear`、`/compact`、`/resume`、`/sessions`、`/status`、`/stop`、`/skills`。',
     };
   }
 
   const command = tokens[0].toLowerCase();
   const args = tokens.slice(1);
+
+  const activeRun = getActiveRun(incoming.platformKey);
+  if (activeRun && !COMMANDS_ALLOWED_WHILE_RUNNING.has(command)) {
+    return {
+      type: 'handled',
+      message: '⏳ 当前正在处理上一条消息，请稍候或使用 `/status` 查看进度、`/stop` 停止任务。',
+    };
+  }
 
   switch (command) {
     case 'help':
@@ -66,7 +78,14 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
     }
 
     case 'resume':
+    case 'sessions':
       return await handleResumeCommand(incoming.platformKey, args);
+
+    case 'status':
+      return await handleStatusCommand(incoming.platformKey);
+
+    case 'stop':
+      return handleStopCommand(incoming.platformKey);
 
     case 'skills':
       return handleSkillsCommand(args);
@@ -121,6 +140,48 @@ async function handleResumeCommand(platformKey: string, args: string[]): Promise
   };
 }
 
+async function handleStatusCommand(platformKey: string): Promise<CommandResult> {
+  const activeRun = getActiveRun(platformKey);
+  const sessionStatus = await sessionStore.getCurrentStatus(platformKey);
+
+  const lines: string[] = ['📊 当前状态：'];
+
+  if (activeRun) {
+    lines.push(`- 运行状态：处理中（已运行 ${formatDuration(Date.now() - activeRun.startedAt)}）`);
+    lines.push(`- Stream ID: ${activeRun.streamId}`);
+  } else {
+    lines.push('- 运行状态：空闲');
+  }
+
+  if (sessionStatus) {
+    lines.push(`- 当前会话：${sessionStatus.sessionId}`);
+    lines.push(`- 消息数：${sessionStatus.messageCount}`);
+    lines.push(`- 最后更新：${formatTime(sessionStatus.updatedAt)}`);
+  } else {
+    lines.push('- 当前会话：无（发送普通消息会自动创建）');
+  }
+
+  return {
+    type: 'handled',
+    message: lines.join('\n'),
+  };
+}
+
+function handleStopCommand(platformKey: string): CommandResult {
+  const result = abortActiveRun(platformKey);
+  if (!result.aborted) {
+    return {
+      type: 'handled',
+      message: 'ℹ️ 当前没有正在运行的任务。',
+    };
+  }
+
+  // No extra command response; the in-flight run will finish as "stopped"
+  // on its original stream handle.
+  return {
+    type: 'handled_silent',
+  };
+}
 
 async function handleCompactCommand(platformKey: string): Promise<CommandResult> {
   const current = await sessionStore.getCurrent(platformKey);
@@ -278,7 +339,10 @@ function buildHelpMessage(): string {
     '/clear - 清空当前会话上下文',
     '/compact - 强制压缩当前会话上下文',
     '/resume - 查看历史会话（最近 10 条）',
+    '/sessions - /resume 的别名',
     '/resume <session-id> - 恢复指定会话',
+    '/status - 查看当前运行状态与会话信息',
+    '/stop - 停止当前正在运行的任务',
     '/skills list - 查看可用技能',
     '/skills <name|index> <message> - 用指定技能执行一条消息',
   ].join('\n');
@@ -286,4 +350,20 @@ function buildHelpMessage(): string {
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleString();
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) {
+    return `${ms}ms`;
+  }
+
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes === 0) {
+    return `${seconds}s`;
+  }
+
+  return `${minutes}m ${seconds}s`;
 }

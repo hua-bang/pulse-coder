@@ -23,6 +23,13 @@ export interface RemoteSessionSummary {
   preview: string;
 }
 
+export interface CurrentSessionStatus {
+  sessionId: string;
+  createdAt: number;
+  updatedAt: number;
+  messageCount: number;
+}
+
 export interface AttachSessionResult {
   ok: boolean;
   reason?: string;
@@ -157,6 +164,28 @@ class RemoteSessionStore {
    */
   getCurrentSessionId(platformKey: string): string | undefined {
     return this.index[platformKey];
+  }
+
+  /**
+   * Get summary of the currently attached session for a user.
+   */
+  async getCurrentStatus(platformKey: string): Promise<CurrentSessionStatus | null> {
+    const sessionId = this.index[platformKey];
+    if (!sessionId) {
+      return null;
+    }
+
+    const session = await this.readSession(sessionId);
+    if (!session || session.platformKey !== platformKey) {
+      return null;
+    }
+
+    return {
+      sessionId,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      messageCount: session.messages.length,
+    };
   }
 
   /**

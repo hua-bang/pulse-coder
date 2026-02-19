@@ -2,7 +2,7 @@ import type { HonoRequest, Context as HonoContext } from 'hono';
 import type { PlatformAdapter, IncomingMessage, StreamHandle } from '../../core/types.js';
 import type { ClarificationRequest } from '../../core/types.js';
 import { clarificationQueue } from '../../core/clarification-queue.js';
-import { getActiveStreamId } from '../../core/dispatcher.js';
+import { getActiveStreamId } from '../../core/active-run-store.js';
 import { TelegramClient } from './client.js';
 
 /**
@@ -53,7 +53,7 @@ export class TelegramAdapter implements PlatformAdapter {
     if (text === '/start') {
       await this.client.sendMessage(
         chatId,
-        'Hi! I\'m your AI coding assistant.\n\nAvailable commands:\n/new - Start a new session\n/clear - Clear current session context\n/compact - Force compact current session context\n/resume - List recent sessions\n/resume <id> - Resume a specific session\n/skills list - Show available skills\n/skills <name|index> <message> - Run one message with a skill'
+        'Hi! I\'m your AI coding assistant.\n\nAvailable commands:\n/new - Start a new session\n/clear - Clear current session context\n/compact - Force compact current session context\n/resume - List recent sessions\n/sessions - Alias of /resume\n/resume <id> - Resume a specific session\n/status - Show current run/session status\n/stop - Stop current running task\n/skills list - Show available skills\n/skills <name|index> <message> - Run one message with a skill'
       );
       return null;
     }
