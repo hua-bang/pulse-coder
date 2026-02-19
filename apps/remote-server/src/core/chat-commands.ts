@@ -19,7 +19,17 @@ export type CommandResult =
   | { type: 'handled_silent' }
   | { type: 'transformed'; text: string };
 
-const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop']);
+const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping']);
+const COMMAND_ALIASES: Record<string, string> = {
+  '?': 'help',
+  h: 'help',
+  restart: 'new',
+  reset: 'clear',
+  cancel: 'stop',
+  halt: 'stop',
+  ls: 'sessions',
+  session: 'current',
+};
 
 /**
  * Parse and execute slash commands for remote chat channels.
@@ -38,7 +48,7 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
     };
   }
 
-  const command = tokens[0].toLowerCase();
+  const command = normalizeCommand(tokens[0].toLowerCase());
   const args = tokens.slice(1);
 
   const activeRun = getActiveRun(incoming.platformKey);
@@ -84,8 +94,20 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
     case 'status':
       return await handleStatusCommand(incoming.platformKey);
 
+    case 'current':
+      return await handleCurrentSessionCommand(incoming.platformKey);
+
     case 'stop':
       return handleStopCommand(incoming.platformKey);
+
+    case 'detach':
+      return await handleDetachCommand(incoming.platformKey);
+
+    case 'ping':
+      return {
+        type: 'handled',
+        message: '🏓 pong',
+      };
 
     case 'skills':
       return handleSkillsCommand(args);
@@ -102,9 +124,26 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
 }
 
 async function handleResumeCommand(platformKey: string, args: string[]): Promise<CommandResult> {
-  if (args.length === 0) {
+  const firstArg = args[0]?.toLowerCase();
+  const listRequested = args.length === 0
+    || firstArg === 'list'
+    || firstArg === 'ls'
+    || /^\d+$/.test(firstArg ?? '');
+
+  if (listRequested) {
+    const limitArg = args.length === 0
+      ? undefined
+      : (/^\d+$/.test(firstArg ?? '') ? args[0] : args[1]);
+    const limitResult = parseListLimit(limitArg, 10, 30);
+    if (!limitResult.ok) {
+      return {
+        type: 'handled',
+        message: `❌ ${limitResult.reason}\n用法：/resume [list] [1-30]`,
+      };
+    }
+
     const currentSessionId = sessionStore.getCurrentSessionId(platformKey);
-    const sessions = await sessionStore.listSessions(platformKey, 10);
+    const sessions = await sessionStore.listSessions(platformKey, limitResult.value);
 
     if (sessions.length === 0) {
       return {
@@ -121,7 +160,7 @@ async function handleResumeCommand(platformKey: string, args: string[]): Promise
 
     return {
       type: 'handled',
-      message: `📚 你的历史会话（最近 10 条）：\n${lines.join('\n')}\n\n用法：/resume <session-id>`,
+      message: `📚 你的历史会话（最近 ${sessions.length} / ${limitResult.value} 条）：\n${lines.join('\n')}\n\n用法：/resume <session-id>`,
     };
   }
 
@@ -167,6 +206,27 @@ async function handleStatusCommand(platformKey: string): Promise<CommandResult> 
   };
 }
 
+async function handleCurrentSessionCommand(platformKey: string): Promise<CommandResult> {
+  const sessionStatus = await sessionStore.getCurrentStatus(platformKey);
+  if (!sessionStatus) {
+    return {
+      type: 'handled',
+      message: 'ℹ️ 当前没有已绑定会话。发送普通消息会自动创建新会话。',
+    };
+  }
+
+  return {
+    type: 'handled',
+    message: [
+      '🧭 当前会话：',
+      `- Session ID: ${sessionStatus.sessionId}`,
+      `- 消息数：${sessionStatus.messageCount}`,
+      `- 创建时间：${formatTime(sessionStatus.createdAt)}`,
+      `- 最后更新：${formatTime(sessionStatus.updatedAt)}`,
+    ].join('\n'),
+  };
+}
+
 function handleStopCommand(platformKey: string): CommandResult {
   const result = abortActiveRun(platformKey);
   if (!result.aborted) {
@@ -180,6 +240,22 @@ function handleStopCommand(platformKey: string): CommandResult {
   // on its original stream handle.
   return {
     type: 'handled_silent',
+  };
+}
+
+async function handleDetachCommand(platformKey: string): Promise<CommandResult> {
+  const currentSessionId = sessionStore.getCurrentSessionId(platformKey);
+  if (!currentSessionId) {
+    return {
+      type: 'handled',
+      message: 'ℹ️ 当前没有已绑定会话。',
+    };
+  }
+
+  await sessionStore.detach(platformKey);
+  return {
+    type: 'handled',
+    message: `🪄 已断开会话绑定：${currentSessionId}\n发送普通消息会自动创建新会话。`,
   };
 }
 
@@ -335,17 +411,46 @@ function buildSkillListMessage(skills: SkillSummary[]): string {
 function buildHelpMessage(): string {
   return [
     '📋 可用命令：',
+    '/help - 查看命令帮助',
+    '/ping - 检查机器人在线状态',
     '/new - 创建新会话',
+    '/restart - /new 的别名',
     '/clear - 清空当前会话上下文',
+    '/reset - /clear 的别名',
     '/compact - 强制压缩当前会话上下文',
+    '/current - 查看当前绑定会话',
+    '/detach - 断开当前会话绑定（不删除历史）',
     '/resume - 查看历史会话（最近 10 条）',
+    '/resume [list] [N] - 查看最近 N 条历史会话（N 范围 1-30）',
     '/sessions - /resume 的别名',
     '/resume <session-id> - 恢复指定会话',
     '/status - 查看当前运行状态与会话信息',
     '/stop - 停止当前正在运行的任务',
+    '/cancel - /stop 的别名',
     '/skills list - 查看可用技能',
     '/skills <name|index> <message> - 用指定技能执行一条消息',
   ].join('\n');
+}
+
+function normalizeCommand(command: string): string {
+  return COMMAND_ALIASES[command] ?? command;
+}
+
+function parseListLimit(raw: string | undefined, defaultValue: number, max: number): { ok: true; value: number } | { ok: false; reason: string } {
+  if (!raw) {
+    return { ok: true, value: defaultValue };
+  }
+
+  if (!/^\d+$/.test(raw)) {
+    return { ok: false, reason: `会话列表数量必须是 1-${max} 的整数` };
+  }
+
+  const value = Number.parseInt(raw, 10);
+  if (value < 1 || value > max) {
+    return { ok: false, reason: `会话列表数量必须是 1-${max} 的整数` };
+  }
+
+  return { ok: true, value };
 }
 
 function formatTime(ts: number): string {
