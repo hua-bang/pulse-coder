@@ -83,7 +83,7 @@ export function buildThinkingCard(): object {
     schema: '2.0',
     config: { enable_forward: false },
     body: {
-      elements: [{ tag: 'markdown', content: '⏳ Working on it...' }],
+      elements: [{ tag: 'markdown', content: 'Pulse is thinking...' }],
     },
   };
 }
@@ -93,7 +93,7 @@ export function buildProgressCard(text: string): object {
     schema: '2.0',
     config: { enable_forward: false },
     body: {
-      elements: [{ tag: 'markdown', content: text || '⏳ Working on it...' }],
+      elements: [{ tag: 'markdown', content: text || 'Pulse is thinking...' }],
     },
   };
 }

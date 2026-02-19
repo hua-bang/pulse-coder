@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import type { Context as HonoContext } from 'hono';
-import type { PlatformAdapter, ActiveRun, IncomingMessage } from './types.js';
+import type { PlatformAdapter, ActiveRun, IncomingMessage, StreamHandle } from './types.js';
 import { engine } from './engine-singleton.js';
 import { sessionStore } from './session-store.js';
 import { clarificationQueue } from './clarification-queue.js';
@@ -88,13 +88,14 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
   activeRuns.set(platformKey, { streamId, ac });
 
   let sessionId: string | undefined;
+  let handle: StreamHandle | null = null;
 
   try {
     const result = await sessionStore.getOrCreate(platformKey, forceNewSession);
     sessionId = result.sessionId;
     const context = result.context;
 
-    const handle = await adapter.createStreamHandle(incoming, streamId);
+    handle = await adapter.createStreamHandle(incoming, streamId);
 
     // Append the user's message to context
     context.messages.push({ role: 'user', content: text });
@@ -102,10 +103,10 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
     const finalText = await engine.run(context, {
       abortSignal: ac.signal,
       onText: (delta) => {
-        handle.onText(delta).catch(console.error);
+        handle?.onText(delta).catch(console.error);
       },
       onToolCall: (toolCall) => {
-        handle.onToolCall(toolCall.toolName ?? toolCall.name ?? 'unknown', toolCall.args ?? toolCall.input ?? {}).catch(console.error);
+        handle?.onToolCall(toolCall.toolName ?? toolCall.name ?? 'unknown', toolCall.args ?? toolCall.input ?? {}).catch(console.error);
       },
       onResponse: (messages) => {
         for (const msg of messages) {
@@ -116,7 +117,7 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
         context.messages = newMessages;
       },
       onClarificationRequest: async (request) => {
-        await handle.onClarification(request);
+        await handle?.onClarification(request);
         return clarificationQueue.waitForAnswer(streamId, request);
       },
     });
@@ -132,12 +133,17 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
       // We don't have context in catch scope; that's OK — partial context already saved on disk
     }
 
-    // Try to surface the error to the user via a new handle
+    const runError = err instanceof Error ? err : new Error(String(err));
+
+    // Reuse the original handle whenever available to preserve adapter state
     try {
-      const errorHandle = await adapter.createStreamHandle(incoming, streamId);
-      await errorHandle.onError(err instanceof Error ? err : new Error(String(err)));
-    } catch {
-      console.error(`[dispatcher] Could not send error to ${platformKey}:`, err);
+      if (!handle) {
+        handle = await adapter.createStreamHandle(incoming, streamId);
+      }
+      await handle.onError(runError);
+    } catch (sendErr) {
+      console.error(`[dispatcher] Could not send error to ${platformKey}:`, sendErr);
+      console.error('[dispatcher] Original run error:', runError);
     }
   } finally {
     activeRuns.delete(platformKey);
