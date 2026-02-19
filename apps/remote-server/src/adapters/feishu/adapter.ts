@@ -148,6 +148,7 @@ export class FeishuAdapter implements PlatformAdapter {
 
     const PROGRESS_UPDATE_INTERVAL_MS = 800;
     const HEARTBEAT_INTERVAL_MS = 12000;
+    const DOT_ANIMATION_STEP_MS = 4000;
     const runStartedAt = Date.now();
 
     let throttleHandle: ReturnType<typeof setTimeout> | null = null;
@@ -172,11 +173,15 @@ export class FeishuAdapter implements PlatformAdapter {
     };
 
     const renderProgressText = (): string => {
-      const baseText = accumulatedText
+      const dotCount = 2 + Math.floor((Date.now() - runStartedAt) / DOT_ANIMATION_STEP_MS) % 3;
+      const loadingTitle = `Pulse 努力生成中${'.'.repeat(dotCount)}`;
+      const detailText = accumulatedText
         ? (latestToolHint ? `${latestToolHint}\n\n${accumulatedText}` : accumulatedText)
-        : (latestToolHint || 'Pulse is thinking...');
+        : latestToolHint;
 
-      return `${baseText}\n\n⏱️ Elapsed: ${formatElapsed()}`;
+      return detailText
+        ? `${loadingTitle}\n\n${detailText}\n\n⏱️ Elapsed: ${formatElapsed()}`
+        : `${loadingTitle}\n\n⏱️ Elapsed: ${formatElapsed()}`;
     };
 
     const clearScheduledProgress = () => {
