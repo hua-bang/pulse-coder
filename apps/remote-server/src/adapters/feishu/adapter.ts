@@ -147,7 +147,11 @@ export class FeishuAdapter implements PlatformAdapter {
     let latestToolHint = '';
 
     const PROGRESS_UPDATE_INTERVAL_MS = 800;
+    const HEARTBEAT_INTERVAL_MS = 12000;
+    const runStartedAt = Date.now();
+
     let throttleHandle: ReturnType<typeof setTimeout> | null = null;
+    let heartbeatHandle: ReturnType<typeof setInterval> | null = null;
     let lastProgressUpdateAt = 0;
     let updateChain: Promise<void> = Promise.resolve();
     let finalized = false;
@@ -160,19 +164,32 @@ export class FeishuAdapter implements PlatformAdapter {
       });
     };
 
+    const formatElapsed = (): string => {
+      const totalSeconds = Math.max(0, Math.floor((Date.now() - runStartedAt) / 1000));
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+    };
+
     const renderProgressText = (): string => {
-      if (accumulatedText) {
-        return latestToolHint
-          ? `${latestToolHint}\n\n${accumulatedText}`
-          : accumulatedText;
-      }
-      return latestToolHint || '⏳ Working on it...';
+      const baseText = accumulatedText
+        ? (latestToolHint ? `${latestToolHint}\n\n${accumulatedText}` : accumulatedText)
+        : (latestToolHint || 'Pulse is thinking...');
+
+      return `${baseText}\n\n⏱️ Elapsed: ${formatElapsed()}`;
     };
 
     const clearScheduledProgress = () => {
       if (throttleHandle) {
         clearTimeout(throttleHandle);
         throttleHandle = null;
+      }
+    };
+
+    const clearHeartbeat = () => {
+      if (heartbeatHandle) {
+        clearInterval(heartbeatHandle);
+        heartbeatHandle = null;
       }
     };
 
@@ -195,10 +212,23 @@ export class FeishuAdapter implements PlatformAdapter {
       queueCardUpdate(() => buildProgressCard(renderProgressText()));
     };
 
+    const startHeartbeat = () => {
+      if (!cardMessageId || finalized || heartbeatHandle) return;
+      heartbeatHandle = setInterval(() => {
+        scheduleProgressUpdate(true);
+      }, HEARTBEAT_INTERVAL_MS);
+    };
+
+    const clearProgressState = () => {
+      clearScheduledProgress();
+      clearHeartbeat();
+    };
+
     // Send initial "thinking" card
     try {
       cardMessageId = await sendCardMessage(larkClient, chatId, idType, buildThinkingCard());
       lastProgressUpdateAt = Date.now();
+      startHeartbeat();
     } catch (err) {
       console.error('[feishu] Failed to send thinking card:', err);
     }
@@ -223,7 +253,7 @@ export class FeishuAdapter implements PlatformAdapter {
       },
 
       async onDone(result) {
-        clearScheduledProgress();
+        clearProgressState();
         finalized = true;
         await updateChain;
 
@@ -235,7 +265,7 @@ export class FeishuAdapter implements PlatformAdapter {
       },
 
       async onError(err) {
-        clearScheduledProgress();
+        clearProgressState();
         finalized = true;
         await updateChain;
 
