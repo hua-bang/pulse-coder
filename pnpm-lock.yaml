@@ -81,6 +81,9 @@ importers:
       pulse-coder-memory-plugin:
         specifier: workspace:*
         version: link:../../packages/memory-plugin
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^20.0.0

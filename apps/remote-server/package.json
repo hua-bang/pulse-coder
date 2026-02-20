@@ -19,7 +19,8 @@
     "dotenv": "^16.4.7",
     "hono": "^4.6.0",
     "pulse-coder-engine": "workspace:*",
-    "pulse-coder-memory-plugin": "workspace:*"
+    "pulse-coder-memory-plugin": "workspace:*",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
