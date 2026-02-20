@@ -44,7 +44,7 @@ interface StoredEmbeddingRow {
 
 const DEFAULT_EMBEDDING_DIMENSIONS = 256;
 const MIN_EMBEDDING_DIMENSIONS = 64;
-const MAX_EMBEDDING_DIMENSIONS = 1024;
+const MAX_EMBEDDING_DIMENSIONS = 4096;
 
 const SEMANTIC_SYNONYMS: Record<string, string[]> = {
   bug: ['issue', 'error', 'defect', 'problem'],
@@ -79,12 +79,12 @@ export class FileMemoryPluginService {
     this.semanticRecallEnabled = options.semanticRecallEnabled ?? true;
 
     const embeddingDimensions = clamp(
-      options.embeddingDimensions ?? DEFAULT_EMBEDDING_DIMENSIONS,
+      options.embeddingDimensions ?? options.embeddingProvider?.dimensions ?? DEFAULT_EMBEDDING_DIMENSIONS,
       MIN_EMBEDDING_DIMENSIONS,
       MAX_EMBEDDING_DIMENSIONS,
     );
     this.embeddingProvider = options.embeddingProvider ?? new HashEmbeddingProvider(embeddingDimensions);
-    this.embeddingDimensions = this.embeddingProvider.dimensions;
+    this.embeddingDimensions = embeddingDimensions;
   }
 
   async initialize(): Promise<void> {
@@ -468,7 +468,7 @@ export class FileMemoryPluginService {
   }
 }
 
-class HashEmbeddingProvider implements EmbeddingProvider {
+export class HashEmbeddingProvider implements EmbeddingProvider {
   readonly dimensions: number;
 
   constructor(dimensions: number) {
