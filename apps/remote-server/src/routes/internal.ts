@@ -4,6 +4,7 @@ import { getConnInfo } from '@hono/node-server/conninfo';
 import { createLarkClient, sendTextMessage } from '../adapters/feishu/client.js';
 import { engine } from '../core/engine-singleton.js';
 import { sessionStore } from '../core/session-store.js';
+import { withEngineMemoryRunContext } from '../core/engine-run-context.js';
 import type { ClarificationRequest } from '../core/types.js';
 
 type ReceiveIdType = 'open_id' | 'chat_id' | 'user_id' | 'union_id' | 'email';
@@ -94,26 +95,33 @@ internalRouter.post('/agent/run', async (c) => {
 
     context.messages.push({ role: 'user', content: text });
 
-    const result = await engine.run(context, {
-      onToolCall: (toolCall) => {
-        const name = toolCall.toolName ?? toolCall.name ?? 'unknown';
-        const input = toolCall.args ?? toolCall.input ?? {};
-        toolCalls.push({ name, input });
+    const result = await withEngineMemoryRunContext(
+      {
+        platformKey,
+        sessionId,
+        userText: text,
       },
-      onResponse: (messages) => {
-        for (const msg of messages) {
-          context.messages.push(msg);
-        }
-      },
-      onCompacted: (newMessages) => {
-        context.messages = newMessages;
-      },
-      onClarificationRequest: async (request: ClarificationRequest) => {
-        const answer = resolveClarificationAnswer(request, askPolicy);
-        clarifications.push({ id: request.id, usedDefault: request.defaultAnswer !== undefined });
-        return answer;
-      },
-    });
+      async () => engine.run(context, {
+        onToolCall: (toolCall) => {
+          const name = toolCall.toolName ?? toolCall.name ?? 'unknown';
+          const input = toolCall.args ?? toolCall.input ?? {};
+          toolCalls.push({ name, input });
+        },
+        onResponse: (messages) => {
+          for (const msg of messages) {
+            context.messages.push(msg);
+          }
+        },
+        onCompacted: (newMessages) => {
+          context.messages = newMessages;
+        },
+        onClarificationRequest: async (request: ClarificationRequest) => {
+          const answer = resolveClarificationAnswer(request, askPolicy);
+          clarifications.push({ id: request.id, usedDefault: request.defaultAnswer !== undefined });
+          return answer;
+        },
+      }),
+    );
 
     await sessionStore.save(sessionId, context);
 

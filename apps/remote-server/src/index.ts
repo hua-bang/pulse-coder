@@ -3,12 +3,15 @@ import { serve } from '@hono/node-server';
 import { createApp } from './server.js';
 import { engine } from './core/engine-singleton.js';
 import { sessionStore } from './core/session-store.js';
+import { memoryService } from './core/memory-service.js';
 
 async function main() {
   // Initialize session store (creates directories if needed, loads index)
   await sessionStore.initialize();
 
-  // Initialize the AI engine and all its plugins
+  // Initialize memory store
+  await memoryService.initialize();
+
   await engine.initialize();
 
   const app = createApp();

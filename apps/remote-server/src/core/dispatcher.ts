@@ -5,6 +5,7 @@ import { engine } from './engine-singleton.js';
 import { sessionStore } from './session-store.js';
 import { clarificationQueue } from './clarification-queue.js';
 import { processIncomingCommand, type CommandResult } from './chat-commands.js';
+import { withEngineMemoryRunContext } from './engine-run-context.js';
 import {
   hasActiveRun,
   setActiveRun,
@@ -105,30 +106,38 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
     // Append the user's message to context
     context.messages.push({ role: 'user', content: text });
 
-    const finalText = await engine.run(context, {
-      abortSignal: ac.signal,
-      onText: (delta) => {
-        handle?.onText(delta).catch(console.error);
+    const finalText = await withEngineMemoryRunContext(
+      {
+        platformKey,
+        sessionId,
+        userText: text,
       },
-      onToolCall: (toolCall) => {
-        handle?.onToolCall(toolCall.toolName ?? toolCall.name ?? 'unknown', toolCall.args ?? toolCall.input ?? {}).catch(console.error);
-      },
-      onResponse: (messages) => {
-        for (const msg of messages) {
-          context.messages.push(msg);
-        }
-      },
-      onCompacted: (newMessages) => {
-        context.messages = newMessages;
-      },
-      onClarificationRequest: async (request) => {
-        await handle?.onClarification(request);
-        return clarificationQueue.waitForAnswer(streamId, request);
-      },
-    });
+      async () => engine.run(context, {
+        abortSignal: ac.signal,
+        onText: (delta) => {
+          handle?.onText(delta).catch(console.error);
+        },
+        onToolCall: (toolCall) => {
+          handle?.onToolCall(toolCall.toolName ?? toolCall.name ?? 'unknown', toolCall.args ?? toolCall.input ?? {}).catch(console.error);
+        },
+        onResponse: (messages) => {
+          for (const msg of messages) {
+            context.messages.push(msg);
+          }
+        },
+        onCompacted: (newMessages) => {
+          context.messages = newMessages;
+        },
+        onClarificationRequest: async (request) => {
+          await handle?.onClarification(request);
+          return clarificationQueue.waitForAnswer(streamId, request);
+        },
+      }),
+    );
 
     await sessionStore.save(sessionId, context);
     await handle.onDone(finalText);
+
   } catch (err) {
     // Cancel any pending clarification for this stream
     clarificationQueue.cancel(streamId, 'Agent run failed');
