@@ -10,4 +10,5 @@ export default defineConfig({
   splitting: false,
   sourcemap: true,
   target: 'es2022',
+  external: ['better-sqlite3'],
 });

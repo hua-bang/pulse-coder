@@ -62,8 +62,17 @@ export interface MutateResult {
   item?: MemoryItem;
 }
 
+export interface EmbeddingProvider {
+  dimensions: number;
+  embed(text: string): Promise<number[]>;
+}
+
 export interface FileMemoryServiceOptions {
   baseDir?: string;
+  vectorStorePath?: string;
   maxItemsPerUser?: number;
   defaultRecallLimit?: number;
+  semanticRecallEnabled?: boolean;
+  embeddingDimensions?: number;
+  embeddingProvider?: EmbeddingProvider;
 }
