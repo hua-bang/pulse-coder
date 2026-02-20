@@ -5,6 +5,7 @@ import { engine } from './engine-singleton.js';
 import { sessionStore } from './session-store.js';
 import { clarificationQueue } from './clarification-queue.js';
 import { processIncomingCommand, type CommandResult } from './chat-commands.js';
+import { memoryService } from './memory-service.js';
 import {
   hasActiveRun,
   setActiveRun,
@@ -100,6 +101,18 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
     sessionId = result.sessionId;
     const context = result.context;
 
+    let memoryPromptAppend: string | undefined;
+    try {
+      const memoryRecall = await memoryService.recall({
+        platformKey,
+        sessionId,
+        query: text,
+      });
+      memoryPromptAppend = memoryRecall.promptAppend;
+    } catch (memoryError) {
+      console.error('[dispatcher] memory recall failed:', memoryError);
+    }
+
     handle = await adapter.createStreamHandle(incoming, streamId);
 
     // Append the user's message to context
@@ -107,6 +120,7 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
 
     const finalText = await engine.run(context, {
       abortSignal: ac.signal,
+      systemPrompt: memoryPromptAppend ? { append: memoryPromptAppend } : undefined,
       onText: (delta) => {
         handle?.onText(delta).catch(console.error);
       },
@@ -129,6 +143,15 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
 
     await sessionStore.save(sessionId, context);
     await handle.onDone(finalText);
+
+    memoryService.recordTurn({
+      platformKey,
+      sessionId,
+      userText: text,
+      assistantText: finalText,
+    }).catch((memoryError) => {
+      console.error('[dispatcher] memory write failed:', memoryError);
+    });
   } catch (err) {
     // Cancel any pending clarification for this stream
     clarificationQueue.cancel(streamId, 'Agent run failed');

@@ -1,6 +1,7 @@
 import { engine } from './engine-singleton.js';
 import { sessionStore } from './session-store.js';
 import type { IncomingMessage } from './types.js';
+import { memoryService } from './memory-service.js';
 import { abortActiveRun, getActiveRun } from './active-run-store.js';
 
 interface SkillSummary {
@@ -19,7 +20,7 @@ export type CommandResult =
   | { type: 'handled_silent' }
   | { type: 'transformed'; text: string };
 
-const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping']);
+const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping', 'memory']);
 const COMMAND_ALIASES: Record<string, string> = {
   '?': 'help',
   h: 'help',
@@ -29,6 +30,7 @@ const COMMAND_ALIASES: Record<string, string> = {
   halt: 'stop',
   ls: 'sessions',
   session: 'current',
+  mem: 'memory',
 };
 
 /**
@@ -44,7 +46,7 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
   if (tokens.length === 0) {
     return {
       type: 'handled',
-      message: '⚠️ 请输入命令，例如 `/new`、`/clear`、`/compact`、`/resume`、`/sessions`、`/status`、`/stop`、`/skills`。',
+      message: '⚠️ 请输入命令，例如 `/new`、`/clear`、`/compact`、`/resume`、`/memory`、`/status`、`/stop`、`/skills`。',
     };
   }
 
@@ -114,6 +116,9 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
 
     case 'compact':
       return await handleCompactCommand(incoming.platformKey);
+
+    case 'memory':
+      return await handleMemoryCommand(incoming.platformKey, args);
 
     default:
       return {
@@ -304,6 +309,125 @@ async function handleCompactCommand(platformKey: string): Promise<CommandResult>
   }
 }
 
+
+async function handleMemoryCommand(platformKey: string, args: string[]): Promise<CommandResult> {
+  const sub = args[0]?.toLowerCase() ?? 'list';
+  const currentSessionId = sessionStore.getCurrentSessionId(platformKey);
+
+  if (sub === 'on' || sub === 'off') {
+    if (!currentSessionId) {
+      return {
+        type: 'handled',
+        message: 'ℹ️ 当前没有会话，先发送一条普通消息创建会话后再设置 memory 开关。',
+      };
+    }
+
+    const enabled = sub === 'on';
+    await memoryService.setSessionEnabled(platformKey, currentSessionId, enabled);
+    return {
+      type: 'handled',
+      message: enabled
+        ? `🧠 已开启当前会话 memory\nSession ID: ${currentSessionId}`
+        : `🧠 已关闭当前会话 memory\nSession ID: ${currentSessionId}`,
+    };
+  }
+
+  if (sub === 'pin') {
+    const id = args[1];
+    if (!id) {
+      return {
+        type: 'handled',
+        message: '❌ 缺少 memory id\n用法：/memory pin <id>',
+      };
+    }
+
+    const result = await memoryService.pin(platformKey, id);
+    if (!result.ok) {
+      return {
+        type: 'handled',
+        message: `❌ pin 失败：${result.reason ?? 'unknown error'}`,
+      };
+    }
+
+    return {
+      type: 'handled',
+      message: `📌 已置顶 memory: ${id}`,
+    };
+  }
+
+  if (sub === 'forget' || sub === 'delete' || sub === 'rm') {
+    const id = args[1];
+    if (!id) {
+      return {
+        type: 'handled',
+        message: '❌ 缺少 memory id\n用法：/memory forget <id>',
+      };
+    }
+
+    const result = await memoryService.forget(platformKey, id);
+    if (!result.ok) {
+      return {
+        type: 'handled',
+        message: `❌ forget 失败：${result.reason ?? 'unknown error'}`,
+      };
+    }
+
+    return {
+      type: 'handled',
+      message: `🗑️ 已删除 memory: ${id}`,
+    };
+  }
+
+  if (sub === 'status') {
+    const enabled = currentSessionId ? memoryService.isSessionEnabled(platformKey, currentSessionId) : true;
+    const list = await memoryService.list({ platformKey, sessionId: currentSessionId, limit: 1 });
+    return {
+      type: 'handled',
+      message: [
+        '🧠 Memory 状态：',
+        `- 会话开关：${enabled ? 'on' : 'off'}`,
+        `- 当前会话：${currentSessionId ?? '无'}`,
+        `- 可见 memory：${list.length > 0 ? '>= 1' : '0'}`,
+      ].join('\n'),
+    };
+  }
+
+  const list = await memoryService.list({
+    platformKey,
+    sessionId: currentSessionId,
+    limit: 10,
+  });
+
+  const enabled = currentSessionId ? memoryService.isSessionEnabled(platformKey, currentSessionId) : true;
+
+  if (list.length === 0) {
+    return {
+      type: 'handled',
+      message: [
+        '📭 当前暂无 memory。',
+        `- 会话开关：${enabled ? 'on' : 'off'}`,
+        '- 你可以通过包含偏好/规则的消息让系统自动学习。',
+        '- 用法：/memory | /memory on | /memory off | /memory pin <id> | /memory forget <id>',
+      ].join('\n'),
+    };
+  }
+
+  const lines = list.map((item, index) => {
+    const marker = item.pinned ? '📌' : '  ';
+    return `${index + 1}. ${marker} [${item.id}] (${item.type}/${item.scope}) ${item.summary}`;
+  });
+
+  return {
+    type: 'handled',
+    message: [
+      `🧠 Memory 列表（${list.length} 条，可见范围）`,
+      `- 会话开关：${enabled ? 'on' : 'off'}`,
+      ...lines,
+      '',
+      '用法：/memory on | /memory off | /memory pin <id> | /memory forget <id>',
+    ].join('\n'),
+  };
+}
 function handleSkillsCommand(args: string[]): CommandResult {
   const registry = getSkillRegistry();
   if (!registry) {
@@ -418,6 +542,10 @@ function buildHelpMessage(): string {
     '/clear - 清空当前会话上下文',
     '/reset - /clear 的别名',
     '/compact - 强制压缩当前会话上下文',
+    '/memory - 查看 memory 列表',
+    '/memory on|off - 开关当前会话 memory',
+    '/memory pin <id> - 置顶一条 memory',
+    '/memory forget <id> - 删除一条 memory',
     '/current - 查看当前绑定会话',
     '/detach - 断开当前会话绑定（不删除历史）',
     '/resume - 查看历史会话（最近 10 条）',
