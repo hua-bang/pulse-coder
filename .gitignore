@@ -140,3 +140,8 @@ vite.config.ts.timestamp-*
 
 # Pulse Coder generated images
 apps/remote-server/.pulse-coder/generated-images/
+apps/remote-server/*.png
+apps/remote-server/*.jpg
+apps/remote-server/*.jpeg
+apps/remote-server/*.webp
+apps/remote-server/*.svg
