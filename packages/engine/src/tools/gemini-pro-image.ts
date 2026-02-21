@@ -58,16 +58,12 @@ export const GeminiProImageTool: Tool<
   description:
     'Generate an image with Gemini and save it to local disk. Requires GEMINI_API_KEY. Model defaults to GEMINI_PRO_IMAGE_MODEL or gemini-pro-image.',
   inputSchema: z.object({
-    prompt: z.string().describe('Image generation prompt'),
-    model: z.string().optional().describe('Gemini model name. Defaults to GEMINI_PRO_IMAGE_MODEL or gemini-pro-image.'),
+    prompt: z.string().describe('The prompts for image generation need to describe in detail the content, style, and composition of the image you want to generate.'),
+    model: z.string().optional().describe('Gemini model name. Defaults to GEMINI_PRO_IMAGE_MODEL or google/gemini-3-pro-image-preview.'),
     outputPath: z
       .string()
       .optional()
       .describe('Optional output file path. Relative paths resolve from current working directory.'),
-    mimeType: z
-      .enum(['image/png', 'image/jpeg', 'image/webp'])
-      .optional()
-      .describe('Preferred image mime type. Defaults to image/png.'),
     includeBase64: z
       .boolean()
       .optional()
@@ -111,8 +107,7 @@ export const GeminiProImageTool: Tool<
             },
           ],
           generationConfig: {
-            responseModalities: ['TEXT', 'IMAGE'],
-            responseMimeType: mimeType,
+            responseModalities: ['TEXT', 'IMAGE']
           },
         }),
         signal: abortController.signal,
