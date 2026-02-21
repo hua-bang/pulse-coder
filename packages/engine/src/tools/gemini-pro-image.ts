@@ -73,7 +73,7 @@ export const GeminiProImageTool: Tool<
       .optional()
       .describe('Request timeout in milliseconds. Defaults to 120000 (2 minutes).'),
   }),
-  execute: async ({ prompt, model, outputPath, mimeType = 'image/png', includeBase64 = false, timeout = DEFAULT_TIMEOUT }) => {
+  execute: async ({ prompt, model, outputPath, includeBase64 = false, timeout = DEFAULT_TIMEOUT }) => {
     if (!prompt.trim()) {
       throw new Error('prompt is required');
     }
