@@ -1,4 +1,6 @@
 import * as lark from '@larksuiteoapi/node-sdk';
+import { readFile } from 'fs/promises';
+import { basename } from 'path';
 
 /**
  * Create a Feishu SDK Client instance.
@@ -18,7 +20,142 @@ export function createLarkClient(): lark.Client {
   });
 }
 
+
+interface FeishuApiResponse<T> {
+  code: number;
+  msg: string;
+  data?: T;
+}
+
+let cachedTenantAccessToken: string | null = null;
+let tenantAccessTokenExpiresAt = 0;
+
+function getFeishuBaseUrl(): string {
+  const envBaseUrl = process.env.FEISHU_API_BASE_URL?.trim();
+  return (envBaseUrl || 'https://open.feishu.cn').replace(/\/$/, '');
+}
+
+async function getTenantAccessToken(): Promise<string> {
+  if (cachedTenantAccessToken && Date.now() < tenantAccessTokenExpiresAt - 60_000) {
+    return cachedTenantAccessToken;
+  }
+
+  const appId = process.env.FEISHU_APP_ID?.trim();
+  const appSecret = process.env.FEISHU_APP_SECRET?.trim();
+  if (!appId || !appSecret) {
+    throw new Error('FEISHU_APP_ID and FEISHU_APP_SECRET are required');
+  }
+
+  const response = await fetch(`${getFeishuBaseUrl()}/open-apis/auth/v3/tenant_access_token/internal`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      app_id: appId,
+      app_secret: appSecret,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Failed to get Feishu tenant access token: ${response.status} ${response.statusText} - ${body}`);
+  }
+
+  const payload = (await response.json()) as FeishuApiResponse<never> & {
+    tenant_access_token?: string;
+    expire?: number;
+  };
+
+  if (payload.code !== 0 || !payload.tenant_access_token) {
+    throw new Error(`Failed to get Feishu tenant access token: ${payload.msg || 'unknown error'}`);
+  }
+
+  cachedTenantAccessToken = payload.tenant_access_token;
+  tenantAccessTokenExpiresAt = Date.now() + (payload.expire ?? 7200) * 1000;
+
+  return cachedTenantAccessToken;
+}
+
+async function uploadImageToFeishu(imagePath: string, mimeType?: string): Promise<string> {
+  const imageBuffer = await readFile(imagePath);
+  if (imageBuffer.length === 0) {
+    throw new Error(`Image file is empty: ${imagePath}`);
+  }
+
+  const token = await getTenantAccessToken();
+  const formData = new FormData();
+  const filename = basename(imagePath);
+
+  formData.append('image_type', 'message');
+  formData.append('image', new Blob([imageBuffer], { type: mimeType || 'image/png' }), filename);
+
+  const response = await fetch(`${getFeishuBaseUrl()}/open-apis/im/v1/images`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Failed to upload image to Feishu: ${response.status} ${response.statusText} - ${body}`);
+  }
+
+  const payload = (await response.json()) as FeishuApiResponse<{ image_key?: string }>;
+  const imageKey = payload.data?.image_key;
+
+  if (payload.code !== 0 || !imageKey) {
+    throw new Error(`Failed to upload image to Feishu: ${payload.msg || 'unknown error'}`);
+  }
+
+  return imageKey;
+}
+
 type ReceiveIdType = 'open_id' | 'chat_id' | 'user_id' | 'union_id' | 'email';
+
+/**
+ * Upload a local image and send it as a Feishu image message.
+ * Returns the message_id of the sent message.
+ */
+export async function sendImageMessage(
+  receiveId: string,
+  receiveIdType: ReceiveIdType,
+  imagePath: string,
+  mimeType?: string,
+): Promise<string> {
+  const imageKey = await uploadImageToFeishu(imagePath, mimeType);
+  const token = await getTenantAccessToken();
+
+  const response = await fetch(
+    `${getFeishuBaseUrl()}/open-apis/im/v1/messages?receive_id_type=${encodeURIComponent(receiveIdType)}`,
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        receive_id: receiveId,
+        msg_type: 'image',
+        content: JSON.stringify({ image_key: imageKey }),
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Failed to send image message to Feishu: ${response.status} ${response.statusText} - ${body}`);
+  }
+
+  const payload = (await response.json()) as FeishuApiResponse<{ message_id?: string }>;
+  if (payload.code !== 0) {
+    throw new Error(`Failed to send image message to Feishu: ${payload.msg || 'unknown error'}`);
+  }
+
+  return payload.data?.message_id ?? '';
+}
 
 /**
  * Send a plain text message.
@@ -40,7 +177,6 @@ export async function sendTextMessage(
   });
   return res.data?.message_id ?? '';
 }
-
 /**
  * Send an interactive card message.
  * Returns the message_id of the sent message.
