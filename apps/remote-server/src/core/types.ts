@@ -29,6 +29,7 @@ export interface IncomingMessage {
 export interface StreamHandle {
   onText(delta: string): Promise<void>;
   onToolCall(name: string, input: unknown): Promise<void>;
+  onToolResult?(result: unknown): Promise<void>;
   onClarification(req: ClarificationRequest): Promise<void>;
   onDone(result: string): Promise<void>;
   onError(err: Error): Promise<void>;
@@ -36,7 +37,7 @@ export interface StreamHandle {
 
 /**
  * Each platform implements this interface.
- * The dispatcher is fully platform-agnostic — it only calls these 5 methods.
+ * The dispatcher is fully platform-agnostic — it only calls these lifecycle methods.
  */
 export interface PlatformAdapter {
   name: string;

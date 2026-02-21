@@ -120,6 +120,9 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
         onToolCall: (toolCall) => {
           handle?.onToolCall(toolCall.toolName ?? toolCall.name ?? 'unknown', toolCall.args ?? toolCall.input ?? {}).catch(console.error);
         },
+        onToolResult: (toolResult) => {
+          handle?.onToolResult?.(toolResult).catch(console.error);
+        },
         onResponse: (messages) => {
           for (const msg of messages) {
             context.messages.push(msg);

@@ -20,7 +20,7 @@ apiRouter.post('/chat', (c) => dispatch(webAdapter, c));
  * GET /api/stream/:streamId
  * Open an SSE connection to receive events from an agent run.
  *
- * Events: text | tool_call | clarification | done | error
+ * Events: text | tool_call | tool_result | clarification | done | error
  */
 apiRouter.get('/stream/:streamId', (c) => {
   const { streamId } = c.req.param();

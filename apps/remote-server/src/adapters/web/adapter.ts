@@ -61,6 +61,7 @@ export class WebAdapter implements PlatformAdapter {
     return {
       async onText(delta) { push('text', { delta }); },
       async onToolCall(name, input) { push('tool_call', { toolName: name, input }); },
+      async onToolResult(result) { push('tool_result', { result }); },
       async onClarification(req: ClarificationRequest) { push('clarification', req); },
       async onDone(result) {
         push('done', { result });
