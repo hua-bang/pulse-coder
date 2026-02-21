@@ -98,9 +98,26 @@ export const maybeCompactContext = async (
     return { didCompact: false };
   }
 
-  const { oldMessages, recentMessages } = splitByTurns(messages, KEEP_LAST_TURNS);
+  let { oldMessages, recentMessages } = splitByTurns(messages, KEEP_LAST_TURNS);
   if (oldMessages.length === 0) {
-    return { didCompact: false };
+    if (!options?.force) {
+      return { didCompact: false };
+    }
+
+    // In force mode, still try to compact short conversations:
+    // 1) keep the latest user turn when possible;
+    // 2) if there is only one user turn, keep the last message.
+    const forcedByTurn = splitByTurns(messages, 1);
+    oldMessages = forcedByTurn.oldMessages;
+    recentMessages = forcedByTurn.recentMessages;
+
+    if (oldMessages.length === 0) {
+      if (messages.length <= 1) {
+        return { didCompact: false };
+      }
+      oldMessages = messages.slice(0, -1);
+      recentMessages = messages.slice(-1);
+    }
   }
 
   try {
