@@ -1,8 +1,8 @@
-import type { EmbeddingProvider } from 'pulse-coder-memory-plugin';
+import type { EmbeddingProvider } from './types.js';
 
 type EmbeddingStrategy = 'hash' | 'openai';
 
-interface MemoryEmbeddingRuntimeConfig {
+export interface MemoryEmbeddingRuntimeConfig {
   semanticRecallEnabled: boolean;
   strategy: EmbeddingStrategy;
   embeddingDimensions?: number;
@@ -30,8 +30,10 @@ const DEFAULT_OPENAI_DIMENSIONS = 1536;
 const DEFAULT_OPENAI_MODEL = 'text-embedding-3-small';
 const DEFAULT_OPENAI_TIMEOUT_MS = 15000;
 
-export function resolveMemoryEmbeddingRuntimeConfigFromEnv(): MemoryEmbeddingRuntimeConfig {
-  const semanticRecallEnabled = parseBooleanEnv(process.env.MEMORY_SEMANTIC_RECALL_ENABLED, true);
+export function resolveMemoryEmbeddingRuntimeConfigFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): MemoryEmbeddingRuntimeConfig {
+  const semanticRecallEnabled = parseBooleanEnv(env.MEMORY_SEMANTIC_RECALL_ENABLED, true);
   if (!semanticRecallEnabled) {
     console.log('[memory-service] semantic recall disabled via MEMORY_SEMANTIC_RECALL_ENABLED=false');
     return {
@@ -40,9 +42,9 @@ export function resolveMemoryEmbeddingRuntimeConfigFromEnv(): MemoryEmbeddingRun
     };
   }
 
-  const strategy = parseEmbeddingStrategy(process.env.MEMORY_EMBEDDING_STRATEGY);
+  const strategy = parseEmbeddingStrategy(env.MEMORY_EMBEDDING_STRATEGY);
   if (strategy === 'openai') {
-    const openAIProvider = buildOpenAIEmbeddingProviderFromEnv();
+    const openAIProvider = buildOpenAIEmbeddingProviderFromEnv(env);
     if (openAIProvider) {
       console.log(
         `[memory-service] embedding strategy=openai model=${openAIProvider.model} dimensions=${openAIProvider.provider.dimensions}`,
@@ -61,7 +63,7 @@ export function resolveMemoryEmbeddingRuntimeConfigFromEnv(): MemoryEmbeddingRun
   }
 
   const hashDimensions = clamp(
-    parseIntegerEnv(process.env.MEMORY_EMBEDDING_DIMENSIONS) ?? DEFAULT_HASH_DIMENSIONS,
+    parseIntegerEnv(env.MEMORY_EMBEDDING_DIMENSIONS) ?? DEFAULT_HASH_DIMENSIONS,
     MIN_EMBEDDING_DIMENSIONS,
     MAX_EMBEDDING_DIMENSIONS,
   );
@@ -128,25 +130,26 @@ class OpenAICompatibleEmbeddingProvider implements EmbeddingProvider {
   }
 }
 
-function buildOpenAIEmbeddingProviderFromEnv(): {
+function buildOpenAIEmbeddingProviderFromEnv(env: Record<string, string | undefined>): {
   provider: EmbeddingProvider;
   model: string;
 } | undefined {
-  const apiKey = firstNonEmpty(process.env.MEMORY_EMBEDDING_API_KEY, process.env.OPENAI_API_KEY);
-  const baseUrl = firstNonEmpty(process.env.MEMORY_EMBEDDING_API_URL, process.env.OPENAI_API_URL);
+  const apiKey = firstNonEmpty(env.MEMORY_EMBEDDING_API_KEY, env.OPENAI_API_KEY);
+  const baseUrl = firstNonEmpty(env.MEMORY_EMBEDDING_API_URL, env.OPENAI_API_URL);
   if (!apiKey || !baseUrl) {
     return undefined;
   }
 
-  const model = firstNonEmpty(process.env.MEMORY_EMBEDDING_MODEL, process.env.OPENAI_EMBEDDING_MODEL, DEFAULT_OPENAI_MODEL) ?? DEFAULT_OPENAI_MODEL;
+  const model = firstNonEmpty(env.MEMORY_EMBEDDING_MODEL, env.OPENAI_EMBEDDING_MODEL, DEFAULT_OPENAI_MODEL)
+    ?? DEFAULT_OPENAI_MODEL;
   const dimensions = clamp(
-    parseIntegerEnv(process.env.MEMORY_EMBEDDING_DIMENSIONS) ?? DEFAULT_OPENAI_DIMENSIONS,
+    parseIntegerEnv(env.MEMORY_EMBEDDING_DIMENSIONS) ?? DEFAULT_OPENAI_DIMENSIONS,
     MIN_EMBEDDING_DIMENSIONS,
     MAX_EMBEDDING_DIMENSIONS,
   );
   const timeoutMs = Math.max(
     1000,
-    parseIntegerEnv(process.env.MEMORY_EMBEDDING_TIMEOUT_MS) ?? DEFAULT_OPENAI_TIMEOUT_MS,
+    parseIntegerEnv(env.MEMORY_EMBEDDING_TIMEOUT_MS) ?? DEFAULT_OPENAI_TIMEOUT_MS,
   );
 
   return {

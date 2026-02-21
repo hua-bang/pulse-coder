@@ -4,7 +4,7 @@ import { getConnInfo } from '@hono/node-server/conninfo';
 import { createLarkClient, sendTextMessage } from '../adapters/feishu/client.js';
 import { engine } from '../core/engine-singleton.js';
 import { sessionStore } from '../core/session-store.js';
-import { withEngineMemoryRunContext } from '../core/engine-run-context.js';
+import { memoryIntegration } from '../core/memory-integration.js';
 import type { ClarificationRequest } from '../core/types.js';
 
 type ReceiveIdType = 'open_id' | 'chat_id' | 'user_id' | 'union_id' | 'email';
@@ -95,7 +95,7 @@ internalRouter.post('/agent/run', async (c) => {
 
     context.messages.push({ role: 'user', content: text });
 
-    const result = await withEngineMemoryRunContext(
+    const result = await memoryIntegration.withRunContext(
       {
         platformKey,
         sessionId,
