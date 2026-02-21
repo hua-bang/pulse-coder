@@ -40,6 +40,38 @@ class CoderCLI {
     this.skillCommands = new SkillCommands(this.agent);
   }
 
+  private safeStringify(value: unknown): string {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  private estimateTokens(messages: Context['messages']): number {
+    let totalChars = 0;
+
+    for (const message of messages) {
+      totalChars += message.role.length;
+      if (typeof message.content === 'string') {
+        totalChars += message.content.length;
+      } else {
+        totalChars += this.safeStringify(message.content).length;
+      }
+    }
+
+    return Math.ceil(totalChars / 4);
+  }
+
+  private getKeepLastTurns(): number {
+    const value = Number(process.env.KEEP_LAST_TURNS ?? 4);
+    if (!Number.isFinite(value) || value <= 0) {
+      return 4;
+    }
+
+    return Math.floor(value);
+  }
+
   private async syncSessionTaskListBinding(): Promise<void> {
     const taskListId = this.sessionCommands.getCurrentTaskListId();
     if (!taskListId) {
@@ -156,18 +188,29 @@ class CoderCLI {
           }
 
           const beforeCount = this.context.messages.length;
+          const beforeTokens = this.estimateTokens(this.context.messages);
+          const keepLastTurns = this.getKeepLastTurns();
           const compactResult = await this.agent.compactContext(this.context, { force: true });
 
           if (!compactResult.didCompact || !compactResult.newMessages) {
             console.log('\nℹ️ No compaction was applied.');
+            console.log(`Messages: ${beforeCount}, estimated tokens: ~${beforeTokens}, KEEP_LAST_TURNS=${keepLastTurns}`);
             break;
           }
 
           this.context.messages = compactResult.newMessages;
           await this.sessionCommands.saveContext(this.context);
 
-          const reasonSuffix = compactResult.reason ? ` (reason: ${compactResult.reason})` : '';
-          console.log(`\n🧩 Context compacted: ${beforeCount} -> ${this.context.messages.length} messages${reasonSuffix}`);
+          const afterCount = this.context.messages.length;
+          const afterTokens = this.estimateTokens(this.context.messages);
+          const tokenDelta = beforeTokens - afterTokens;
+          const tokenDeltaText = tokenDelta >= 0 ? `-${tokenDelta}` : `+${Math.abs(tokenDelta)}`;
+          const reasonSuffix = compactResult.reason ? ` (${compactResult.reason})` : '';
+
+          console.log(`\n🧩 Context compacted${reasonSuffix}`);
+          console.log(`Messages: ${beforeCount} -> ${afterCount}`);
+          console.log(`Estimated tokens: ~${beforeTokens} -> ~${afterTokens} (${tokenDeltaText})`);
+          console.log(`KEEP_LAST_TURNS=${keepLastTurns}`);
           break;
 
         case 'skills':
