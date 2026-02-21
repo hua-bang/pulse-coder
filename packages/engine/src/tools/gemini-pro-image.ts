@@ -26,6 +26,12 @@ interface GenerateResponse {
   };
 }
 
+interface GenerateRequestTarget {
+  endpoint: string;
+  headers: Record<string, string>;
+  model: string;
+}
+
 const DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const DEFAULT_MODEL = 'gemini-pro-image';
 const DEFAULT_TIMEOUT = 120000;
@@ -87,18 +93,16 @@ export const GeminiProImageTool: Tool<
 
     const resolvedModel = model?.trim() || process.env.GEMINI_PRO_IMAGE_MODEL?.trim() || DEFAULT_MODEL;
     const baseUrl = (process.env.GEMINI_API_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/$/, '');
-    const endpoint = `${baseUrl}/models/${encodeURIComponent(resolvedModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const requestTarget = buildGenerateRequestTarget(baseUrl, resolvedModel, apiKey);
 
     const abortController = new AbortController();
     const timeoutId = setTimeout(() => abortController.abort(), timeout);
 
     let response: Response;
     try {
-      response = await fetch(endpoint, {
+      response = await fetch(requestTarget.endpoint, {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-        },
+        headers: requestTarget.headers,
         body: JSON.stringify({
           contents: [
             {
@@ -144,7 +148,7 @@ export const GeminiProImageTool: Tool<
     await writeFile(finalOutputPath, Buffer.from(image.base64, 'base64'));
 
     return {
-      model: resolvedModel,
+      model: requestTarget.model,
       text,
       mimeType: image.mimeType,
       outputPath: finalOutputPath,
@@ -190,6 +194,58 @@ function extractText(data: GenerateResponse): string {
   }
 
   return chunks.join('\n').trim();
+}
+
+function buildGenerateRequestTarget(baseUrl: string, model: string, apiKey: string): GenerateRequestTarget {
+  if (isVertexBaseUrl(baseUrl)) {
+    const normalizedVertexBaseUrl = baseUrl.replace(/\/v1(?:beta)?$/, '');
+    const vertexModel = parseVertexModel(model);
+
+    return {
+      endpoint: `${normalizedVertexBaseUrl}/v1/publishers/${encodeURIComponent(vertexModel.provider)}/models/${encodeURIComponent(vertexModel.model)}:generateContent`,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      model: vertexModel.fullModel,
+    };
+  }
+
+  return {
+    endpoint: `${baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    model,
+  };
+}
+
+function isVertexBaseUrl(baseUrl: string): boolean {
+  return baseUrl.includes('/api/vertex-ai');
+}
+
+function parseVertexModel(model: string): { provider: string; model: string; fullModel: string } {
+  const slashIndex = model.indexOf('/');
+  if (slashIndex === -1) {
+    return {
+      provider: 'google',
+      model,
+      fullModel: `google/${model}`,
+    };
+  }
+
+  const provider = model.slice(0, slashIndex).trim();
+  const modelName = model.slice(slashIndex + 1).trim();
+
+  if (!provider || !modelName) {
+    throw new Error(`Invalid Vertex AI model "${model}". Expected "<provider>/<model>".`);
+  }
+
+  return {
+    provider,
+    model: modelName,
+    fullModel: `${provider}/${modelName}`,
+  };
 }
 
 function resolveOutputPath(outputPath: string | undefined, mimeType: string): string {
