@@ -137,3 +137,6 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Pulse Coder generated images
+apps/remote-server/.pulse-coder/generated-images/

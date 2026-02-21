@@ -1,7 +1,9 @@
 import { randomUUID } from 'crypto';
+import { existsSync } from 'fs';
 import { Hono, type Context } from 'hono';
 import { getConnInfo } from '@hono/node-server/conninfo';
-import { createLarkClient, sendTextMessage } from '../adapters/feishu/client.js';
+import { createLarkClient, sendImageMessage, sendTextMessage } from '../adapters/feishu/client.js';
+import { extractGeminiImageResult } from '../adapters/feishu/image-result.js';
 import { engine } from '../core/engine-singleton.js';
 import { sessionStore } from '../core/session-store.js';
 import { memoryIntegration } from '../core/memory-integration.js';
@@ -12,7 +14,7 @@ type ReceiveIdType = 'open_id' | 'chat_id' | 'user_id' | 'union_id' | 'email';
 type AskPolicy = 'never' | 'default';
 
 interface FeishuNotifyConfig {
-  receiveId: string;
+  receiveId?: string;
   receiveIdType?: ReceiveIdType;
 }
 
@@ -40,6 +42,11 @@ interface NotifyResult {
 interface ToolCallSnapshot {
   name: string;
   input: unknown;
+}
+
+interface FeishuTarget {
+  receiveId: string;
+  receiveIdType: ReceiveIdType;
 }
 
 const DEFAULT_PLATFORM_KEY = 'internal:agent-run';
@@ -87,6 +94,9 @@ internalRouter.post('/agent/run', async (c) => {
   let sessionId = '';
   const toolCalls: ToolCallSnapshot[] = [];
   const clarifications: Array<{ id: string; usedDefault: boolean }> = [];
+  const feishuTarget = resolveFeishuTarget(body.notify?.feishu, platformKey);
+  const sentImagePaths = new Set<string>();
+  const imageNotifyTasks: Promise<void>[] = [];
 
   try {
     const session = await sessionStore.getOrCreate(platformKey, forceNewSession);
@@ -107,6 +117,34 @@ internalRouter.post('/agent/run', async (c) => {
           const input = toolCall.args ?? toolCall.input ?? {};
           toolCalls.push({ name, input });
         },
+        onToolResult: (toolResult) => {
+          if (!feishuTarget) {
+            return;
+          }
+
+          const imageResult = extractGeminiImageResult(toolResult);
+          if (!imageResult) {
+            return;
+          }
+
+          if (!existsSync(imageResult.outputPath) || sentImagePaths.has(imageResult.outputPath)) {
+            return;
+          }
+
+          sentImagePaths.add(imageResult.outputPath);
+          imageNotifyTasks.push(
+            sendImageMessage(
+              feishuTarget.receiveId,
+              feishuTarget.receiveIdType,
+              imageResult.outputPath,
+              imageResult.mimeType,
+            )
+              .then(() => undefined)
+              .catch((err) => {
+                console.error('[internal] Failed to send generated image to Feishu:', err);
+              }),
+          );
+        },
         onResponse: (messages) => {
           for (const msg of messages) {
             context.messages.push(msg);
@@ -124,6 +162,8 @@ internalRouter.post('/agent/run', async (c) => {
     );
 
     await sessionStore.save(sessionId, context);
+
+    await Promise.allSettled(imageNotifyTasks);
 
     const notifyResult = await sendOptionalFeishuNotification(body.notify, {
       runId,
@@ -147,6 +187,8 @@ internalRouter.post('/agent/run', async (c) => {
     });
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
+
+    await Promise.allSettled(imageNotifyTasks);
 
     const notifyResult = await sendOptionalFeishuNotification(body.notify, {
       runId,
@@ -288,12 +330,10 @@ async function sendOptionalFeishuNotification(
     result: string;
   },
 ): Promise<NotifyResult> {
-  const feishu = notify?.feishu;
-  if (!feishu?.receiveId) {
+  const target = resolveFeishuTarget(notify?.feishu, payload.platformKey);
+  if (!target) {
     return { ok: true, skipped: true };
   }
-
-  const receiveIdType: ReceiveIdType = feishu.receiveIdType ?? 'open_id';
 
   const title = payload.ok ? '[agent-run] done' : '[agent-run] failed';
   const skillLine = payload.skill ? `skill: ${payload.skill}\n` : '';
@@ -308,7 +348,7 @@ async function sendOptionalFeishuNotification(
 
   try {
     const client = createLarkClient();
-    await sendTextMessage(client, feishu.receiveId, receiveIdType, message);
+    await sendTextMessage(client, target.receiveId, target.receiveIdType, message);
     return { ok: true, skipped: false };
   } catch (err) {
     return {
@@ -317,6 +357,38 @@ async function sendOptionalFeishuNotification(
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+
+function resolveFeishuTarget(feishu: FeishuNotifyConfig | undefined, platformKey: string): FeishuTarget | null {
+  if (!feishu) {
+    return null;
+  }
+
+  if (feishu.receiveId) {
+    return {
+      receiveId: feishu.receiveId,
+      receiveIdType: feishu.receiveIdType ?? 'open_id',
+    };
+  }
+
+  const groupMatch = /^feishu:group:([^:]+):[^:]+$/.exec(platformKey);
+  if (groupMatch) {
+    return {
+      receiveId: groupMatch[1],
+      receiveIdType: 'chat_id',
+    };
+  }
+
+  const directMatch = /^feishu:([^:]+)$/.exec(platformKey);
+  if (directMatch) {
+    return {
+      receiveId: directMatch[1],
+      receiveIdType: 'open_id',
+    };
+  }
+
+  return null;
 }
 
 function truncateForFeishu(text: string, maxLength = 3000): string {
