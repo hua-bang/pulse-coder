@@ -5,7 +5,7 @@ import { engine } from './engine-singleton.js';
 import { sessionStore } from './session-store.js';
 import { clarificationQueue } from './clarification-queue.js';
 import { processIncomingCommand, type CommandResult } from './chat-commands.js';
-import { withEngineMemoryRunContext } from './engine-run-context.js';
+import { memoryIntegration } from './memory-integration.js';
 import {
   hasActiveRun,
   setActiveRun,
@@ -106,7 +106,7 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
     // Append the user's message to context
     context.messages.push({ role: 'user', content: text });
 
-    const finalText = await withEngineMemoryRunContext(
+    const finalText = await memoryIntegration.withRunContext(
       {
         platformKey,
         sessionId,

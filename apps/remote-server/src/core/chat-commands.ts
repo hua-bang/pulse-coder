@@ -1,7 +1,7 @@
 import { engine } from './engine-singleton.js';
 import { sessionStore } from './session-store.js';
 import type { IncomingMessage } from './types.js';
-import { memoryService } from './memory-service.js';
+import { memoryService } from './memory-integration.js';
 import { abortActiveRun, getActiveRun } from './active-run-store.js';
 
 interface SkillSummary {
