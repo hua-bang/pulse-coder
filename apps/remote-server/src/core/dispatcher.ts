@@ -5,7 +5,7 @@ import { engine } from './engine-singleton.js';
 import { sessionStore } from './session-store.js';
 import { clarificationQueue } from './clarification-queue.js';
 import { processIncomingCommand, type CommandResult } from './chat-commands.js';
-import { memoryIntegration } from './memory-integration.js';
+import { memoryIntegration, recordDailyLogFromSuccessPath } from './memory-integration.js';
 import {
   hasActiveRun,
   setActiveRun,
@@ -199,6 +199,13 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
     );
 
     await sessionStore.save(sessionId, context);
+    await recordDailyLogFromSuccessPath({
+      platformKey,
+      sessionId,
+      userText: text,
+      assistantText: finalText,
+      source: 'dispatcher',
+    });
     await handle.onDone(finalText);
 
     if (compactionEvents.length > 0) {

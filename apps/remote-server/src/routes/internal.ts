@@ -6,7 +6,7 @@ import { createLarkClient, sendImageMessage, sendTextMessage } from '../adapters
 import { extractGeminiImageResult } from '../adapters/feishu/image-result.js';
 import { engine } from '../core/engine-singleton.js';
 import { sessionStore } from '../core/session-store.js';
-import { memoryIntegration } from '../core/memory-integration.js';
+import { memoryIntegration, recordDailyLogFromSuccessPath } from '../core/memory-integration.js';
 import type { ClarificationRequest } from '../core/types.js';
 
 type ReceiveIdType = 'open_id' | 'chat_id' | 'user_id' | 'union_id' | 'email';
@@ -189,6 +189,13 @@ internalRouter.post('/agent/run', async (c) => {
     );
 
     await sessionStore.save(sessionId, context);
+    await recordDailyLogFromSuccessPath({
+      platformKey,
+      sessionId,
+      userText: text,
+      assistantText: result,
+      source: 'internal',
+    });
 
     await Promise.allSettled(imageNotifyTasks);
 

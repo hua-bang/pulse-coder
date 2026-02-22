@@ -10,3 +10,32 @@ export const memoryIntegration = createMemoryIntegrationFromEnv({
 });
 
 export const memoryService = memoryIntegration.service;
+
+export async function recordDailyLogFromSuccessPath(input: {
+  platformKey: string;
+  sessionId: string;
+  userText: string;
+  assistantText: string;
+  source: 'dispatcher' | 'internal';
+}): Promise<void> {
+  const userText = input.userText.trim();
+  const assistantText = input.assistantText.trim();
+  if (!userText && !assistantText) {
+    return;
+  }
+
+  try {
+    await memoryService.recordTurn({
+      platformKey: input.platformKey,
+      sessionId: input.sessionId,
+      userText,
+      assistantText,
+      sourceType: 'daily-log',
+    });
+  } catch (error) {
+    console.warn(
+      `[memory-plugin] ${input.source} daily-log write failed platform=${input.platformKey} session=${input.sessionId}`,
+      error,
+    );
+  }
+}
