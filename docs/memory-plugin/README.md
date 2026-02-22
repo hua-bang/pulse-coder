@@ -8,6 +8,8 @@ This folder contains the detailed design for the memory system implemented as a 
   - Product goals, user scenarios, feature scope, UX, metrics, and rollout.
 - `docs/memory-plugin/technical-design.md`
   - Architecture, middleware contracts, data model, retrieval/write pipelines, security, and operations.
+- `docs/memory-plugin/memory-production-v1.md`
+  - Practical production write policy for explicit long-term memory and selective daily-log memory.
 
 ## Design Principles
 
