@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
+    "prebuild": "npm --prefix ../../packages/engine run build",
     "dev": "tsx watch src/index.ts",
     "build": "tsup",
     "start": "node dist/index.cjs",

@@ -281,6 +281,10 @@ async function handleCompactCommand(platformKey: string): Promise<CommandResult>
   }
 
   const beforeCount = current.context.messages.length;
+  const beforeTokens = estimateMessageTokens(current.context.messages);
+  const compactTrigger = getCompactTriggerTokens();
+  const compactTarget = getCompactTargetTokens();
+  const keepLastTurns = getKeepLastTurns();
 
   try {
     const compactResult = await engine.compactContext(current.context, { force: true });
@@ -288,17 +292,35 @@ async function handleCompactCommand(platformKey: string): Promise<CommandResult>
     if (!compactResult.didCompact || !compactResult.newMessages) {
       return {
         type: 'handled',
-        message: 'ℹ️ 本次没有触发压缩。',
+        message: [
+          'ℹ️ 本次没有触发压缩。',
+          `- 消息数: ${beforeCount}`,
+          `- 估算 tokens: ~${beforeTokens}`,
+          `- 压缩阈值(触发/目标): ${compactTrigger}/${compactTarget}`,
+          `- KEEP_LAST_TURNS: ${keepLastTurns}`,
+          `- 原因: ${compactResult.reason ?? 'not-triggered'}`,
+        ].join('\n'),
       };
     }
 
     current.context.messages = compactResult.newMessages;
     await sessionStore.save(current.sessionId, current.context);
 
-    const reasonSuffix = compactResult.reason ? `（原因: ${compactResult.reason}）` : '';
+    const afterCount = current.context.messages.length;
+    const afterTokens = estimateMessageTokens(current.context.messages);
+    const messageDelta = beforeCount - afterCount;
+    const tokenDelta = beforeTokens - afterTokens;
+
     return {
       type: 'handled',
-      message: `🧩 已压缩上下文: ${beforeCount} -> ${current.context.messages.length} 条消息${reasonSuffix}`,
+      message: [
+        '🧩 已压缩上下文',
+        `- 消息数: ${beforeCount} -> ${afterCount} (减少 ${messageDelta})`,
+        `- 估算 tokens: ~${beforeTokens} -> ~${afterTokens} (减少 ~${tokenDelta})`,
+        `- 压缩阈值(触发/目标): ${compactTrigger}/${compactTarget}`,
+        `- KEEP_LAST_TURNS: ${keepLastTurns}`,
+        `- 原因: ${compactResult.reason ?? 'force-compact'}`,
+      ].join('\n'),
     };
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -579,6 +601,61 @@ function parseListLimit(raw: string | undefined, defaultValue: number, max: numb
   }
 
   return { ok: true, value };
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function estimateMessageTokens(messages: Array<{ role?: unknown; content?: unknown }>): number {
+  let totalChars = 0;
+  for (const message of messages) {
+    totalChars += String(message.role ?? '').length;
+    const content = message.content;
+    if (typeof content === 'string') {
+      totalChars += content.length;
+    } else {
+      totalChars += safeStringify(content).length;
+    }
+  }
+
+  return Math.ceil(totalChars / 4);
+}
+
+function parsePositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+function getContextWindowTokens(): number {
+  return parsePositiveIntEnv('CONTEXT_WINDOW_TOKENS', 64_000);
+}
+
+function getCompactTriggerTokens(): number {
+  const fallback = Math.floor(getContextWindowTokens() * 0.75);
+  return parsePositiveIntEnv('COMPACT_TRIGGER', fallback);
+}
+
+function getCompactTargetTokens(): number {
+  const fallback = Math.floor(getContextWindowTokens() * 0.5);
+  return parsePositiveIntEnv('COMPACT_TARGET', fallback);
+}
+
+function getKeepLastTurns(): number {
+  return parsePositiveIntEnv('KEEP_LAST_TURNS', 4);
 }
 
 function formatTime(ts: number): string {

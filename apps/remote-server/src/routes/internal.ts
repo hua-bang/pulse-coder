@@ -39,6 +39,18 @@ interface NotifyResult {
   error?: string;
 }
 
+interface CompactionSnapshot {
+  attempt: number;
+  trigger: 'pre-loop' | 'length-retry';
+  reason?: string;
+  forced: boolean;
+  strategy: 'summary' | 'summary-too-large' | 'fallback';
+  beforeMessageCount: number;
+  afterMessageCount: number;
+  beforeEstimatedTokens: number;
+  afterEstimatedTokens: number;
+}
+
 interface ToolCallSnapshot {
   name: string;
   input: unknown;
@@ -93,6 +105,7 @@ internalRouter.post('/agent/run', async (c) => {
 
   let sessionId = '';
   const toolCalls: ToolCallSnapshot[] = [];
+  const compactions: CompactionSnapshot[] = [];
   const clarifications: Array<{ id: string; usedDefault: boolean }> = [];
   const feishuTarget = resolveFeishuTarget(body.notify?.feishu, platformKey);
   const sentImagePaths = new Set<string>();
@@ -150,7 +163,21 @@ internalRouter.post('/agent/run', async (c) => {
             context.messages.push(msg);
           }
         },
-        onCompacted: (newMessages) => {
+        onCompacted: (newMessages, event) => {
+          if (event) {
+            compactions.push({
+              attempt: event.attempt,
+              trigger: event.trigger,
+              reason: event.reason,
+              forced: event.forced,
+              strategy: event.strategy,
+              beforeMessageCount: event.beforeMessageCount,
+              afterMessageCount: event.afterMessageCount,
+              beforeEstimatedTokens: event.beforeEstimatedTokens,
+              afterEstimatedTokens: event.afterEstimatedTokens,
+            });
+          }
+
           context.messages = newMessages;
         },
         onClarificationRequest: async (request: ClarificationRequest) => {
@@ -164,6 +191,12 @@ internalRouter.post('/agent/run', async (c) => {
     await sessionStore.save(sessionId, context);
 
     await Promise.allSettled(imageNotifyTasks);
+
+    if (compactions.length > 0) {
+      console.info(
+        `[internal] compacted ${platformKey} session=${sessionId} details=${formatCompactionEvents(compactions)}`,
+      );
+    }
 
     const notifyResult = await sendOptionalFeishuNotification(body.notify, {
       runId,
@@ -182,6 +215,8 @@ internalRouter.post('/agent/run', async (c) => {
       requestText: text,
       result,
       toolCalls,
+      compactionCount: compactions.length,
+      compactions,
       clarificationCount: clarifications.length,
       notify: notifyResult,
     });
@@ -208,6 +243,8 @@ internalRouter.post('/agent/run', async (c) => {
         requestText: text,
         error,
         toolCalls,
+        compactionCount: compactions.length,
+        compactions,
         clarificationCount: clarifications.length,
         notify: notifyResult,
       },
@@ -216,6 +253,15 @@ internalRouter.post('/agent/run', async (c) => {
   }
 });
 
+
+function formatCompactionEvents(events: CompactionSnapshot[]): string {
+  return events
+    .map((event) => {
+      const reason = event.reason ?? event.strategy;
+      return `#${event.attempt} ${event.trigger} ${reason} msgs:${event.beforeMessageCount}->${event.afterMessageCount} tokens:${event.beforeEstimatedTokens}->${event.afterEstimatedTokens}`;
+    })
+    .join(' | ');
+}
 
 function isLocalInternalRequest(c: Context): boolean {
   const connInfo = getConnInfo(c);
