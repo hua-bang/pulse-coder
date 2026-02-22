@@ -26,19 +26,19 @@ export interface RemoteSkillsConfig {
 }
 
 export async function loadRemoteSkillsConfig(cwd: string): Promise<RemoteSkillsConfig> {
-  const configPath = path.join(cwd, '.pulse-coder', 'remote-skills.json');
+  const configPath = path.join(cwd, '.pulse-coder', 'skills', 'remote.json');
   if (!existsSync(configPath)) {
     return { endpoints: [] };
   }
   try {
     const parsed = JSON.parse(readFileSync(configPath, 'utf-8'));
     if (!Array.isArray(parsed.endpoints)) {
-      console.warn('[Skills] remote-skills.json missing "endpoints" array');
+      console.warn('[Skills] skills/remote.json missing "endpoints" array');
       return { endpoints: [] };
     }
     return { endpoints: parsed.endpoints };
   } catch (error) {
-    console.warn(`[Skills] Failed to load remote-skills.json: ${error instanceof Error ? error.message : error}`);
+    console.warn(`[Skills] Failed to load skills/remote.json: ${error instanceof Error ? error.message : error}`);
     return { endpoints: [] };
   }
 }
