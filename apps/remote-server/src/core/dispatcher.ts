@@ -68,20 +68,41 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
   const { platformKey, forceNewSession } = incoming;
   let text = incoming.text;
 
+  // Start streaming feedback early for long-running slash commands (for better UX on Feishu/Telegram)
+  let commandHandle: StreamHandle | null = null;
+  let commandStreamId: string | null = null;
+
+  const getCommandStreamId = (): string => {
+    if (commandStreamId) {
+      return commandStreamId;
+    }
+
+    commandStreamId = incoming.streamId ?? randomUUID();
+    return commandStreamId;
+  };
+
+  if (shouldStreamCommandProgress(text) && !hasActiveRun(platformKey)) {
+    try {
+      commandHandle = await adapter.createStreamHandle(incoming, getCommandStreamId());
+      await commandHandle.onText('🧩 正在压缩上下文，请稍候...');
+    } catch (err) {
+      console.error(`[dispatcher] Failed to stream command progress for ${incoming.platformKey}:`, err);
+      commandHandle = null;
+    }
+  }
+
   // Handle slash commands before entering agent run loop
   let commandResult: CommandResult;
   try {
     commandResult = await processIncomingCommand(incoming);
   } catch (err) {
-    const commandStreamId = incoming.streamId ?? randomUUID();
-    const handle = await adapter.createStreamHandle(incoming, commandStreamId);
+    const handle = commandHandle ?? await adapter.createStreamHandle(incoming, getCommandStreamId());
     await handle.onError(err instanceof Error ? err : new Error(String(err)));
     return;
   }
 
   if (commandResult.type === 'handled') {
-    const commandStreamId = incoming.streamId ?? randomUUID();
-    const handle = await adapter.createStreamHandle(incoming, commandStreamId);
+    const handle = commandHandle ?? await adapter.createStreamHandle(incoming, getCommandStreamId());
     await handle.onDone(commandResult.message);
     return;
   }
@@ -220,6 +241,16 @@ function formatCompactionEvents(events: CompactionSnapshot[]): string {
       return `#${event.attempt} ${event.trigger} ${reason} msgs:${event.beforeMessageCount}->${event.afterMessageCount} tokens:${event.beforeEstimatedTokens}->${event.afterEstimatedTokens}`;
     })
     .join(' | ');
+}
+
+function shouldStreamCommandProgress(text: string): boolean {
+  const trimmed = text.trim().toLowerCase();
+  if (!trimmed.startsWith('/')) {
+    return false;
+  }
+
+  const command = trimmed.slice(1).split(/\s+/, 1)[0] ?? '';
+  return command === 'compact';
 }
 
 function isAbortError(error: Error): boolean {
