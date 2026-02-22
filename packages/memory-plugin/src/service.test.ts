@@ -289,6 +289,46 @@ describe('FileMemoryPluginService', () => {
     expect(afterExplicit.every((item) => item.sourceType === 'explicit')).toBe(true);
   });
 
+  it('stores profile facts as user-scope memory across sessions', async () => {
+    const { service } = await createService();
+
+    await service.recordTurn({
+      platformKey: 'test-platform',
+      sessionId: 'session-profile-a',
+      userText: 'Profile: my name is Jasper.',
+      assistantText: 'Profile captured.',
+      sourceType: 'explicit',
+    });
+
+    const sessionA = await service.list({
+      platformKey: 'test-platform',
+      sessionId: 'session-profile-a',
+      limit: 10,
+    });
+
+    const profileItem = sessionA.find((item) => item.type === 'fact' && item.scope === 'user');
+    expect(profileItem).toBeDefined();
+    expect(profileItem?.content.toLowerCase()).toContain('jasper');
+    expect(profileItem?.sourceType).toBe('explicit');
+
+    const sessionB = await service.list({
+      platformKey: 'test-platform',
+      sessionId: 'session-profile-b',
+      limit: 10,
+    });
+
+    expect(sessionB.some((item) => item.id === profileItem?.id)).toBe(true);
+
+    const recall = await service.recall({
+      platformKey: 'test-platform',
+      sessionId: 'session-profile-b',
+      query: 'what is my name',
+      limit: 5,
+    });
+
+    expect(recall.items.some((item) => item.id === profileItem?.id)).toBe(true);
+  });
+
   it('uses explicit embedding dimensions with a custom provider', async () => {
     class TinyEmbeddingProvider implements EmbeddingProvider {
       readonly dimensions = 128;
