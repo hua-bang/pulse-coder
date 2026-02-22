@@ -5,11 +5,79 @@
 
 import { EnginePlugin, EnginePluginContext } from '../../plugin/EnginePlugin';
 import { Tool } from '../../shared/types';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { globSync } from 'glob';
 import matter from 'gray-matter';
 import { homedir } from 'os';
+import * as path from 'path';
 import { z } from 'zod';
+
+// ---------------------------------------------------------------------------
+// Remote skills config
+// ---------------------------------------------------------------------------
+
+export interface RemoteSkillEndpoint {
+  url: string;
+  headers?: Record<string, string>;
+}
+
+export interface RemoteSkillsConfig {
+  endpoints: RemoteSkillEndpoint[];
+}
+
+export async function loadRemoteSkillsConfig(cwd: string): Promise<RemoteSkillsConfig> {
+  const configPath = path.join(cwd, '.pulse-coder', 'remote-skills.json');
+  if (!existsSync(configPath)) {
+    return { endpoints: [] };
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(configPath, 'utf-8'));
+    if (!Array.isArray(parsed.endpoints)) {
+      console.warn('[Skills] remote-skills.json missing "endpoints" array');
+      return { endpoints: [] };
+    }
+    return { endpoints: parsed.endpoints };
+  } catch (error) {
+    console.warn(`[Skills] Failed to load remote-skills.json: ${error instanceof Error ? error.message : error}`);
+    return { endpoints: [] };
+  }
+}
+
+async function fetchRemoteSkills(endpoints: RemoteSkillEndpoint[]): Promise<SkillInfo[]> {
+  const skills: SkillInfo[] = [];
+  for (const endpoint of endpoints) {
+    try {
+      const res = await fetch(endpoint.url, {
+        headers: { 'Accept': 'application/json', ...(endpoint.headers ?? {}) }
+      });
+      if (!res.ok) {
+        console.warn(`[Skills] Remote endpoint ${endpoint.url} returned ${res.status}`);
+        continue;
+      }
+      const data = await res.json() as unknown;
+      const items = Array.isArray(data) ? data : [data];
+      for (const item of items) {
+        if (!item || typeof item !== 'object') continue;
+        const { name, description, content } = item as Record<string, unknown>;
+        if (typeof name !== 'string' || typeof description !== 'string') {
+          console.warn(`[Skills] Skipping remote skill with missing name/description from ${endpoint.url}`);
+          continue;
+        }
+        skills.push({
+          name,
+          description,
+          location: endpoint.url,
+          content: typeof content === 'string' ? content : '',
+          metadata: { remote: true, source: endpoint.url }
+        });
+      }
+      console.log(`[Skills] Loaded ${items.length} remote skill(s) from ${endpoint.url}`);
+    } catch (error) {
+      console.warn(`[Skills] Failed to fetch remote skills from ${endpoint.url}: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+  return skills;
+}
 
 /**
  * 技能信息接口
@@ -30,7 +98,7 @@ export class BuiltInSkillRegistry {
   private initialized = false;
 
   /**
-   * 初始化注册表，扫描并加载所有技能
+   * 初始化注册表，扫描并加载所有技能（含远程）
    */
   async initialize(cwd: string): Promise<void> {
     if (this.initialized) {
@@ -46,8 +114,17 @@ export class BuiltInSkillRegistry {
       this.skills.set(skill.name, skill);
     }
 
+    // 加载远程技能
+    const remoteConfig = await loadRemoteSkillsConfig(cwd);
+    if (remoteConfig.endpoints.length > 0) {
+      const remoteSkills = await fetchRemoteSkills(remoteConfig.endpoints);
+      for (const skill of remoteSkills) {
+        this.skills.set(skill.name, skill);
+      }
+    }
+
     this.initialized = true;
-    console.log(`Loaded ${this.skills.size} built-in skill(s)`);
+    console.log(`Loaded ${this.skills.size} skill(s) total`);
   }
 
   /**
