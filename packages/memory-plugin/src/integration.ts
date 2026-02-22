@@ -14,20 +14,20 @@ const MEMORY_RECALL_INPUT_SCHEMA = z.object({
 const MEMORY_RECORD_INPUT_SCHEMA = z.object({
   content: z.string().min(1).describe('The memory content to store.'),
   kind: z
-    .enum(['preference', 'rule', 'fix'])
+    .enum(['preference', 'rule', 'fix', 'profile'])
     .optional()
-    .describe('Memory kind. rule is user-level, preference/fix are session-level.'),
+    .describe('Memory kind. rule/profile are user-level; preference/fix are session-level. Defaults to profile.'),
 });
 
 const MEMORY_TOOL_POLICY_APPEND = [
   '## Memory Tool Policy (On-Demand)',
   'Memory access is tool-based. Do not read/write memory on every turn.',
   'Use `memory_recall` only when memory is relevant to the current task.',
-  'Use `memory_record` only when the user provides stable preferences/rules or when a fix is worth remembering.',
+  'Use `memory_record` only when the user provides stable profile/preferences/rules or when a fix is worth remembering.',
   'If user intent conflicts with recalled memory, follow the latest user instruction.',
 ].join('\n');
 
-type MemoryRecordKind = 'preference' | 'rule' | 'fix';
+type MemoryRecordKind = 'preference' | 'rule' | 'fix' | 'profile';
 
 export interface MemoryRunContext {
   platformKey: string;
@@ -129,9 +129,21 @@ export function createMemoryEnginePlugin(options: CreateMemoryEnginePluginOption
         memory_record: buildMemoryRecordTool(options.service, options.getRunContext),
       });
 
-      context.registerHook('beforeRun', async ({ systemPrompt }) => ({
-        systemPrompt: appendSystemPrompt(systemPrompt, policyAppend),
-      }));
+      context.registerHook('beforeRun', async ({ systemPrompt }) => {
+        let nextPrompt = appendSystemPrompt(systemPrompt, policyAppend);
+        const runContext = options.getRunContext();
+        if (!runContext) {
+          return { systemPrompt: nextPrompt };
+        }
+
+        const autoInjectedPrompt = await buildAutoInjectedUserMemoryPrompt(options.service, runContext);
+        if (!autoInjectedPrompt) {
+          return { systemPrompt: nextPrompt };
+        }
+
+        nextPrompt = appendSystemPrompt(nextPrompt, autoInjectedPrompt);
+        return { systemPrompt: nextPrompt };
+      });
     },
   };
 }
@@ -197,6 +209,51 @@ function summarizeMemoryItem(item: MemoryItem): Record<string, unknown> {
   };
 }
 
+async function buildAutoInjectedUserMemoryPrompt(
+  memoryService: FileMemoryPluginService,
+  runContext: MemoryRunContext,
+): Promise<string | undefined> {
+  try {
+    const listed = await memoryService.list({
+      platformKey: runContext.platformKey,
+      sessionId: runContext.sessionId,
+      limit: 30,
+    });
+
+    const selected = listed
+      .filter((item) => item.scope === 'user')
+      .filter((item) => item.type === 'rule' || item.type === 'fact')
+      .filter((item) => item.sourceType !== 'daily-log')
+      .slice(0, 4);
+
+    if (selected.length === 0) {
+      return undefined;
+    }
+
+    const lines = [
+      'Persistent user memory (auto-injected each run; follow latest user instruction on conflict):',
+    ];
+
+    let used = lines[0].length;
+    for (const [index, item] of selected.entries()) {
+      const flags = [item.type, item.pinned ? 'pinned' : null].filter(Boolean).join(', ');
+      const summary = item.summary.trim() || item.content.trim();
+      const line = `${index + 1}. (${flags}) ${summary}`;
+
+      if (used + line.length > 520 && lines.length > 1) {
+        break;
+      }
+
+      lines.push(line);
+      used += line.length;
+    }
+
+    return lines.length > 1 ? lines.join('\n') : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function toRecordTurnPayload(content: string, kind: MemoryRecordKind): { userText: string; assistantText: string } {
   const normalized = content.trim();
   if (kind === 'rule') {
@@ -210,6 +267,13 @@ function toRecordTurnPayload(content: string, kind: MemoryRecordKind): { userTex
     return {
       userText: `Issue context: ${normalized}`,
       assistantText: `Fixed and resolved: ${normalized}`,
+    };
+  }
+
+  if (kind === 'profile') {
+    return {
+      userText: `Profile: ${normalized}`,
+      assistantText: 'Profile captured.',
     };
   }
 
@@ -255,12 +319,12 @@ function buildMemoryRecordTool(
 ): Tool<z.infer<typeof MEMORY_RECORD_INPUT_SCHEMA>, unknown> {
   return {
     name: 'memory_record',
-    description: 'Persist an important preference/rule/fix into memory when explicitly useful.',
+    description: 'Persist an important preference/rule/fix/profile into memory when explicitly useful.',
     inputSchema: MEMORY_RECORD_INPUT_SCHEMA,
     execute: async ({ content, kind }) => {
       const runContext = requireRunContext(getRunContext);
       const normalizedContent = content.trim();
-      const normalizedKind: MemoryRecordKind = kind ?? 'preference';
+      const normalizedKind: MemoryRecordKind = kind ?? 'profile';
       const payload = toRecordTurnPayload(normalizedContent, normalizedKind);
 
       await memoryService.recordTurn({

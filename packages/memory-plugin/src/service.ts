@@ -676,10 +676,21 @@ function extractMemoryCandidates(userText: string, assistantText: string): Extra
   const normalizedUser = userText.trim();
 
   if (normalizedUser.length > 0) {
+    const profilePattern = /(^profile:|my name is|call me|i go by|\u6211\u53eb|\u6211\u7684\u540d\u5b57\u662f|\u540d\u5b57\u662f|\u79f0\u547c\u6211)/i;
     const preferencePattern = /(prefer|always|never|please use|remember|default to|\u8bf7\u7528|\u4ee5\u540e|\u8bb0\u4f4f|\u9ed8\u8ba4|\u4e0d\u8981|\u5fc5\u987b)/i;
     const rulePattern = /(rule|constraint|must|should|require|\u89c4\u8303|\u7ea6\u675f|\u5fc5\u987b|\u7981\u6b62)/i;
 
-    if (preferencePattern.test(normalizedUser) || rulePattern.test(normalizedUser)) {
+    if (profilePattern.test(normalizedUser)) {
+      results.push({
+        scope: 'user',
+        type: 'fact',
+        content: normalizeWhitespace(normalizedUser),
+        summary: summarize(normalizedUser, 120),
+        keywords: tokenize(normalizedUser),
+        confidence: 0.78,
+        importance: 0.78,
+      });
+    } else if (preferencePattern.test(normalizedUser) || rulePattern.test(normalizedUser)) {
       const summary = summarize(normalizedUser, 120);
       const type: MemoryType = rulePattern.test(normalizedUser) ? 'rule' : 'preference';
       const scope: MemoryScope = type === 'rule' ? 'user' : 'session';
