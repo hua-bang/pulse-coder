@@ -7,8 +7,10 @@ import type {
   EmbeddingProvider,
   FileMemoryServiceOptions,
   ListInput,
+  MemoryDailyLogPolicy,
   MemoryItem,
   MemoryScope,
+  MemorySourceType,
   MemoryState,
   MemoryType,
   MutateResult,
@@ -38,6 +40,15 @@ interface RecallScoreInput {
   hasSemantic: boolean;
 }
 
+interface DailyLogWriteStats {
+  attempted: number;
+  accepted: number;
+  deduped: number;
+  rejected: number;
+  skippedQuota: number;
+  rejectedByReason: Record<string, number>;
+}
+
 interface StoredEmbeddingRow {
   vector: string;
 }
@@ -45,6 +56,14 @@ interface StoredEmbeddingRow {
 const DEFAULT_EMBEDDING_DIMENSIONS = 256;
 const MIN_EMBEDDING_DIMENSIONS = 64;
 const MAX_EMBEDDING_DIMENSIONS = 4096;
+
+const DEFAULT_DAILY_LOG_POLICY: MemoryDailyLogPolicy = {
+  enabled: true,
+  mode: 'write',
+  minConfidence: 0.65,
+  maxPerTurn: 3,
+  maxPerDay: 30,
+};
 
 const SEMANTIC_SYNONYMS: Record<string, string[]> = {
   bug: ['issue', 'error', 'defect', 'problem'],
@@ -64,6 +83,7 @@ export class FileMemoryPluginService {
   private readonly defaultRecallLimit: number;
   private readonly embeddingProvider: EmbeddingProvider;
   private readonly embeddingDimensions: number;
+  private readonly dailyLogPolicy: MemoryDailyLogPolicy;
 
   private initialized = false;
   private semanticRecallEnabled: boolean;
@@ -85,6 +105,7 @@ export class FileMemoryPluginService {
     );
     this.embeddingProvider = options.embeddingProvider ?? new HashEmbeddingProvider(embeddingDimensions);
     this.embeddingDimensions = embeddingDimensions;
+    this.dailyLogPolicy = normalizeDailyLogPolicy(options.dailyLogPolicy);
   }
 
   async initialize(): Promise<void> {
@@ -232,17 +253,27 @@ export class FileMemoryPluginService {
       return;
     }
 
-    const extracted = extractMemoryCandidates(input.userText, input.assistantText).slice(0, 3);
+    const extracted = extractMemoryCandidates(input.userText, input.assistantText).slice(0, 6);
     if (extracted.length === 0) {
       return;
     }
 
     const now = Date.now();
+    const sourceType: MemorySourceType = input.sourceType ?? 'explicit';
+    if (sourceType === 'daily-log') {
+      await this.recordDailyLogTurn(input, extracted, now);
+      return;
+    }
+
+    await this.recordExplicitTurn(input, extracted.slice(0, 3), now);
+  }
+
+  private async recordExplicitTurn(input: RecordTurnInput, extracted: ExtractedMemory[], now: number): Promise<void> {
     const touchedItems: MemoryItem[] = [];
 
     for (const candidate of extracted) {
       const duplicate = this.state.items.find((item) => {
-        if (item.platformKey !== input.platformKey || item.deleted) {
+        if (item.platformKey !== input.platformKey || item.deleted || item.sourceType === 'daily-log') {
           return false;
         }
         return normalizeContent(item.content) === normalizeContent(candidate.content);
@@ -254,6 +285,7 @@ export class FileMemoryPluginService {
         duplicate.confidence = Math.max(duplicate.confidence, candidate.confidence);
         duplicate.importance = Math.max(duplicate.importance, candidate.importance);
         duplicate.keywords = uniqueWords([...duplicate.keywords, ...candidate.keywords]);
+        duplicate.sourceType = duplicate.sourceType ?? 'explicit';
         touchedItems.push(duplicate);
         continue;
       }
@@ -274,12 +306,144 @@ export class FileMemoryPluginService {
         createdAt: now,
         updatedAt: now,
         lastAccessedAt: now,
+        sourceType: 'explicit',
       };
       this.state.items.push(nextItem);
       touchedItems.push(nextItem);
     }
 
-    const compactedIds = this.compact(input.platformKey);
+    await this.commitTouchedItems(input.platformKey, touchedItems);
+  }
+
+  private async recordDailyLogTurn(input: RecordTurnInput, extracted: ExtractedMemory[], now: number): Promise<void> {
+    if (!this.dailyLogPolicy.enabled) {
+      return;
+    }
+
+    const dayKey = toDayKey(now);
+    let remainingForDay = Math.max(0, this.dailyLogPolicy.maxPerDay - this.countDailyLogEntries(input.platformKey, dayKey));
+    let insertedThisTurn = 0;
+    const touchedItems: MemoryItem[] = [];
+    const stats = createDailyLogWriteStats();
+
+    for (const candidate of extracted) {
+      stats.attempted += 1;
+
+      if (!isAllowedDailyLogType(candidate.type)) {
+        recordDailyLogRejection(stats, 'type_not_allowed');
+        continue;
+      }
+
+      const rejection = evaluateDailyLogQualityGate(candidate, this.dailyLogPolicy.minConfidence);
+      if (rejection) {
+        recordDailyLogRejection(stats, rejection);
+        continue;
+      }
+
+      const dedupeKey = buildDailyLogDedupeKey(candidate);
+      const duplicate = this.state.items.find((item) => {
+        if (item.platformKey !== input.platformKey || item.deleted) {
+          return false;
+        }
+
+        return item.sourceType === 'daily-log'
+          && item.sessionId === input.sessionId
+          && item.dayKey === dayKey
+          && item.dedupeKey === dedupeKey;
+      });
+
+      if (duplicate) {
+        stats.accepted += 1;
+        stats.deduped += 1;
+
+        if (this.dailyLogPolicy.mode === 'shadow') {
+          continue;
+        }
+
+        duplicate.updatedAt = now;
+        duplicate.lastAccessedAt = now;
+        duplicate.confidence = Math.max(duplicate.confidence, candidate.confidence);
+        duplicate.importance = Math.max(duplicate.importance, candidate.importance);
+        duplicate.keywords = uniqueWords([...duplicate.keywords, ...candidate.keywords]);
+        duplicate.summary = summarize(`${duplicate.summary} ${candidate.summary}`, 120);
+        duplicate.sourceType = 'daily-log';
+        duplicate.dayKey = dayKey;
+        duplicate.dedupeKey = dedupeKey;
+        duplicate.firstSeenAt = duplicate.firstSeenAt ?? duplicate.createdAt;
+        duplicate.lastSeenAt = now;
+        duplicate.hitCount = (duplicate.hitCount ?? 1) + 1;
+        touchedItems.push(duplicate);
+        continue;
+      }
+
+      if (insertedThisTurn >= this.dailyLogPolicy.maxPerTurn) {
+        recordDailyLogRejection(stats, 'quota_turn');
+        stats.skippedQuota += 1;
+        continue;
+      }
+
+      if (remainingForDay <= 0) {
+        recordDailyLogRejection(stats, 'quota_day');
+        stats.skippedQuota += 1;
+        continue;
+      }
+
+      stats.accepted += 1;
+      insertedThisTurn += 1;
+      remainingForDay -= 1;
+
+      if (this.dailyLogPolicy.mode === 'shadow') {
+        continue;
+      }
+
+      const nextItem: MemoryItem = {
+        id: randomUUID().slice(0, 8),
+        platformKey: input.platformKey,
+        sessionId: input.sessionId,
+        scope: 'session',
+        type: candidate.type,
+        content: candidate.content,
+        summary: candidate.summary,
+        keywords: candidate.keywords,
+        confidence: candidate.confidence,
+        importance: candidate.importance,
+        pinned: false,
+        deleted: false,
+        createdAt: now,
+        updatedAt: now,
+        lastAccessedAt: now,
+        sourceType: 'daily-log',
+        dayKey,
+        dedupeKey,
+        hitCount: 1,
+        firstSeenAt: now,
+        lastSeenAt: now,
+      };
+      this.state.items.push(nextItem);
+      touchedItems.push(nextItem);
+    }
+
+    if (stats.attempted > 0) {
+      const rejectSummary = formatDailyLogRejectReasons(stats.rejectedByReason);
+      const extra = rejectSummary ? ` rejectReasons=${rejectSummary}` : '';
+      console.info(
+        `[memory-plugin] daily-log mode=${this.dailyLogPolicy.mode} platform=${input.platformKey} session=${input.sessionId} attempted=${stats.attempted} accepted=${stats.accepted} deduped=${stats.deduped} rejected=${stats.rejected} skippedQuota=${stats.skippedQuota}${extra}`,
+      );
+    }
+
+    if (this.dailyLogPolicy.mode === 'shadow' || touchedItems.length === 0) {
+      return;
+    }
+
+    await this.commitTouchedItems(input.platformKey, touchedItems);
+  }
+
+  private async commitTouchedItems(platformKey: string, touchedItems: MemoryItem[]): Promise<void> {
+    if (touchedItems.length === 0) {
+      return;
+    }
+
+    const compactedIds = this.compact(platformKey);
     await this.saveState();
 
     await Promise.all(
@@ -288,6 +452,16 @@ export class FileMemoryPluginService {
       }),
     );
     this.deleteEmbeddings(compactedIds);
+  }
+
+  private countDailyLogEntries(platformKey: string, dayKey: string): number {
+    return this.state.items.filter((item) => {
+      if (item.platformKey !== platformKey || item.deleted) {
+        return false;
+      }
+
+      return item.sourceType === 'daily-log' && item.dayKey === dayKey;
+    }).length;
   }
 
   private initializeVectorStore(): void {
@@ -500,41 +674,55 @@ export class HashEmbeddingProvider implements EmbeddingProvider {
 function extractMemoryCandidates(userText: string, assistantText: string): ExtractedMemory[] {
   const results: ExtractedMemory[] = [];
   const normalizedUser = userText.trim();
-  if (normalizedUser.length === 0) {
-    return results;
-  }
 
-  const preferencePattern = /(prefer|always|never|please use|remember|default to|\u8bf7\u7528|\u4ee5\u540e|\u8bb0\u4f4f|\u9ed8\u8ba4|\u4e0d\u8981|\u5fc5\u987b)/i;
-  const rulePattern = /(rule|constraint|must|should|require|\u89c4\u8303|\u7ea6\u675f|\u5fc5\u987b|\u7981\u6b62)/i;
+  if (normalizedUser.length > 0) {
+    const preferencePattern = /(prefer|always|never|please use|remember|default to|\u8bf7\u7528|\u4ee5\u540e|\u8bb0\u4f4f|\u9ed8\u8ba4|\u4e0d\u8981|\u5fc5\u987b)/i;
+    const rulePattern = /(rule|constraint|must|should|require|\u89c4\u8303|\u7ea6\u675f|\u5fc5\u987b|\u7981\u6b62)/i;
 
-  if (preferencePattern.test(normalizedUser) || rulePattern.test(normalizedUser)) {
-    const summary = summarize(normalizedUser, 120);
-    const type: MemoryType = rulePattern.test(normalizedUser) ? 'rule' : 'preference';
-    const scope: MemoryScope = type === 'rule' ? 'user' : 'session';
+    if (preferencePattern.test(normalizedUser) || rulePattern.test(normalizedUser)) {
+      const summary = summarize(normalizedUser, 120);
+      const type: MemoryType = rulePattern.test(normalizedUser) ? 'rule' : 'preference';
+      const scope: MemoryScope = type === 'rule' ? 'user' : 'session';
 
-    results.push({
-      scope,
-      type,
-      content: normalizeWhitespace(normalizedUser),
-      summary,
-      keywords: tokenize(normalizedUser),
-      confidence: 0.72,
-      importance: type === 'rule' ? 0.8 : 0.65,
-    });
+      results.push({
+        scope,
+        type,
+        content: normalizeWhitespace(normalizedUser),
+        summary,
+        keywords: tokenize(normalizedUser),
+        confidence: 0.72,
+        importance: type === 'rule' ? 0.8 : 0.65,
+      });
+    }
   }
 
   const normalizedAssistant = assistantText.trim();
-  const fixPattern = /(fixed|resolved|workaround|root cause|\u5df2\u4fee\u590d|\u95ee\u9898\u539f\u56e0|\u89e3\u51b3\u65b9\u6848)/i;
-  if (normalizedAssistant.length > 0 && fixPattern.test(normalizedAssistant)) {
-    results.push({
-      scope: 'session',
-      type: 'fix',
-      content: summarize(normalizedAssistant, 180),
-      summary: summarize(normalizedAssistant, 100),
-      keywords: tokenize(normalizedAssistant),
-      confidence: 0.6,
-      importance: 0.55,
-    });
+  if (normalizedAssistant.length > 0) {
+    const fixPattern = /(fixed|resolved|workaround|root cause|\u5df2\u4fee\u590d|\u95ee\u9898\u539f\u56e0|\u89e3\u51b3\u65b9\u6848)/i;
+    if (fixPattern.test(normalizedAssistant)) {
+      results.push({
+        scope: 'session',
+        type: 'fix',
+        content: summarize(normalizedAssistant, 180),
+        summary: summarize(normalizedAssistant, 100),
+        keywords: tokenize(normalizedAssistant),
+        confidence: 0.7,
+        importance: 0.65,
+      });
+    }
+
+    const decisionPattern = /(decide|decision|choose|selected|we will|plan is|adopt|\u91c7\u7528|\u51b3\u5b9a|\u65b9\u6848\u662f)/i;
+    if (decisionPattern.test(normalizedAssistant)) {
+      results.push({
+        scope: 'session',
+        type: 'decision',
+        content: summarize(normalizedAssistant, 180),
+        summary: summarize(normalizedAssistant, 100),
+        keywords: tokenize(normalizedAssistant),
+        confidence: 0.68,
+        importance: 0.62,
+      });
+    }
   }
 
   return dedupeExtracted(results);
@@ -552,6 +740,79 @@ function dedupeExtracted(items: ExtractedMemory[]): ExtractedMemory[] {
     deduped.push(item);
   }
   return deduped;
+}
+
+function toDayKey(timestamp: number): string {
+  return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+function buildDailyLogDedupeKey(candidate: ExtractedMemory): string {
+  const normalized = normalizeContent(candidate.summary || candidate.content);
+  return `${candidate.type}:${normalized.slice(0, 160)}`;
+}
+
+function isAllowedDailyLogType(type: MemoryType): boolean {
+  return type === 'rule' || type === 'decision' || type === 'fix' || type === 'fact';
+}
+
+function evaluateDailyLogQualityGate(candidate: ExtractedMemory, minConfidence: number): string | undefined {
+  if (candidate.confidence < minConfidence) {
+    return 'low_confidence';
+  }
+
+  const compact = normalizeWhitespace(candidate.content);
+  if (compact.length < 18) {
+    return 'too_short';
+  }
+
+  if (looksLikeSmallTalk(compact)) {
+    return 'small_talk';
+  }
+
+  const tokenCount = tokenize(compact).length;
+  if (tokenCount < 3) {
+    return 'low_density';
+  }
+
+  return undefined;
+}
+
+function looksLikeSmallTalk(content: string): boolean {
+  return /^(ok|okay|thanks|thank you|got it|sure|nice|yes|no|\u597d\u7684|\u6536\u5230|\u660e\u767d\u4e86|\u884c|\u55ef+|\u554a+|\u54c8+)[!. ]*$/i.test(content);
+}
+
+function createDailyLogWriteStats(): DailyLogWriteStats {
+  return {
+    attempted: 0,
+    accepted: 0,
+    deduped: 0,
+    rejected: 0,
+    skippedQuota: 0,
+    rejectedByReason: {},
+  };
+}
+
+function recordDailyLogRejection(stats: DailyLogWriteStats, reason: string): void {
+  stats.rejected += 1;
+  stats.rejectedByReason[reason] = (stats.rejectedByReason[reason] ?? 0) + 1;
+}
+
+function formatDailyLogRejectReasons(reasons: Record<string, number>): string {
+  return Object.entries(reasons)
+    .map(([reason, count]) => `${reason}:${count}`)
+    .join(',');
+}
+
+function normalizeDailyLogPolicy(input?: Partial<MemoryDailyLogPolicy>): MemoryDailyLogPolicy {
+  const mode = input?.mode === 'shadow' ? 'shadow' : 'write';
+
+  return {
+    enabled: input?.enabled ?? DEFAULT_DAILY_LOG_POLICY.enabled,
+    mode,
+    minConfidence: clamp(input?.minConfidence ?? DEFAULT_DAILY_LOG_POLICY.minConfidence, 0, 1),
+    maxPerTurn: Math.max(1, Math.round(input?.maxPerTurn ?? DEFAULT_DAILY_LOG_POLICY.maxPerTurn)),
+    maxPerDay: Math.max(1, Math.round(input?.maxPerDay ?? DEFAULT_DAILY_LOG_POLICY.maxPerDay)),
+  };
 }
 
 function combineRecallScore(input: RecallScoreInput): number {

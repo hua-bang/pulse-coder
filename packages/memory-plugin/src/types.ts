@@ -2,6 +2,18 @@ export type MemoryScope = 'session' | 'user';
 
 export type MemoryType = 'preference' | 'rule' | 'decision' | 'fix' | 'fact';
 
+export type MemorySourceType = 'explicit' | 'daily-log';
+
+export type MemoryDailyLogMode = 'write' | 'shadow';
+
+export interface MemoryDailyLogPolicy {
+  enabled: boolean;
+  mode: MemoryDailyLogMode;
+  minConfidence: number;
+  maxPerTurn: number;
+  maxPerDay: number;
+}
+
 export interface MemoryItem {
   id: string;
   platformKey: string;
@@ -18,6 +30,12 @@ export interface MemoryItem {
   createdAt: number;
   updatedAt: number;
   lastAccessedAt: number;
+  dayKey?: string;
+  dedupeKey?: string;
+  hitCount?: number;
+  firstSeenAt?: number;
+  lastSeenAt?: number;
+  sourceType?: MemorySourceType;
 }
 
 export interface MemoryState {
@@ -36,6 +54,7 @@ export interface RecordTurnInput {
   sessionId: string;
   userText: string;
   assistantText: string;
+  sourceType?: MemorySourceType;
 }
 
 export interface RecallInput {
@@ -75,4 +94,5 @@ export interface FileMemoryServiceOptions {
   semanticRecallEnabled?: boolean;
   embeddingDimensions?: number;
   embeddingProvider?: EmbeddingProvider;
+  dailyLogPolicy?: Partial<MemoryDailyLogPolicy>;
 }
