@@ -15,7 +15,26 @@
  *     }
  *   ]
  * }
+ *
+ * 本地配置文件（任选其一，按优先级从高到低）：
+ *   .pulse-coder/remote-skills.json / .yaml / .yml   （项目级）
+ *   .coder/remote-skills.json / .yaml / .yml          （项目级，兼容旧版）
+ *   ~/.pulse-coder/remote-skills.json / .yaml / .yml  （用户级）
+ *   ~/.coder/remote-skills.json / .yaml / .yml         （用户级，兼容旧版）
+ *
+ * 配置文件格式（JSON 示例）：
+ * {
+ *   "endpoints": ["https://skills.example.com/api/skills"],
+ *   "headers": { "Authorization": "Bearer ${SKILL_API_TOKEN}" },
+ *   "timeout": 8000
+ * }
+ *
+ * 支持 ${ENV_VAR} 和 ${ENV_VAR:-defaultValue} 环境变量占位符。
  */
+
+import { readFileSync } from 'fs';
+import { homedir } from 'os';
+import path from 'path';
 
 import type { SkillInfo } from './index.js';
 
@@ -165,6 +184,91 @@ export async function loadRemoteSkills(
 }
 
 // ---------------------------------------------------------------------------
+// Config file discovery
+// ---------------------------------------------------------------------------
+
+/** 配置文件名（不含扩展名） */
+const CONFIG_FILENAME = 'remote-skills';
+
+/** 配置文件支持的扩展名，按优先级排列 */
+const CONFIG_EXTS = ['.json', '.yaml', '.yml'] as const;
+
+/**
+ * 从本地配置文件中读取远程 skill 配置。
+ *
+ * 扫描顺序（先找到先用）：
+ *   1. <cwd>/.pulse-coder/remote-skills.{json,yaml,yml}
+ *   2. <cwd>/.coder/remote-skills.{json,yaml,yml}
+ *   3. ~/.pulse-coder/remote-skills.{json,yaml,yml}
+ *   4. ~/.coder/remote-skills.{json,yaml,yml}
+ *
+ * 配置文件内容示例（JSON）：
+ * {
+ *   "endpoints": "https://skills.example.com/api/skills",
+ *   "headers": { "Authorization": "Bearer ${SKILL_API_TOKEN}" },
+ *   "timeout": 8000
+ * }
+ */
+export async function readRemoteSkillsConfigFile(
+  cwd: string
+): Promise<RemoteSkillConfig | null> {
+  const home = homedir();
+
+  const searchDirs = [
+    path.join(cwd, '.pulse-coder'),
+    path.join(cwd, '.coder'),
+    path.join(home, '.pulse-coder'),
+    path.join(home, '.coder'),
+  ];
+
+  for (const dir of searchDirs) {
+    for (const ext of CONFIG_EXTS) {
+      const filePath = path.join(dir, `${CONFIG_FILENAME}${ext}`);
+      const parsed = tryReadConfigFile(filePath, ext);
+      if (parsed) {
+        console.log(`[RemoteSkills] Loaded config from ${filePath}`);
+        return resolveEnvVars(parsed);
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * 合并来自配置文件和代码两处的远程 skill 配置，去重 endpoint URL。
+ * 代码传入的配置（programmatic）优先：其 headers / timeout 会覆盖文件配置。
+ *
+ * @returns 合并后的统一配置，若两者均为空则返回 null。
+ */
+export function mergeRemoteSkillConfigs(
+  fileConfig: RemoteSkillConfig | null,
+  programmaticConfig: RemoteSkillConfig | undefined
+): RemoteSkillConfig | null {
+  const fileEndpoints = fileConfig
+    ? toArray(fileConfig.endpoints)
+    : [];
+  const codeEndpoints = programmaticConfig
+    ? toArray(programmaticConfig.endpoints)
+    : [];
+
+  // 合并，去重
+  const allEndpoints = Array.from(new Set([...fileEndpoints, ...codeEndpoints]));
+
+  if (allEndpoints.length === 0) return null;
+
+  // 代码配置的 headers / timeout 优先；文件配置作为兜底
+  return {
+    endpoints: allEndpoints,
+    timeout: programmaticConfig?.timeout ?? fileConfig?.timeout,
+    headers: {
+      ...(fileConfig?.headers ?? {}),
+      ...(programmaticConfig?.headers ?? {}),
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -186,4 +290,64 @@ function isValidEntry(entry: unknown): entry is RemoteSkillEntry {
     typeof e.description === 'string' &&
     typeof e.content === 'string'
   );
+}
+
+/** 同步尝试读取并解析配置文件，失败返回 null */
+function tryReadConfigFile(
+  filePath: string,
+  ext: string
+): RemoteSkillConfig | null {
+  try {
+    const content = readFileSync(filePath, 'utf-8');
+    if (ext === '.json') {
+      return JSON.parse(content) as RemoteSkillConfig;
+    }
+    // YAML：同步解析，用轻量级手写解析避免 await
+    // 只需处理简单的 key: value 结构，使用 yaml 包的同步 API
+    const yaml = requireYAML();
+    return yaml ? (yaml.parse(content) as RemoteSkillConfig) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 动态 require yaml（兼容 ESM 环境下的同步调用） */
+function requireYAML(): { parse(content: string): unknown } | null {
+  try {
+    // yaml 包提供同步 parse API，可在 ESM 中直接使用已缓存的模块
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('yaml') as { parse(content: string): unknown };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 替换配置值中的环境变量占位符。
+ * 支持 ${VAR} 和 ${VAR:-default}。
+ */
+function resolveEnvVars(config: RemoteSkillConfig): RemoteSkillConfig {
+  return deepResolve(config) as RemoteSkillConfig;
+}
+
+function deepResolve(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return value.replace(/\$\{([^}]+)\}/g, (_match, expr: string) => {
+      const [varName, defaultVal] = expr.split(':-');
+      return process.env[varName.trim()] ?? defaultVal ?? _match;
+    });
+  }
+  if (Array.isArray(value)) return value.map(deepResolve);
+  if (typeof value === 'object' && value !== null) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = deepResolve(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+function toArray(v: string | string[]): string[] {
+  return Array.isArray(v) ? v : [v];
 }

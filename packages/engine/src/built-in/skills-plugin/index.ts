@@ -10,7 +10,12 @@ import { globSync } from 'glob';
 import matter from 'gray-matter';
 import { homedir } from 'os';
 import { z } from 'zod';
-import { loadRemoteSkills, type RemoteSkillConfig } from './remote-skill-loader.js';
+import {
+  loadRemoteSkills,
+  readRemoteSkillsConfigFile,
+  mergeRemoteSkillConfigs,
+  type RemoteSkillConfig,
+} from './remote-skill-loader.js';
 
 export type { RemoteSkillConfig } from './remote-skill-loader.js';
 
@@ -286,14 +291,18 @@ export function createBuiltInSkillsPlugin(
       const registry = new BuiltInSkillRegistry();
       await registry.initialize(process.cwd());
 
-      // 加载远程 skill（若配置了 endpoint）
-      const remoteConfig = options?.remoteSkills;
-      if (remoteConfig) {
-        const endpoints = Array.isArray(remoteConfig.endpoints)
-          ? remoteConfig.endpoints
-          : [remoteConfig.endpoints];
+      // 加载远程 skill：
+      //   1. 自动扫描 .pulse-coder/remote-skills.{json,yaml,yml} 等配置文件
+      //   2. 与代码传入的 options.remoteSkills 合并（代码配置优先）
+      const fileConfig = await readRemoteSkillsConfigFile(process.cwd());
+      const mergedRemoteConfig = mergeRemoteSkillConfigs(fileConfig, options?.remoteSkills);
+
+      if (mergedRemoteConfig) {
+        const endpoints = Array.isArray(mergedRemoteConfig.endpoints)
+          ? mergedRemoteConfig.endpoints
+          : [mergedRemoteConfig.endpoints];
         console.log(`[Skills] Loading remote skills from ${endpoints.length} endpoint(s)...`);
-        const added = await registry.loadRemoteEndpoints(remoteConfig);
+        const added = await registry.loadRemoteEndpoints(mergedRemoteConfig);
         console.log(`[Skills] Loaded ${added} remote skill(s)`);
       }
 
