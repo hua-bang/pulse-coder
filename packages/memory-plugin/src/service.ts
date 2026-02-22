@@ -7,6 +7,7 @@ import type {
   EmbeddingProvider,
   FileMemoryServiceOptions,
   ListInput,
+  MemoryDailyLogPolicy,
   MemoryItem,
   MemoryScope,
   MemoryState,
@@ -46,6 +47,14 @@ const DEFAULT_EMBEDDING_DIMENSIONS = 256;
 const MIN_EMBEDDING_DIMENSIONS = 64;
 const MAX_EMBEDDING_DIMENSIONS = 4096;
 
+const DEFAULT_DAILY_LOG_POLICY: MemoryDailyLogPolicy = {
+  enabled: true,
+  mode: 'write',
+  minConfidence: 0.65,
+  maxPerTurn: 3,
+  maxPerDay: 30,
+};
+
 const SEMANTIC_SYNONYMS: Record<string, string[]> = {
   bug: ['issue', 'error', 'defect', 'problem'],
   fix: ['resolve', 'repair', 'patch', 'correct'],
@@ -64,6 +73,7 @@ export class FileMemoryPluginService {
   private readonly defaultRecallLimit: number;
   private readonly embeddingProvider: EmbeddingProvider;
   private readonly embeddingDimensions: number;
+  private readonly dailyLogPolicy: MemoryDailyLogPolicy;
 
   private initialized = false;
   private semanticRecallEnabled: boolean;
@@ -85,6 +95,7 @@ export class FileMemoryPluginService {
     );
     this.embeddingProvider = options.embeddingProvider ?? new HashEmbeddingProvider(embeddingDimensions);
     this.embeddingDimensions = embeddingDimensions;
+    this.dailyLogPolicy = normalizeDailyLogPolicy(options.dailyLogPolicy);
   }
 
   async initialize(): Promise<void> {
@@ -552,6 +563,18 @@ function dedupeExtracted(items: ExtractedMemory[]): ExtractedMemory[] {
     deduped.push(item);
   }
   return deduped;
+}
+
+function normalizeDailyLogPolicy(input?: Partial<MemoryDailyLogPolicy>): MemoryDailyLogPolicy {
+  const mode = input?.mode === 'shadow' ? 'shadow' : 'write';
+
+  return {
+    enabled: input?.enabled ?? DEFAULT_DAILY_LOG_POLICY.enabled,
+    mode,
+    minConfidence: clamp(input?.minConfidence ?? DEFAULT_DAILY_LOG_POLICY.minConfidence, 0, 1),
+    maxPerTurn: Math.max(1, Math.round(input?.maxPerTurn ?? DEFAULT_DAILY_LOG_POLICY.maxPerTurn)),
+    maxPerDay: Math.max(1, Math.round(input?.maxPerDay ?? DEFAULT_DAILY_LOG_POLICY.maxPerDay)),
+  };
 }
 
 function combineRecallScore(input: RecallScoreInput): number {

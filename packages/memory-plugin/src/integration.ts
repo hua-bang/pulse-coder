@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { EnginePlugin, SystemPromptOption, Tool } from 'pulse-coder-engine';
 import { FileMemoryPluginService } from './service.js';
 import { resolveMemoryEmbeddingRuntimeConfigFromEnv } from './embedding-env.js';
+import { resolveMemoryWriteRuntimeConfigFromEnv } from './write-env.js';
 import type { FileMemoryServiceOptions, MemoryItem } from './types.js';
 
 const MEMORY_RECALL_INPUT_SCHEMA = z.object({
@@ -56,7 +57,7 @@ export interface CreateMemoryIntegrationOptions extends FileMemoryServiceOptions
 }
 
 export interface CreateMemoryIntegrationFromEnvOptions extends Omit<CreateMemoryIntegrationOptions,
-  'semanticRecallEnabled' | 'embeddingDimensions' | 'embeddingProvider'> {
+  'semanticRecallEnabled' | 'embeddingDimensions' | 'embeddingProvider' | 'dailyLogPolicy'> {
   env?: Record<string, string | undefined>;
 }
 
@@ -71,12 +72,14 @@ export interface MemoryIntegration {
 export function createMemoryIntegrationFromEnv(options: CreateMemoryIntegrationFromEnvOptions = {}): MemoryIntegration {
   const { env = process.env, ...rest } = options;
   const embedding = resolveMemoryEmbeddingRuntimeConfigFromEnv(env);
+  const writePolicy = resolveMemoryWriteRuntimeConfigFromEnv(env);
 
   return createMemoryIntegration({
     ...rest,
     semanticRecallEnabled: embedding.semanticRecallEnabled,
     embeddingDimensions: embedding.embeddingDimensions,
     embeddingProvider: embedding.embeddingProvider,
+    dailyLogPolicy: writePolicy.dailyLogPolicy,
   });
 }
 
@@ -265,6 +268,7 @@ function buildMemoryRecordTool(
         sessionId: runContext.sessionId,
         userText: payload.userText,
         assistantText: payload.assistantText,
+        sourceType: 'explicit',
       });
 
       const list = await memoryService.list({
