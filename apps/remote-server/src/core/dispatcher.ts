@@ -13,6 +13,19 @@ import {
   getActiveStreamId as getActiveStreamIdFromStore,
 } from './active-run-store.js';
 
+interface CompactionSnapshot {
+  attempt: number;
+  trigger: 'pre-loop' | 'length-retry';
+  reason?: string;
+  forced: boolean;
+  strategy: 'summary' | 'summary-too-large' | 'fallback';
+  beforeMessageCount: number;
+  afterMessageCount: number;
+  beforeEstimatedTokens: number;
+  afterEstimatedTokens: number;
+}
+
+
 /**
  * Main entry point for all platform webhook routes.
  *
@@ -95,6 +108,7 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
 
   let sessionId: string | undefined;
   let handle: StreamHandle | null = null;
+  const compactionEvents: CompactionSnapshot[] = [];
 
   try {
     const result = await sessionStore.getOrCreate(platformKey, forceNewSession);
@@ -128,7 +142,32 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
             context.messages.push(msg);
           }
         },
-        onCompacted: (newMessages) => {
+        onCompacted: (newMessages, event) => {
+          if (event) {
+            compactionEvents.push({
+              attempt: event.attempt,
+              trigger: event.trigger,
+              reason: event.reason,
+              forced: event.forced,
+              strategy: event.strategy,
+              beforeMessageCount: event.beforeMessageCount,
+              afterMessageCount: event.afterMessageCount,
+              beforeEstimatedTokens: event.beforeEstimatedTokens,
+              afterEstimatedTokens: event.afterEstimatedTokens,
+            });
+
+            handle
+              ?.onToolCall('compact_context', {
+                attempt: event.attempt,
+                trigger: event.trigger,
+                reason: event.reason ?? event.strategy,
+                forced: event.forced,
+                tokens: `${event.beforeEstimatedTokens} -> ${event.afterEstimatedTokens}`,
+                messages: `${event.beforeMessageCount} -> ${event.afterMessageCount}`,
+              })
+              .catch(console.error);
+          }
+
           context.messages = newMessages;
         },
         onClarificationRequest: async (request) => {
@@ -140,6 +179,12 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
 
     await sessionStore.save(sessionId, context);
     await handle.onDone(finalText);
+
+    if (compactionEvents.length > 0) {
+      console.info(
+        `[dispatcher] compacted ${platformKey} session=${sessionId ?? 'unknown'} details=${formatCompactionEvents(compactionEvents)}`,
+      );
+    }
 
   } catch (err) {
     // Cancel any pending clarification for this stream
@@ -165,6 +210,16 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
   } finally {
     clearActiveRun(platformKey);
   }
+}
+
+
+function formatCompactionEvents(events: CompactionSnapshot[]): string {
+  return events
+    .map((event) => {
+      const reason = event.reason ?? event.strategy;
+      return `#${event.attempt} ${event.trigger} ${reason} msgs:${event.beforeMessageCount}->${event.afterMessageCount} tokens:${event.beforeEstimatedTokens}->${event.afterEstimatedTokens}`;
+    })
+    .join(' | ');
 }
 
 function isAbortError(error: Error): boolean {

@@ -2,7 +2,7 @@ import { ToolSet, type StepResult, type ModelMessage } from "ai";
 import type { Context, ClarificationRequest, Tool, LLMProviderFactory, SystemPromptOption } from "../shared/types";
 import type { EngineHookMap } from "../plugin/EnginePlugin.js";
 import { streamTextAI } from "../ai";
-import { maybeCompactContext } from "../context";
+import { maybeCompactContext, type CompactStats } from "../context";
 import {
   MAX_COMPACTION_ATTEMPTS,
   MAX_ERROR_COUNT,
@@ -20,13 +20,19 @@ export interface LoopHooks {
   afterToolCall?: Array<EngineHookMap['afterToolCall']>;
 }
 
+export interface CompactionEvent extends CompactStats {
+  attempt: number;
+  trigger: 'pre-loop' | 'length-retry';
+  reason?: string;
+}
+
 export interface LoopOptions {
   onText?: (delta: string) => void;
   onToolCall?: (toolCall: any) => void;
   onToolResult?: (toolResult: any) => void;
   onStepFinish?: (step: StepResult<any>) => void;
   onClarificationRequest?: (request: ClarificationRequest) => Promise<string>;
-  onCompacted?: (newMessages: ModelMessage[]) => void;
+  onCompacted?: (newMessages: ModelMessage[], event?: CompactionEvent) => void;
   onResponse?: (messages: StepResult<ToolSet>['response']['messages']) => void;
   abortSignal?: AbortSignal;
 
@@ -81,6 +87,58 @@ function wrapToolsWithHooks(
   return wrapped;
 }
 
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function estimateMessageTokens(messages: ModelMessage[]): number {
+  let totalChars = 0;
+  for (const message of messages) {
+    totalChars += message.role.length;
+    if (typeof message.content === 'string') {
+      totalChars += message.content.length;
+    } else {
+      totalChars += safeStringify(message.content).length;
+    }
+  }
+  return Math.ceil(totalChars / 4);
+}
+
+function emitCompactionEvent(
+  options: LoopOptions | undefined,
+  params: {
+    currentMessages: ModelMessage[];
+    newMessages: ModelMessage[];
+    trigger: CompactionEvent['trigger'];
+    attempt: number;
+    reason?: string;
+    stats?: CompactStats;
+  },
+): void {
+  if (!options?.onCompacted) {
+    return;
+  }
+
+  const event: CompactionEvent = {
+    attempt: params.attempt,
+    trigger: params.trigger,
+    reason: params.reason,
+    forced: params.stats?.forced ?? params.trigger === 'length-retry',
+    beforeMessageCount: params.stats?.beforeMessageCount ?? params.currentMessages.length,
+    afterMessageCount: params.stats?.afterMessageCount ?? params.newMessages.length,
+    beforeEstimatedTokens: params.stats?.beforeEstimatedTokens ?? estimateMessageTokens(params.currentMessages),
+    afterEstimatedTokens: params.stats?.afterEstimatedTokens ?? estimateMessageTokens(params.newMessages),
+    strategy: params.stats?.strategy ?? 'fallback',
+  };
+
+  options.onCompacted(params.newMessages, event);
+}
+
 export async function loop(context: Context, options?: LoopOptions): Promise<string> {
   let errorCount = 0;
   let totalSteps = 0;
@@ -95,15 +153,23 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
       }
 
       if (compactionAttempts < MAX_COMPACTION_ATTEMPTS) {
-        const { didCompact, newMessages } = await maybeCompactContext(context, {
+        const { didCompact, reason, newMessages, stats } = await maybeCompactContext(context, {
           provider: options?.provider,
           model: options?.model,
         });
         if (didCompact) {
-          compactionAttempts++;
+          const nextAttempt = compactionAttempts + 1;
+          compactionAttempts = nextAttempt;
 
           if (newMessages) {
-            options?.onCompacted?.(newMessages)
+            emitCompactionEvent(options, {
+              currentMessages: context.messages,
+              newMessages,
+              trigger: 'pre-loop',
+              attempt: nextAttempt,
+              reason,
+              stats,
+            });
           }
           continue;
         }
@@ -205,15 +271,23 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
 
       if (finishReason === 'length') {
         if (compactionAttempts < MAX_COMPACTION_ATTEMPTS) {
-          const { didCompact, newMessages } = await maybeCompactContext(context, {
+          const { didCompact, reason, newMessages, stats } = await maybeCompactContext(context, {
             force: true,
             provider: options?.provider,
             model: options?.model,
           });
           if (didCompact) {
-            compactionAttempts++;
+            const nextAttempt = compactionAttempts + 1;
+            compactionAttempts = nextAttempt;
             if (newMessages) {
-              options?.onCompacted?.(newMessages)
+              emitCompactionEvent(options, {
+                currentMessages: context.messages,
+                newMessages,
+                trigger: 'length-retry',
+                attempt: nextAttempt,
+                reason,
+                stats,
+              });
             }
             continue;
           }

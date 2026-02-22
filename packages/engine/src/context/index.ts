@@ -7,10 +7,20 @@ import {
 } from "../config/index";
 import type { Context, LLMProviderFactory } from "../shared/types";
 
-type CompactResult = {
+export type CompactStats = {
+  forced: boolean;
+  beforeMessageCount: number;
+  afterMessageCount: number;
+  beforeEstimatedTokens: number;
+  afterEstimatedTokens: number;
+  strategy: 'summary' | 'summary-too-large' | 'fallback';
+};
+
+export type CompactResult = {
   didCompact: boolean;
   reason?: string;
   newMessages?: ModelMessage[];
+  stats?: CompactStats;
 };
 
 const ensureSummaryPrefix = (summary: string): string => {
@@ -84,6 +94,43 @@ const takeLastTurns = (messages: ModelMessage[], keepLastTurns: number): ModelMe
   return messages.slice(startIndex);
 };
 
+type BuildCompactedResultParams = {
+  reason: string;
+  strategy: CompactStats['strategy'];
+  newMessages: ModelMessage[];
+  force: boolean;
+  beforeMessageCount: number;
+  beforeEstimatedTokens: number;
+};
+
+const buildCompactedResult = ({
+  reason,
+  strategy,
+  newMessages,
+  force,
+  beforeMessageCount,
+  beforeEstimatedTokens,
+}: BuildCompactedResultParams): CompactResult => {
+  const afterEstimatedTokens = estimateTokens(newMessages);
+  if (afterEstimatedTokens >= beforeEstimatedTokens) {
+    return { didCompact: false, reason };
+  }
+
+  return {
+    didCompact: true,
+    reason,
+    newMessages,
+    stats: {
+      forced: force,
+      beforeMessageCount,
+      afterMessageCount: newMessages.length,
+      beforeEstimatedTokens,
+      afterEstimatedTokens,
+      strategy,
+    },
+  };
+};
+
 export const maybeCompactContext = async (
   context: Context,
   options?: { force?: boolean; provider?: LLMProviderFactory; model?: string }
@@ -93,14 +140,16 @@ export const maybeCompactContext = async (
     return { didCompact: false };
   }
 
-  const estimatedTokens = estimateTokens(messages);
-  if (!options?.force && estimatedTokens < COMPACT_TRIGGER) {
+  const force = Boolean(options?.force);
+  const beforeMessageCount = messages.length;
+  const beforeEstimatedTokens = estimateTokens(messages);
+  if (!force && beforeEstimatedTokens < COMPACT_TRIGGER) {
     return { didCompact: false };
   }
 
   let { oldMessages, recentMessages } = splitByTurns(messages, KEEP_LAST_TURNS);
   if (oldMessages.length === 0) {
-    if (!options?.force) {
+    if (!force) {
       return { didCompact: false };
     }
 
@@ -135,20 +184,51 @@ export const maybeCompactContext = async (
       ...recentMessages,
     ];
 
-    if (estimateTokens(nextMessages) > COMPACT_TARGET) {
-      const newMessages = takeLastTurns(messages, KEEP_LAST_TURNS);
-      return { didCompact: true, reason: 'summary-too-large', newMessages };
+    const nextEstimatedTokens = estimateTokens(nextMessages);
+    if (nextEstimatedTokens > COMPACT_TARGET || nextEstimatedTokens >= beforeEstimatedTokens) {
+      const fallbackReason = nextEstimatedTokens > COMPACT_TARGET ? 'summary-too-large' : 'summary-no-gain';
+      const fallbackStrategy: CompactStats['strategy'] = nextEstimatedTokens > COMPACT_TARGET
+        ? 'summary-too-large'
+        : 'fallback';
+      const fallbackMessages = takeLastTurns(messages, KEEP_LAST_TURNS);
+      return buildCompactedResult({
+        reason: fallbackReason,
+        strategy: fallbackStrategy,
+        newMessages: fallbackMessages,
+        force,
+        beforeMessageCount,
+        beforeEstimatedTokens,
+      });
     }
 
-    return { didCompact: true, newMessages: nextMessages };
-  } catch (error) {
+    return {
+      didCompact: true,
+      reason: force ? 'force-summary' : 'summary',
+      newMessages: nextMessages,
+      stats: {
+        forced: force,
+        beforeMessageCount,
+        afterMessageCount: nextMessages.length,
+        beforeEstimatedTokens,
+        afterEstimatedTokens: nextEstimatedTokens,
+        strategy: 'summary',
+      },
+    };
+  } catch {
     const pruned = pruneMessages({
       messages,
       reasoning: 'all',
       toolCalls: 'all',
       emptyMessages: 'remove',
     });
-    const newMessages = takeLastTurns(pruned, KEEP_LAST_TURNS);
-    return { didCompact: true, reason: 'fallback', newMessages };
+    const fallbackMessages = takeLastTurns(pruned, KEEP_LAST_TURNS);
+    return buildCompactedResult({
+      reason: 'fallback',
+      strategy: 'fallback',
+      newMessages: fallbackMessages,
+      force,
+      beforeMessageCount,
+      beforeEstimatedTokens,
+    });
   }
 };

@@ -345,7 +345,7 @@ export * from './shared/types.js';
 export * from './plugin/EnginePlugin.js';
 export * from './plugin/UserConfigPlugin.js';
 export { loop } from './core/loop.js';
-export type { LoopOptions, LoopHooks } from './core/loop.js';
+export type { LoopOptions, LoopHooks, CompactionEvent } from './core/loop.js';
 export { streamTextAI } from './ai/index.js';
 export { maybeCompactContext } from './context/index.js';
 export * from './tools/index.js';
