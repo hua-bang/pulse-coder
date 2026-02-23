@@ -1,5 +1,4 @@
 import { randomUUID } from 'crypto';
-import { promises as fs } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import {
@@ -20,7 +19,8 @@ import {
 import { formatDailyLogLogLine, normalizeDailyLogPolicy, processDailyLogCandidates } from './service/daily-log.js';
 import { extractMemoryCandidates } from './service/extraction.js';
 import type { ExtractedMemory } from './service/models.js';
-import { buildMemoryPrompt, combineRecallScore } from './service/recall.js';
+import { combineRecallScore, buildMemoryPrompt } from './service/recall.js';
+import { LayeredMemoryStateStore } from './service/state-store.js';
 import type {
   EmbeddingProvider,
   FileMemoryServiceOptions,
@@ -40,8 +40,7 @@ import { clamp, normalizeContent, normalizeWhitespace, tokenize, uniqueWords } f
 const DEFAULT_EMBEDDING_DIMENSIONS = 256;
 
 export class FileMemoryPluginService {
-  private readonly baseDir: string;
-  private readonly statePath: string;
+  private readonly stateStore: LayeredMemoryStateStore;
   private readonly vectorStorePath: string;
   private readonly maxItemsPerUser: number;
   private readonly defaultRecallLimit: number;
@@ -54,9 +53,9 @@ export class FileMemoryPluginService {
   private state: MemoryState = { items: [], sessionEnabled: {} };
 
   constructor(options: FileMemoryServiceOptions = {}) {
-    this.baseDir = options.baseDir ?? join(homedir(), '.pulse-coder', 'memory-plugin');
-    this.statePath = join(this.baseDir, 'state.json');
-    this.vectorStorePath = options.vectorStorePath ?? join(this.baseDir, 'vectors.sqlite');
+    const baseDir = options.baseDir ?? join(homedir(), '.pulse-coder', 'memory-plugin');
+    this.stateStore = new LayeredMemoryStateStore(baseDir);
+    this.vectorStorePath = options.vectorStorePath ?? join(baseDir, 'vectors.sqlite');
     this.maxItemsPerUser = options.maxItemsPerUser ?? 500;
     this.defaultRecallLimit = options.defaultRecallLimit ?? 5;
 
@@ -80,17 +79,12 @@ export class FileMemoryPluginService {
       return;
     }
 
-    await fs.mkdir(this.baseDir, { recursive: true });
+    const loaded = await this.stateStore.loadMergedState();
+    this.state = loaded.state;
 
-    try {
-      const raw = await fs.readFile(this.statePath, 'utf-8');
-      const parsed = JSON.parse(raw) as Partial<MemoryState>;
-      this.state.items = Array.isArray(parsed.items) ? parsed.items : [];
-      this.state.sessionEnabled = parsed.sessionEnabled && typeof parsed.sessionEnabled === 'object'
-        ? parsed.sessionEnabled
-        : {};
-    } catch {
-      this.state = { items: [], sessionEnabled: {} };
+    if (loaded.legacyPath) {
+      await this.stateStore.saveState(this.state);
+      await this.stateStore.backupLegacyState(loaded.legacyPath);
     }
 
     this.vectorStore = initializeVectorStore(this.vectorStorePath, this.vectorStore.semanticRecallEnabled);
@@ -366,7 +360,7 @@ export class FileMemoryPluginService {
   }
 
   private async saveState(): Promise<void> {
-    await fs.writeFile(this.statePath, JSON.stringify(this.state, null, 2), 'utf-8');
+    await this.stateStore.saveState(this.state);
   }
 
   private sessionKey(platformKey: string, sessionId: string): string {
