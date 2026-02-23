@@ -2,6 +2,8 @@ import { defineConfig } from 'tsup';
 
 export default defineConfig((options) => {
   const isWatch = Boolean(options.watch);
+  const isDebugBuild = process.env.PULSE_CODER_DEBUG === '1';
+  const shouldKeepDebugInfo = isWatch || isDebugBuild;
 
   return {
     entry: {
@@ -12,15 +14,16 @@ export default defineConfig((options) => {
     dts: false,
     clean: true,
     splitting: false,
-    sourcemap: isWatch,
+    sourcemap: shouldKeepDebugInfo,
     banner: { js: '#!/usr/bin/env node' },
     bundle: true,
-    minify: !isWatch,
-    treeshake: !isWatch,
+    minify: !shouldKeepDebugInfo,
+    treeshake: !shouldKeepDebugInfo,
     platform: 'node',
-    // 确保所有依赖都打包进来，包括 workspace 依赖
-    external: [],
-    noExternal: ['pulse-coder-engine', 'pulse-sandbox'],
+    // Keep workspace packages external in debug builds so breakpoints map to package sourcemaps.
+    external: isDebugBuild ? ['pulse-coder-engine', 'pulse-coder-memory-plugin'] : [],
+    noExternal: ['pulse-sandbox'],
     outExtension: () => ({ js: '.cjs' })
   };
 });
+

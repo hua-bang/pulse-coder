@@ -12,7 +12,7 @@
     "dev": "tsup --watch",
     "test": "vitest run",
     "start": "node --enable-source-maps dist/index.cjs",
-    "start:debug": "node --inspect --enable-source-maps dist/index.cjs"
+    "start:debug": "PULSE_CODER_DEBUG=1 tsup && node --inspect --enable-source-maps dist/index.cjs"
   },
   "files": [
     "dist"
