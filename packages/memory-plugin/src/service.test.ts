@@ -1,5 +1,5 @@
 import BetterSqlite3 from 'better-sqlite3';
-import { access, mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -27,6 +27,130 @@ afterEach(async () => {
 });
 
 describe('FileMemoryPluginService', () => {
+  it('writes layered files for user and daily memory storage', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-02-22T12:00:00Z'));
+
+    const { baseDir, service } = await createService();
+
+    await service.recordTurn({
+      platformKey: 'test-platform',
+      sessionId: 'session-layered',
+      userText: 'Profile: my name is Jasper.',
+      assistantText: 'Profile captured.',
+      sourceType: 'explicit',
+    });
+
+    await service.recordTurn({
+      platformKey: 'test-platform',
+      sessionId: 'session-layered',
+      userText: 'Rule: must keep changelog entries for every release.',
+      assistantText: 'Decision: we will enforce release checklist in CI.',
+      sourceType: 'daily-log',
+    });
+
+    const userPath = join(baseDir, 'test-platform', 'user', 'memories.json');
+    const dailyPath = join(baseDir, 'test-platform', 'daily', '2026-02-22.json');
+
+    const userRaw = JSON.parse(await readFile(userPath, 'utf-8')) as { items?: Array<{ scope: string }>; sessionEnabled?: Record<string, boolean> };
+    const dailyRaw = JSON.parse(await readFile(dailyPath, 'utf-8')) as { items?: Array<{ sourceType?: string; dayKey?: string; sessionId?: string }> };
+
+    expect(Array.isArray(userRaw.items)).toBe(true);
+    expect(userRaw.items?.some((item) => item.scope === 'user')).toBe(true);
+    expect(userRaw.sessionEnabled).toBeDefined();
+
+    expect(Array.isArray(dailyRaw.items)).toBe(true);
+    expect(dailyRaw.items?.every((item) => item.sourceType === 'daily-log')).toBe(true);
+    expect(dailyRaw.items?.every((item) => item.dayKey === '2026-02-22')).toBe(true);
+    expect(dailyRaw.items?.every((item) => item.sessionId === 'session-layered')).toBe(true);
+  });
+
+  it('migrates legacy state.json into layered layout and keeps behavior unchanged', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-02-23T09:00:00Z'));
+
+    const baseDir = await mkdtemp(join(tmpdir(), 'memory-plugin-test-'));
+    createdDirs.push(baseDir);
+
+    const legacyState = {
+      items: [
+        {
+          id: 'legacy-user',
+          platformKey: 'legacy-platform',
+          scope: 'user',
+          type: 'fact',
+          content: 'Profile: my name is Jasper.',
+          summary: 'my name is Jasper',
+          keywords: ['jasper'],
+          confidence: 0.8,
+          importance: 0.8,
+          pinned: false,
+          deleted: false,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          lastAccessedAt: Date.now(),
+          sourceType: 'explicit',
+        },
+        {
+          id: 'legacy-daily',
+          platformKey: 'legacy-platform',
+          sessionId: 'legacy-session',
+          scope: 'session',
+          type: 'rule',
+          content: 'Rule: always run tests before merge.',
+          summary: 'always run tests before merge',
+          keywords: ['tests', 'merge'],
+          confidence: 0.75,
+          importance: 0.8,
+          pinned: false,
+          deleted: false,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          lastAccessedAt: Date.now(),
+          sourceType: 'daily-log',
+          dayKey: '2026-02-23',
+          dedupeKey: 'rule:always run tests before merge',
+          hitCount: 1,
+          firstSeenAt: Date.now(),
+          lastSeenAt: Date.now(),
+        },
+      ],
+      sessionEnabled: {
+        'legacy-platform:legacy-session': false,
+      },
+    };
+
+    await writeFile(join(baseDir, 'state.json'), JSON.stringify(legacyState, null, 2), 'utf-8');
+
+    const service = new FileMemoryPluginService({ baseDir });
+    await service.initialize();
+
+    const listResult = await service.list({
+      platformKey: 'legacy-platform',
+      sessionId: 'legacy-session',
+      limit: 20,
+    });
+    expect(listResult.some((item) => item.id === 'legacy-user')).toBe(true);
+    expect(listResult.some((item) => item.id === 'legacy-daily')).toBe(true);
+
+    const recallResult = await service.recall({
+      platformKey: 'legacy-platform',
+      sessionId: 'legacy-session',
+      query: 'what is my name',
+      limit: 5,
+    });
+    expect(recallResult.enabled).toBe(false);
+
+    await expect(access(join(baseDir, 'state.v1.backup.json'))).resolves.toBeUndefined();
+    await expect(access(join(baseDir, 'state.json'))).rejects.toThrow();
+
+    const userRaw = JSON.parse(await readFile(join(baseDir, 'legacy-platform', 'user', 'memories.json'), 'utf-8')) as { items?: Array<{ id: string }> };
+    const dailyRaw = JSON.parse(await readFile(join(baseDir, 'legacy-platform', 'daily', '2026-02-23.json'), 'utf-8')) as { items?: Array<{ id: string }> };
+
+    expect(userRaw.items?.some((item) => item.id === 'legacy-user')).toBe(true);
+    expect(dailyRaw.items?.some((item) => item.id === 'legacy-daily')).toBe(true);
+  });
+
   it('records and recalls memories with default hash embeddings', async () => {
     const { service } = await createService();
 
