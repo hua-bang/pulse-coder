@@ -137,6 +137,7 @@ export function createMemoryEnginePlugin(options: CreateMemoryEnginePluginOption
         }
 
         const autoInjectedPrompt = await buildAutoInjectedUserMemoryPrompt(options.service, runContext);
+        console.debug(`[MemoryPlugin] Auto-injected user memory prompt: ${autoInjectedPrompt ?? 'None'}`);
         if (!autoInjectedPrompt) {
           return { systemPrompt: nextPrompt };
         }

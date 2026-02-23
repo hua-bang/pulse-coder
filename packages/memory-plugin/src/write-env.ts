@@ -1,4 +1,11 @@
 import type { MemoryDailyLogMode, MemoryDailyLogPolicy } from './types.js';
+import {
+  clamp,
+  clampInteger,
+  parseBooleanEnv,
+  parseFloatEnv,
+  parseIntegerEnv,
+} from './config/env-utils.js';
 
 export interface MemoryWriteRuntimeConfig {
   dailyLogPolicy: MemoryDailyLogPolicy;
@@ -53,52 +60,4 @@ function parseDailyLogMode(raw: string | undefined, fallback: MemoryDailyLogMode
     return 'write';
   }
   return fallback;
-}
-
-function parseBooleanEnv(raw: string | undefined, defaultValue: boolean): boolean {
-  const normalized = raw?.trim().toLowerCase();
-  if (!normalized) {
-    return defaultValue;
-  }
-  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
-    return true;
-  }
-  if (['0', 'false', 'no', 'off'].includes(normalized)) {
-    return false;
-  }
-  return defaultValue;
-}
-
-function parseFloatEnv(raw: string | undefined): number | undefined {
-  if (!raw) {
-    return undefined;
-  }
-
-  const parsed = Number.parseFloat(raw.trim());
-  if (!Number.isFinite(parsed)) {
-    return undefined;
-  }
-
-  return parsed;
-}
-
-function parseIntegerEnv(raw: string | undefined): number | undefined {
-  if (!raw) {
-    return undefined;
-  }
-
-  const parsed = Number.parseInt(raw.trim(), 10);
-  if (!Number.isFinite(parsed)) {
-    return undefined;
-  }
-
-  return parsed;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-function clampInteger(value: number, min: number, max: number): number {
-  return Math.round(clamp(value, min, max));
 }
