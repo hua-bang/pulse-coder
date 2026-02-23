@@ -93,6 +93,8 @@ export function processDailyLogCandidates(
       duplicate.firstSeenAt = duplicate.firstSeenAt ?? duplicate.createdAt;
       duplicate.lastSeenAt = context.now;
       duplicate.hitCount = (duplicate.hitCount ?? 1) + 1;
+      duplicate.chunkId = candidate.chunkId ?? duplicate.chunkId;
+      duplicate.sourceRef = candidate.sourceRef ?? duplicate.sourceRef;
       touchedItems.push(duplicate);
       continue;
     }
@@ -139,6 +141,8 @@ export function processDailyLogCandidates(
       hitCount: 1,
       firstSeenAt: context.now,
       lastSeenAt: context.now,
+      chunkId: candidate.chunkId,
+      sourceRef: candidate.sourceRef,
     };
     context.stateItems.push(nextItem);
     touchedItems.push(nextItem);

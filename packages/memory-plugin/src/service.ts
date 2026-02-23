@@ -1,5 +1,4 @@
 import { randomUUID } from 'crypto';
-import { promises as fs } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import {
@@ -20,7 +19,8 @@ import {
 import { formatDailyLogLogLine, normalizeDailyLogPolicy, processDailyLogCandidates } from './service/daily-log.js';
 import { extractMemoryCandidates } from './service/extraction.js';
 import type { ExtractedMemory } from './service/models.js';
-import { buildMemoryPrompt, combineRecallScore } from './service/recall.js';
+import { buildMemoryPrompt } from './service/recall.js';
+import { LayeredMemoryStateStore } from './service/state-store.js';
 import type {
   EmbeddingProvider,
   FileMemoryServiceOptions,
@@ -38,10 +38,20 @@ import type {
 import { clamp, normalizeContent, normalizeWhitespace, tokenize, uniqueWords } from './utils/text.js';
 
 const DEFAULT_EMBEDDING_DIMENSIONS = 256;
+const HYBRID_TOPK_MULTIPLIER = 3;
+const VECTOR_WEIGHT = 0.65;
+const KEYWORD_WEIGHT = 0.35;
+
+interface RankedCandidate {
+  item: MemoryItem;
+  vectorScore: number;
+  keywordScore: number;
+  recencyScore: number;
+  qualityScore: number;
+}
 
 export class FileMemoryPluginService {
-  private readonly baseDir: string;
-  private readonly statePath: string;
+  private readonly stateStore: LayeredMemoryStateStore;
   private readonly vectorStorePath: string;
   private readonly maxItemsPerUser: number;
   private readonly defaultRecallLimit: number;
@@ -54,9 +64,9 @@ export class FileMemoryPluginService {
   private state: MemoryState = { items: [], sessionEnabled: {} };
 
   constructor(options: FileMemoryServiceOptions = {}) {
-    this.baseDir = options.baseDir ?? join(homedir(), '.pulse-coder', 'memory-plugin');
-    this.statePath = join(this.baseDir, 'state.json');
-    this.vectorStorePath = options.vectorStorePath ?? join(this.baseDir, 'vectors.sqlite');
+    const baseDir = options.baseDir ?? join(homedir(), '.pulse-coder', 'memory-plugin');
+    this.stateStore = new LayeredMemoryStateStore(baseDir);
+    this.vectorStorePath = options.vectorStorePath ?? join(baseDir, 'vectors.sqlite');
     this.maxItemsPerUser = options.maxItemsPerUser ?? 500;
     this.defaultRecallLimit = options.defaultRecallLimit ?? 5;
 
@@ -80,17 +90,12 @@ export class FileMemoryPluginService {
       return;
     }
 
-    await fs.mkdir(this.baseDir, { recursive: true });
+    const loaded = await this.stateStore.loadMergedState();
+    this.state = loaded.state;
 
-    try {
-      const raw = await fs.readFile(this.statePath, 'utf-8');
-      const parsed = JSON.parse(raw) as Partial<MemoryState>;
-      this.state.items = Array.isArray(parsed.items) ? parsed.items : [];
-      this.state.sessionEnabled = parsed.sessionEnabled && typeof parsed.sessionEnabled === 'object'
-        ? parsed.sessionEnabled
-        : {};
-    } catch {
-      this.state = { items: [], sessionEnabled: {} };
+    if (loaded.legacyPath) {
+      await this.stateStore.saveState(this.state);
+      await this.stateStore.backupLegacyState(loaded.legacyPath);
     }
 
     this.vectorStore = initializeVectorStore(this.vectorStorePath, this.vectorStore.semanticRecallEnabled);
@@ -125,46 +130,96 @@ export class FileMemoryPluginService {
     const now = Date.now();
 
     const visibleItems = this.state.items
-      .filter((item) => this.isCandidateVisible(item, input.platformKey, input.sessionId));
+      .filter((item) => this.isCandidateVisible(item, input.platformKey, input.sessionId))
+      .filter((item) => item.sourceType === 'daily-log');
+
+    if (visibleItems.length === 0) {
+      return {
+        enabled,
+        items: [],
+        promptAppend: undefined,
+      };
+    }
 
     const embeddingMap = hasSemanticQuery
       ? loadEmbeddings(this.vectorStore, visibleItems.map((item) => item.id), this.embeddingDimensions)
       : new Map<string, number[]>();
 
-    const ranked = visibleItems
-      .map((item) => {
-        const haystack = `${item.summary} ${item.content} ${item.keywords.join(' ')}`.toLowerCase();
-        const matched = queryTokens.filter((token) => haystack.includes(token));
-        const keywordScore = hasKeywordQuery ? matched.length / queryTokens.length : 0;
+    const topK = Math.max(limit, limit * HYBRID_TOPK_MULTIPLIER);
+    const merged = new Map<string, RankedCandidate>();
 
-        const itemVector = embeddingMap.get(item.id);
-        const semanticScore = queryVector && itemVector
-          ? cosineSimilarity(queryVector, itemVector)
-          : 0;
+    if (hasSemanticQuery && queryVector) {
+      const semanticTop = visibleItems
+        .map((item) => {
+          const itemVector = embeddingMap.get(item.id);
+          const vectorScore = itemVector ? cosineSimilarity(queryVector, itemVector) : 0;
+          return { item, vectorScore };
+        })
+        .filter((entry) => entry.vectorScore > 0)
+        .sort((a, b) => b.vectorScore - a.vectorScore)
+        .slice(0, topK);
 
-        const ageDays = Math.max(0, now - item.updatedAt) / (1000 * 60 * 60 * 24);
-        const recencyScore = 1 / (1 + ageDays / 7);
-        const qualityScore = item.confidence * 0.5 + item.importance * 0.5;
-
-        const score = combineRecallScore({
-          keywordScore,
-          semanticScore,
-          recencyScore,
-          qualityScore,
-          pinned: item.pinned,
-          hasKeywords: hasKeywordQuery,
-          hasSemantic: hasSemanticQuery,
+      for (const entry of semanticTop) {
+        merged.set(entry.item.id, {
+          item: entry.item,
+          vectorScore: entry.vectorScore,
+          keywordScore: 0,
+          recencyScore: this.buildRecencyScore(now, entry.item),
+          qualityScore: this.buildQualityScore(entry.item),
         });
+      }
+    }
 
-        return { item, score };
-      })
-      .filter((entry) => {
-        if (!hasKeywordQuery && !hasSemanticQuery) {
-          return true;
+    if (hasKeywordQuery) {
+      const keywordTop = visibleItems
+        .map((item) => {
+          const haystack = `${item.summary} ${item.content} ${item.keywords.join(' ')}`.toLowerCase();
+          const matched = queryTokens.filter((token) => haystack.includes(token));
+          return {
+            item,
+            keywordScore: matched.length / queryTokens.length,
+          };
+        })
+        .filter((entry) => entry.keywordScore > 0)
+        .sort((a, b) => b.keywordScore - a.keywordScore)
+        .slice(0, topK);
+
+      for (const entry of keywordTop) {
+        const existing = merged.get(entry.item.id);
+        if (existing) {
+          existing.keywordScore = Math.max(existing.keywordScore, entry.keywordScore);
+          continue;
         }
-        return entry.score >= 0.18;
-      })
-      .sort((a, b) => b.score - a.score)
+
+        merged.set(entry.item.id, {
+          item: entry.item,
+          vectorScore: 0,
+          keywordScore: entry.keywordScore,
+          recencyScore: this.buildRecencyScore(now, entry.item),
+          qualityScore: this.buildQualityScore(entry.item),
+        });
+      }
+    }
+
+    if (merged.size === 0) {
+      const fallback = visibleItems
+        .slice()
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, topK);
+
+      for (const item of fallback) {
+        merged.set(item.id, {
+          item,
+          vectorScore: 0,
+          keywordScore: 0,
+          recencyScore: this.buildRecencyScore(now, item),
+          qualityScore: this.buildQualityScore(item),
+        });
+      }
+    }
+
+    const ranked = [...merged.values()]
+      .sort((a, b) => this.sortHybrid(a, b, hasKeywordQuery || hasSemanticQuery))
       .slice(0, limit)
       .map((entry) => entry.item);
 
@@ -220,13 +275,18 @@ export class FileMemoryPluginService {
       return;
     }
 
-    const extracted = extractMemoryCandidates(input.userText, input.assistantText).slice(0, 6);
+    const now = Date.now();
+    const sourceType: MemorySourceType = input.sourceType ?? 'explicit';
+    const extracted = extractMemoryCandidates(input.userText, input.assistantText, {
+      sourceType,
+      platformKey: input.platformKey,
+      sessionId: input.sessionId,
+      now,
+    }).slice(0, 6);
     if (extracted.length === 0) {
       return;
     }
 
-    const now = Date.now();
-    const sourceType: MemorySourceType = input.sourceType ?? 'explicit';
     if (sourceType === 'daily-log') {
       await this.recordDailyLogTurn(input, extracted, now);
       return;
@@ -253,6 +313,8 @@ export class FileMemoryPluginService {
         duplicate.importance = Math.max(duplicate.importance, candidate.importance);
         duplicate.keywords = uniqueWords([...duplicate.keywords, ...candidate.keywords]);
         duplicate.sourceType = duplicate.sourceType ?? 'explicit';
+        duplicate.chunkId = candidate.chunkId ?? duplicate.chunkId;
+        duplicate.sourceRef = candidate.sourceRef ?? duplicate.sourceRef;
         touchedItems.push(duplicate);
         continue;
       }
@@ -274,6 +336,8 @@ export class FileMemoryPluginService {
         updatedAt: now,
         lastAccessedAt: now,
         sourceType: 'explicit',
+        chunkId: candidate.chunkId,
+        sourceRef: candidate.sourceRef,
       };
       this.state.items.push(nextItem);
       touchedItems.push(nextItem);
@@ -366,7 +430,7 @@ export class FileMemoryPluginService {
   }
 
   private async saveState(): Promise<void> {
-    await fs.writeFile(this.statePath, JSON.stringify(this.state, null, 2), 'utf-8');
+    await this.stateStore.saveState(this.state);
   }
 
   private sessionKey(platformKey: string, sessionId: string): string {
@@ -415,6 +479,33 @@ export class FileMemoryPluginService {
     }
 
     return true;
+  }
+
+  private buildRecencyScore(now: number, item: MemoryItem): number {
+    const ageDays = Math.max(0, now - item.updatedAt) / (1000 * 60 * 60 * 24);
+    return 1 / (1 + ageDays / 7);
+  }
+
+  private buildQualityScore(item: MemoryItem): number {
+    return item.confidence * 0.5 + item.importance * 0.5;
+  }
+
+  private hybridScore(entry: RankedCandidate, hasQuerySignal: boolean): number {
+    if (!hasQuerySignal) {
+      return entry.recencyScore * 0.8 + entry.qualityScore * 0.2;
+    }
+
+    const hybrid = entry.vectorScore * VECTOR_WEIGHT + entry.keywordScore * KEYWORD_WEIGHT;
+    return hybrid + entry.recencyScore * 0.05 + entry.qualityScore * 0.02 + (entry.item.pinned ? 0.2 : 0);
+  }
+
+  private sortHybrid(a: RankedCandidate, b: RankedCandidate, hasQuerySignal: boolean): number {
+    const scoreA = this.hybridScore(a, hasQuerySignal);
+    const scoreB = this.hybridScore(b, hasQuerySignal);
+    if (scoreA !== scoreB) {
+      return scoreB - scoreA;
+    }
+    return b.item.updatedAt - a.item.updatedAt;
   }
 }
 
