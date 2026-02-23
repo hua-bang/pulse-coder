@@ -1,5 +1,5 @@
 import { generateText, streamText, tool, type ModelMessage, type StepResult, type Tool } from 'ai';
-import { CoderAI, DEFAULT_MODEL, COMPACT_SUMMARY_MAX_TOKENS, OPENAI_REASONING_EFFORT } from '../config';
+import { CoderAI, DEFAULT_MODEL, COMPACT_SUMMARY_MAX_TOKENS, COMPACT_SUMMARY_MODEL, OPENAI_REASONING_EFFORT } from '../config';
 import z from 'zod';
 import { generateSystemPrompt } from '../prompt';
 import type { Tool as CoderTool, ToolExecutionContext, LLMProviderFactory, SystemPromptOption } from '../shared/types';
@@ -96,7 +96,7 @@ export const summarizeMessages = async (
   options?: { maxOutputTokens?: number; provider?: LLMProviderFactory; model?: string }
 ): Promise<string> => {
   const provider = options?.provider ?? CoderAI;
-  const model = options?.model ?? DEFAULT_MODEL;
+  const model = options?.model ?? COMPACT_SUMMARY_MODEL ?? DEFAULT_MODEL;
   const SUMMARY_SYSTEM_PROMPT =
     '你是负责压缩对话上下文的助手。请基于给定历史消息，提炼关键事实与决策，避免臆测或扩展。';
 
