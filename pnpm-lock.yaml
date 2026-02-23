@@ -103,6 +103,9 @@ importers:
       pulse-coder-engine:
         specifier: workspace:*
         version: link:../engine
+      pulse-coder-memory-plugin:
+        specifier: workspace:*
+        version: link:../memory-plugin
       pulse-sandbox:
         specifier: workspace:*
         version: link:../pulse-sandbox
