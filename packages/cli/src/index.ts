@@ -5,6 +5,7 @@ import type { Context, TaskListService } from 'pulse-coder-engine';
 import { SessionCommands } from './session-commands.js';
 import { InputManager } from './input-manager.js';
 import { SkillCommands } from './skill-commands.js';
+import { memoryIntegration, buildMemoryRunContext, recordDailyLogFromSuccessPath } from './memory-integration.js';
 
 class CoderCLI {
   private agent: PulseAgent;
@@ -21,6 +22,7 @@ class CoderCLI {
     // 🎯 现在引擎自动包含内置插件，无需显式配置！
     this.agent = new PulseAgent({
       enginePlugins: {
+        plugins: [memoryIntegration.enginePlugin],
         // 只配置扩展插件目录，内置插件会自动加载
         dirs: ['.pulse-coder/engine-plugins', '.coder/engine-plugins', '~/.pulse-coder/engine-plugins', '~/.coder/engine-plugins'],
         scan: true
@@ -70,6 +72,17 @@ class CoderCLI {
     }
 
     return Math.floor(value);
+  }
+
+
+  private resolveCurrentSessionId(): string | null {
+    const currentId = this.sessionCommands.getCurrentSessionId();
+    if (currentId) {
+      return currentId;
+    }
+
+    console.warn('⚠️ No active session ID; memory tools and daily logs are skipped for this run.');
+    return null;
   }
 
   private async syncSessionTaskListBinding(): Promise<void> {
@@ -288,6 +301,7 @@ class CoderCLI {
     console.log('Commands starting with "/" will trigger command mode.\n');
 
     await this.sessionCommands.initialize();
+    await memoryIntegration.initialize();
     await this.agent.initialize();
 
     // 显示插件状态
@@ -448,33 +462,69 @@ class CoderCLI {
       try {
         await this.syncSessionTaskListBinding();
 
-        const result = await this.agent.run(this.context, {
-          abortSignal: ac.signal,
-          onText: (delta) => {
-            sawText = true;
-            process.stdout.write(delta);
-          },
-          onToolCall: (toolCall) => {
-            const input = 'input' in toolCall ? toolCall.input : undefined;
-            const inputText = input === undefined ? '' : `(${JSON.stringify(input)})`;
-            process.stdout.write(`\n🔧 ${toolCall.toolName}${inputText}\n`);
-          },
-          onToolResult: (toolResult) => {
-            process.stdout.write(`\n✅ ${toolResult.toolName}\n`);
-          },
-          onStepFinish: (step) => {
-            process.stdout.write(`\n📋 Step finished: ${step.finishReason}\n`);
-          },
-          onClarificationRequest: async (request) => {
-            return await this.inputManager.requestInput(request);
-          },
-          onCompacted: (newMessages) => {
-            this.context.messages = newMessages;
-          },
-          onResponse: (messages) => {
-            this.context.messages.push(...messages);
-          },
-        });
+        const currentSessionId = this.resolveCurrentSessionId();
+
+        const result = currentSessionId
+          ? await memoryIntegration.withRunContext(
+            buildMemoryRunContext({
+              sessionId: currentSessionId,
+              userText: messageInput,
+            }),
+            async () => this.agent.run(this.context, {
+              abortSignal: ac.signal,
+              onText: (delta) => {
+                sawText = true;
+                process.stdout.write(delta);
+              },
+              onToolCall: (toolCall) => {
+                const input = 'input' in toolCall ? toolCall.input : undefined;
+                const inputText = input === undefined ? '' : `(${JSON.stringify(input)})`;
+                process.stdout.write(`\n🔧 ${toolCall.toolName}${inputText}\n`);
+              },
+              onToolResult: (toolResult) => {
+                process.stdout.write(`\n✅ ${toolResult.toolName}\n`);
+              },
+              onStepFinish: (step) => {
+                process.stdout.write(`\n📋 Step finished: ${step.finishReason}\n`);
+              },
+              onClarificationRequest: async (request) => {
+                return await this.inputManager.requestInput(request);
+              },
+              onCompacted: (newMessages) => {
+                this.context.messages = newMessages;
+              },
+              onResponse: (messages) => {
+                this.context.messages.push(...messages);
+              },
+            }),
+          )
+          : await this.agent.run(this.context, {
+            abortSignal: ac.signal,
+            onText: (delta) => {
+              sawText = true;
+              process.stdout.write(delta);
+            },
+            onToolCall: (toolCall) => {
+              const input = 'input' in toolCall ? toolCall.input : undefined;
+              const inputText = input === undefined ? '' : `(${JSON.stringify(input)})`;
+              process.stdout.write(`\n🔧 ${toolCall.toolName}${inputText}\n`);
+            },
+            onToolResult: (toolResult) => {
+              process.stdout.write(`\n✅ ${toolResult.toolName}\n`);
+            },
+            onStepFinish: (step) => {
+              process.stdout.write(`\n📋 Step finished: ${step.finishReason}\n`);
+            },
+            onClarificationRequest: async (request) => {
+              return await this.inputManager.requestInput(request);
+            },
+            onCompacted: (newMessages) => {
+              this.context.messages = newMessages;
+            },
+            onResponse: (messages) => {
+              this.context.messages.push(...messages);
+            },
+          });
 
         if (result) {
           if (!sawText) {
@@ -484,6 +534,14 @@ class CoderCLI {
           }
 
           await this.sessionCommands.saveContext(this.context);
+
+          if (currentSessionId) {
+            await recordDailyLogFromSuccessPath({
+              sessionId: currentSessionId,
+              userText: messageInput,
+              assistantText: result,
+            });
+          }
         }
       } catch (error) {
         if (error.name === 'AbortError') {

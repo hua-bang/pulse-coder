@@ -19,6 +19,7 @@
   ],
   "dependencies": {
     "pulse-coder-engine": "workspace:*",
+    "pulse-coder-memory-plugin": "workspace:*",
     "pulse-sandbox": "workspace:*"
   },
   "devDependencies": {
