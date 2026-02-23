@@ -1,4 +1,4 @@
-import type { MemoryScope, MemoryType } from '../types.js';
+import type { MemoryScope, MemorySourceRef, MemoryType } from '../types.js';
 
 export interface ExtractedMemory {
   scope: MemoryScope;
@@ -8,6 +8,8 @@ export interface ExtractedMemory {
   keywords: string[];
   confidence: number;
   importance: number;
+  chunkId?: string;
+  sourceRef?: MemorySourceRef;
 }
 
 export interface RecallScoreInput {

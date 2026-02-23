@@ -207,6 +207,18 @@ function summarizeMemoryItem(item: MemoryItem): Record<string, unknown> {
     content: item.content,
     pinned: item.pinned,
     updatedAt: item.updatedAt,
+    source: summarizeMemorySource(item),
+  };
+}
+
+function summarizeMemorySource(item: MemoryItem): Record<string, unknown> | undefined {
+  if (!item.sourceRef && !item.chunkId) {
+    return undefined;
+  }
+
+  return {
+    chunkId: item.chunkId,
+    sourceRef: item.sourceRef,
   };
 }
 

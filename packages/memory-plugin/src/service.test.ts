@@ -157,8 +157,9 @@ describe('FileMemoryPluginService', () => {
     await service.recordTurn({
       platformKey: 'test-platform',
       sessionId: 'session-1',
-      userText: 'Please remember: default to TypeScript and use pnpm in this repo.',
-      assistantText: 'I fixed the root cause and aligned the tooling.',
+      userText: 'Rule: must use TypeScript and pnpm in this repo.',
+      assistantText: 'Decision: we will keep CI aligned to that tooling.',
+      sourceType: 'daily-log',
     });
 
     const listed = await service.list({
@@ -219,8 +220,9 @@ describe('FileMemoryPluginService', () => {
     await service.recordTurn({
       platformKey: 'test-platform',
       sessionId: 'session-3',
-      userText: 'Please remember: never use yarn in this project.',
+      userText: 'Rule: must never use yarn in this project.',
       assistantText: 'Acknowledged.',
+      sourceType: 'daily-log',
     });
 
     const recall = await service.recall({
@@ -257,6 +259,33 @@ describe('FileMemoryPluginService', () => {
     expect(listed.every((item) => item.sourceType === 'explicit')).toBe(true);
     expect(listed.some((item) => item.dayKey !== undefined)).toBe(false);
     expect(listed.some((item) => item.hitCount !== undefined)).toBe(false);
+  });
+
+  it('stores chunk metadata and source references for explicit records', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-02-22T08:30:00Z'));
+
+    const { service } = await createService();
+
+    await service.recordTurn({
+      platformKey: 'test-platform',
+      sessionId: 'session-chunk-explicit',
+      userText: 'Rule: must run lint before merge.\nRemember this preference: default to pnpm.',
+      assistantText: 'Resolved by fixing CI lint configuration.',
+      sourceType: 'explicit',
+    });
+
+    const listed = await service.list({
+      platformKey: 'test-platform',
+      sessionId: 'session-chunk-explicit',
+      limit: 20,
+    });
+
+    expect(listed.length).toBeGreaterThan(0);
+    expect(listed.every((item) => item.chunkId && item.chunkId.length > 0)).toBe(true);
+    expect(listed.every((item) => item.sourceRef?.path === 'explicit/test-platform/session-chunk-explicit/2026-02-22.log')).toBe(true);
+    expect(listed.every((item) => typeof item.sourceRef?.line === 'number' && item.sourceRef.line >= 1)).toBe(true);
+    expect(listed.every((item) => typeof item.sourceRef?.offset === 'number' && item.sourceRef.offset >= 0)).toBe(true);
   });
 
   it('dedupes daily-log writes on the same day and increments hit counts', async () => {
@@ -297,6 +326,8 @@ describe('FileMemoryPluginService', () => {
     expect(listed.every((item) => item.hitCount === 2)).toBe(true);
     expect(listed.every((item) => item.firstSeenAt !== undefined)).toBe(true);
     expect(listed.every((item) => item.lastSeenAt !== undefined)).toBe(true);
+    expect(listed.every((item) => item.chunkId && item.chunkId.length > 0)).toBe(true);
+    expect(listed.every((item) => item.sourceRef?.path === 'daily-log/test-platform/session-daily-dedupe/2026-02-22.log')).toBe(true);
   });
 
   it('enforces daily-log per-day quota', async () => {
@@ -366,6 +397,36 @@ describe('FileMemoryPluginService', () => {
     });
 
     expect(listed).toHaveLength(0);
+  });
+
+  it('recall returns only daily-log memories', async () => {
+    const { service } = await createService();
+
+    await service.recordTurn({
+      platformKey: 'test-platform',
+      sessionId: 'session-recall-filter',
+      userText: 'Profile: my favorite editor is Vim.',
+      assistantText: 'Profile captured.',
+      sourceType: 'explicit',
+    });
+
+    await service.recordTurn({
+      platformKey: 'test-platform',
+      sessionId: 'session-recall-filter',
+      userText: 'Rule: must run tests before merge.',
+      assistantText: 'Decision: we will enforce CI checks.',
+      sourceType: 'daily-log',
+    });
+
+    const recall = await service.recall({
+      platformKey: 'test-platform',
+      sessionId: 'session-recall-filter',
+      query: 'what are our merge requirements',
+      limit: 5,
+    });
+
+    expect(recall.items.length).toBeGreaterThan(0);
+    expect(recall.items.every((item) => item.sourceType === 'daily-log')).toBe(true);
   });
 
   it('supports shadow mode for daily-log without persisting items', async () => {
@@ -450,7 +511,7 @@ describe('FileMemoryPluginService', () => {
       limit: 5,
     });
 
-    expect(recall.items.some((item) => item.id === profileItem?.id)).toBe(true);
+    expect(recall.items).toHaveLength(0);
   });
 
   it('uses explicit embedding dimensions with a custom provider', async () => {
@@ -470,8 +531,9 @@ describe('FileMemoryPluginService', () => {
     await service.recordTurn({
       platformKey: 'test-platform',
       sessionId: 'session-4',
-      userText: 'Remember this rule: must include tests before merge.',
-      assistantText: 'Resolved.',
+      userText: 'Rule: must include tests before merge.',
+      assistantText: 'Decision: we will enforce that in CI.',
+      sourceType: 'daily-log',
     });
 
     const db = new BetterSqlite3(join(baseDir, 'vectors.sqlite'), { readonly: true });
@@ -494,3 +556,4 @@ describe('HashEmbeddingProvider', () => {
     expect(high.dimensions).toBe(4096);
   });
 });
+

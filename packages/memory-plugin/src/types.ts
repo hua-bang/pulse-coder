@@ -14,6 +14,12 @@ export interface MemoryDailyLogPolicy {
   maxPerDay: number;
 }
 
+export interface MemorySourceRef {
+  path: string;
+  offset: number;
+  line: number;
+}
+
 export interface MemoryItem {
   id: string;
   platformKey: string;
@@ -36,6 +42,8 @@ export interface MemoryItem {
   firstSeenAt?: number;
   lastSeenAt?: number;
   sourceType?: MemorySourceType;
+  chunkId?: string;
+  sourceRef?: MemorySourceRef;
 }
 
 export interface MemoryState {
