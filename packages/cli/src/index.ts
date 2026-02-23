@@ -464,67 +464,42 @@ class CoderCLI {
 
         const currentSessionId = this.resolveCurrentSessionId();
 
+        const runAgent = async () => this.agent.run(this.context, {
+          abortSignal: ac.signal,
+          onText: (delta) => {
+            sawText = true;
+            process.stdout.write(delta);
+          },
+          onToolCall: (toolCall) => {
+            const input = 'input' in toolCall ? toolCall.input : undefined;
+            const inputText = input === undefined ? '' : `(${JSON.stringify(input)})`;
+            process.stdout.write(`\n🔧 ${toolCall.toolName}${inputText}\n`);
+          },
+          onToolResult: (toolResult) => {
+            process.stdout.write(`\n✅ ${toolResult.toolName}\n`);
+          },
+          onStepFinish: (step) => {
+            process.stdout.write(`\n📋 Step finished: ${step.finishReason}\n`);
+          },
+          onClarificationRequest: async (request) => {
+            return await this.inputManager.requestInput(request);
+          },
+          onCompacted: (newMessages) => {
+            this.context.messages = newMessages;
+          },
+          onResponse: (messages) => {
+            this.context.messages.push(...messages);
+          },
+        });
         const result = currentSessionId
           ? await memoryIntegration.withRunContext(
             buildMemoryRunContext({
               sessionId: currentSessionId,
               userText: messageInput,
             }),
-            async () => this.agent.run(this.context, {
-              abortSignal: ac.signal,
-              onText: (delta) => {
-                sawText = true;
-                process.stdout.write(delta);
-              },
-              onToolCall: (toolCall) => {
-                const input = 'input' in toolCall ? toolCall.input : undefined;
-                const inputText = input === undefined ? '' : `(${JSON.stringify(input)})`;
-                process.stdout.write(`\n🔧 ${toolCall.toolName}${inputText}\n`);
-              },
-              onToolResult: (toolResult) => {
-                process.stdout.write(`\n✅ ${toolResult.toolName}\n`);
-              },
-              onStepFinish: (step) => {
-                process.stdout.write(`\n📋 Step finished: ${step.finishReason}\n`);
-              },
-              onClarificationRequest: async (request) => {
-                return await this.inputManager.requestInput(request);
-              },
-              onCompacted: (newMessages) => {
-                this.context.messages = newMessages;
-              },
-              onResponse: (messages) => {
-                this.context.messages.push(...messages);
-              },
-            }),
+            runAgent,
           )
-          : await this.agent.run(this.context, {
-            abortSignal: ac.signal,
-            onText: (delta) => {
-              sawText = true;
-              process.stdout.write(delta);
-            },
-            onToolCall: (toolCall) => {
-              const input = 'input' in toolCall ? toolCall.input : undefined;
-              const inputText = input === undefined ? '' : `(${JSON.stringify(input)})`;
-              process.stdout.write(`\n🔧 ${toolCall.toolName}${inputText}\n`);
-            },
-            onToolResult: (toolResult) => {
-              process.stdout.write(`\n✅ ${toolResult.toolName}\n`);
-            },
-            onStepFinish: (step) => {
-              process.stdout.write(`\n📋 Step finished: ${step.finishReason}\n`);
-            },
-            onClarificationRequest: async (request) => {
-              return await this.inputManager.requestInput(request);
-            },
-            onCompacted: (newMessages) => {
-              this.context.messages = newMessages;
-            },
-            onResponse: (messages) => {
-              this.context.messages.push(...messages);
-            },
-          });
+          : await runAgent();
 
         if (result) {
           if (!sawText) {
