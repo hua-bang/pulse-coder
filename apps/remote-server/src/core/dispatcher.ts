@@ -57,11 +57,19 @@ export async function dispatch(adapter: PlatformAdapter, c: HonoContext): Promis
   const response = adapter.ackRequest(c, incoming);
 
   // 4. Run agent asynchronously — do NOT await here
+  dispatchIncoming(adapter, incoming);
+
+  return response;
+}
+
+/**
+ * Run a parsed incoming message asynchronously.
+ * Useful for non-webhook sources (e.g. Discord DM gateway events).
+ */
+export function dispatchIncoming(adapter: PlatformAdapter, incoming: IncomingMessage): void {
   runAgentAsync(adapter, incoming).catch((err) => {
     console.error(`[dispatcher] Unhandled error for ${incoming.platformKey}:`, err);
   });
-
-  return response;
 }
 
 async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage): Promise<void> {
