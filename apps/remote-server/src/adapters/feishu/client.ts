@@ -158,6 +158,41 @@ export async function sendImageMessage(
 }
 
 /**
+ * Add an emoji reaction to a message.
+ */
+export async function addMessageReaction(messageId: string, emojiType: string): Promise<void> {
+  const token = await getTenantAccessToken();
+  const normalizedEmojiType = emojiType.trim().toUpperCase();
+  if (!normalizedEmojiType) {
+    throw new Error('emojiType is required');
+  }
+
+  const response = await fetch(
+    `${getFeishuBaseUrl()}/open-apis/im/v1/messages/${encodeURIComponent(messageId)}/reactions`,
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        reaction_type: { emoji_type: normalizedEmojiType },
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Failed to add message reaction in Feishu: ${response.status} ${response.statusText} - ${body}`);
+  }
+
+  const payload = (await response.json()) as FeishuApiResponse<unknown>;
+  if (payload.code !== 0) {
+    throw new Error(`Failed to add message reaction in Feishu: ${payload.msg || 'unknown error'}`);
+  }
+}
+
+/**
  * Send a plain text message.
  * Returns the message_id of the sent message.
  */

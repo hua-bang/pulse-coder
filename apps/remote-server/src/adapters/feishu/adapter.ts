@@ -7,6 +7,7 @@ import { getActiveStreamId } from '../../core/active-run-store.js';
 import { extractGeminiImageResult } from './image-result.js';
 import {
   createLarkClient,
+  addMessageReaction,
   sendTextMessage,
   sendImageMessage,
   sendCardMessage,
@@ -35,7 +36,7 @@ export class FeishuAdapter implements PlatformAdapter {
 
   // Map from platformKey -> { chatId, chatIdType }
   // Set during parseIncoming, read in createStreamHandle
-  private chatMeta = new Map<string, { chatId: string; chatIdType: 'open_id' | 'chat_id' }>();
+  private chatMeta = new Map<string, { chatId: string; chatIdType: 'open_id' | 'chat_id'; sourceMessageId?: string }>();
 
   // Dedup cache — prevent processing the same message_id twice
   private seenMessageIds = new Set<string>();
@@ -104,9 +105,17 @@ export class FeishuAdapter implements PlatformAdapter {
       ? `feishu:group:${chatId}:${openId}`
       : `feishu:${openId}`;
 
+    if (messageId) {
+      // Best-effort acknowledgement reaction for accepted user messages.
+      addMessageReaction(messageId, 'GET').catch((err) => {
+        console.error('[feishu] Failed to add GET reaction:', err);
+      });
+    }
+
     this.chatMeta.set(platformKey, {
       chatId: chatId ?? openId,
       chatIdType: chatId ? 'chat_id' : 'open_id',
+      sourceMessageId: messageId,
     });
 
     // Route to pending clarification if one is waiting
@@ -141,6 +150,7 @@ export class FeishuAdapter implements PlatformAdapter {
     const meta = this.chatMeta.get(incoming.platformKey);
     const chatId = meta?.chatId ?? incoming.platformKey.replace('feishu:', '');
     const idType = meta?.chatIdType ?? 'open_id';
+    const sourceMessageId = meta?.sourceMessageId;
     const { larkClient } = this;
 
     // Clean up chatMeta after reading — it's only needed to bridge parseIncoming → createStreamHandle
@@ -296,6 +306,12 @@ export class FeishuAdapter implements PlatformAdapter {
           await updateCardMessage(larkClient, cardMessageId, buildDoneCard(result)).catch(console.error);
         } else {
           await sendTextMessage(larkClient, chatId, idType, result || '✅ Done').catch(console.error);
+        }
+
+        if (sourceMessageId) {
+          addMessageReaction(sourceMessageId, 'DONE').catch((reactionErr) => {
+            console.error('[feishu] Failed to add DONE reaction:', reactionErr);
+          });
         }
       },
 
