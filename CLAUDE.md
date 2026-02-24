@@ -4,64 +4,110 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Pulse Coder is a plugin-based AI coding assistant built as a TypeScript monorepo. It provides an interactive CLI that uses OpenAI-compatible LLMs with a modular skill/plugin system for code generation, review, refactoring, and research tasks.
+Pulse Coder is a plugin-first AI coding assistant built as a TypeScript monorepo.
 
-## Build & Development Commands
+Core capabilities include:
+- reusable `Engine` runtime,
+- interactive CLI with session/task workflows,
+- built-in MCP/skills/plan-mode/task-tracking/sub-agent plugins,
+- optional memory integration and remote HTTP runtime.
+
+## Monorepo Structure
+
+This repo uses `pnpm` workspaces (`packages/*`, `apps/*`).
+
+Primary packages:
+- `packages/engine` (`pulse-coder-engine`): core engine loop, tools, plugin manager, built-in plugins.
+- `packages/cli` (`pulse-coder-cli`): interactive terminal app built on the engine.
+- `packages/pulse-sandbox` (`pulse-sandbox`): sandboxed JS executor used by `run_js`.
+- `packages/memory-plugin` (`pulse-coder-memory-plugin`): memory service/integration helpers.
+
+Apps:
+- `apps/remote-server`: HTTP wrapper around engine runtime.
+- `apps/pulse-agent-test`: lightweight integration checks.
+- `apps/coder-demo`: legacy experimental app.
+- `apps/snake-game`: static demo page.
+
+## Build, Dev, and Test Commands
 
 ```bash
-pnpm install              # Install all dependencies (requires pnpm 10.28.0)
-pnpm run build            # Build all packages (engine -> skills -> cli)
-pnpm run dev              # Watch mode for all packages
-pnpm start                # Run the CLI (@pulse-coder/cli)
-pnpm test                 # Run all tests (vitest)
-pnpm run clean            # Remove dist directories
-
-# Per-package commands
-pnpm --filter pulse-coder-engine build   # Build just engine
-pnpm --filter pulse-coder-engine test    # Test just engine
-pnpm --filter @pulse-coder/cli dev        # Dev mode for CLI
+pnpm install
+pnpm run build
+pnpm run dev
+pnpm start
+pnpm test
+pnpm run test:apps
 ```
 
-Build tool is tsup (ESM-only, target ES2022). Each package has its own `tsup.config.ts`.
+Useful filtered commands:
 
-## Architecture
+```bash
+pnpm --filter pulse-coder-engine test
+pnpm --filter pulse-coder-engine typecheck
+pnpm --filter pulse-coder-cli test
+pnpm --filter pulse-sandbox test
+pnpm --filter pulse-coder-memory-plugin test
+pnpm --filter @pulse-coder/remote-server build
+```
 
-### Monorepo Structure (pnpm workspaces)
+Notes:
+- `pnpm test` runs package tests only (`./packages/*`).
+- `pnpm run test:apps` includes app tests and may fail due to placeholder scripts in `apps/coder-demo`.
 
-Three core packages with a dependency chain: **engine** <- **skills** <- **cli**
+## Architecture Notes
 
-- **`packages/engine`** (`pulse-coder-engine`) - Core AI engine: LLM integration via Vercel AI SDK, agent loop, context compaction, built-in tools, plugin system, and configuration
-- **`packages/skills`** (`@pulse-coder/skills`) - Skill plugin system: discovers and loads `SKILL.md` files from `.pulse-coder/skills/` (or `.coder/skills/` for backward compatibility) directories, converts them to tools via a registry/scanner pattern
-- **`packages/cli`** (`@pulse-coder/cli`) - Interactive CLI: readline interface, session management (save/load/resume/search), command system (`/new`, `/resume`, `/sessions`, etc.)
+### Engine bootstrap
+`Engine.initialize()` (`packages/engine/src/Engine.ts`) does:
+1. plugin manager setup,
+2. built-in plugin loading (unless disabled),
+3. plugin tool registration,
+4. optional custom tool merge (`EngineOptions.tools`, highest priority).
 
-### Agent Loop (`packages/engine/src/core/loop.ts`)
+### Execution loop
+Core loop is `packages/engine/src/core/loop.ts`.
+It supports:
+- streaming text/tool events,
+- LLM hooks (`beforeLLMCall`, `afterLLMCall`),
+- tool hooks (`beforeToolCall`, `afterToolCall`),
+- retry/backoff on retryable errors,
+- abort handling,
+- context compaction.
 
-The main execution flow: receives a `Context` (message array), calls the LLM via `streamTextAI()` with registered tools, processes streaming chunks (text deltas, tool calls, tool results), appends step responses back to context messages, and loops on `tool-calls` finish reason until `stop` or limits are hit. Handles context compaction when token count exceeds 75% of context window (configurable). Retries on 429/5xx errors with exponential backoff.
+### Built-in plugins
+Registered from `packages/engine/src/built-in/index.ts`:
+- MCP plugin (`.pulse-coder/mcp.json`, legacy `.coder/mcp.json`),
+- skills plugin (`SKILL.md` scanning + `skill` tool),
+- plan-mode plugin,
+- task-tracking plugin,
+- sub-agent plugin (`.pulse-coder/agents/*.md`).
 
-### Plugin System (`packages/engine/src/shared/types.ts`)
+### Built-in tools
+Engine toolset (`packages/engine/src/tools/`):
+- `read`, `write`, `edit`, `grep`, `ls`, `bash`, `tavily`, `gemini_pro_image`, `clarify`.
 
-Plugins implement `IPlugin` with `activate(context)` to register tools. Extension types: `skill`, `mcp`, `tool`, `context`. The `Engine` class loads plugins and merges their tools with built-in tools before passing to the loop.
+CLI adds:
+- `run_js` (from `pulse-sandbox`).
 
-### Built-in Tools
+Task tracking adds:
+- `task_create`, `task_get`, `task_list`, `task_update`.
 
-`read`, `write`, `bash`, `ls` (file operations), `tavily` (web search). Defined in `packages/engine/src/tools/`.
+## Configuration
 
-### Skill System (`packages/skills/src/registry/`)
+Environment variables (common):
+- `OPENAI_API_KEY`, `OPENAI_API_URL`, `OPENAI_MODEL`
+- optional Anthropic path: `USE_ANTHROPIC`, `ANTHROPIC_API_KEY`, `ANTHROPIC_API_URL`, `ANTHROPIC_MODEL`
+- optional tools: `TAVILY_API_KEY`, `GEMINI_API_KEY`
 
-Skills are `SKILL.md` files with YAML frontmatter (`name`, `description`, `version`, `author`) and markdown body. The scanner discovers skills from `.pulse-coder/skills/`, `.coder/skills/` (legacy), `.claude/skills/`, and `~/.pulse-coder/skills/` or `~/.coder/skills/`. Six built-in skills live in `packages/cli/.coder/skills/`: branch-naming, code-review, deep-research, git-workflow, mr-generator, refactor.
+Config paths:
+- MCP: `.pulse-coder/mcp.json`
+- skills: `.pulse-coder/skills/**/SKILL.md`
+- sub-agents: `.pulse-coder/agents/*.md`
+- legacy `.coder/*` paths remain compatible in most loaders.
 
-### Configuration (`packages/engine/src/config/index.ts`)
+## Coding Guidance
 
-Key environment variables:
-- `OPENAI_API_KEY` (required), `OPENAI_API_URL`, `OPENAI_MODEL` (default: `novita/deepseek/deepseek_v3`)
-- `CONTEXT_WINDOW_TOKENS` (default 64000), `COMPACT_TRIGGER` (75%), `COMPACT_TARGET` (50%), `KEEP_LAST_TURNS` (6)
-- `MAX_STEPS` (25), `MAX_TURNS` (50), `MAX_ERROR_COUNT` (3)
-
-## Key Technical Details
-
-- ESM-only (`"type": "module"` in all package.json files)
-- TypeScript strict mode enabled
-- Vercel AI SDK v6 (`ai` package) with `@ai-sdk/openai` provider
-- Schema validation via Zod v4
-- Session data stored as JSON in `~/.coder/sessions/`
-- `apps/` directory contains example applications (coder-demo, snake-game) - these are not part of the core packages
+- TypeScript strict mode is enabled.
+- Keep ESM-style imports in source where existing code uses them.
+- Follow local file style (2 spaces, semicolons, single quotes in most TS files).
+- Keep diffs minimal and preserve existing architecture patterns.
+- Prefer extending plugin/hooks/tool boundaries rather than hardcoding behavior into the loop.

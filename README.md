@@ -1,80 +1,79 @@
 # Pulse Coder
 
-Plugin-first coding agent monorepo with a reusable engine, an interactive CLI, and a sandboxed JavaScript execution package.
+Plugin-first coding agent monorepo with a reusable engine, an interactive CLI, and optional server/runtime integrations.
 
 ## Language
-- English README (this file)
-- 中文文档: [`README-CN.md`](./README-CN.md)
+- English docs (this file)
+- Chinese docs: [`README-CN.md`](./README-CN.md)
 
-## What this repository contains
+## Repository layout
 
-This is a `pnpm` workspace monorepo:
+This repo is a `pnpm` workspace monorepo:
 
 | Path | Purpose |
 | --- | --- |
-| `packages/engine` | Core agent runtime (`pulse-coder-engine`): loop, tools, plugin manager, built-in plugins |
+| `packages/engine` | Core runtime (`pulse-coder-engine`): loop, hooks, built-in tools, plugin manager |
 | `packages/cli` | Interactive terminal app (`pulse-coder-cli`) built on top of the engine |
-| `packages/pulse-sandbox` | Isolated JS executor + `run_js` tool adapter |
-| `apps/pulse-agent-test` | Lightweight integration checks for engine usage |
-| `apps/coder-demo` | Older/experimental demo app |
+| `packages/pulse-sandbox` | Sandboxed JavaScript executor and `run_js` tool adapter |
+| `packages/memory-plugin` | Host-side memory plugin/integration service |
 | `apps/remote-server` | Optional HTTP service wrapper around the engine |
+| `apps/pulse-agent-test` | Lightweight integration checks for engine usage |
+| `apps/coder-demo` | Older experimental app |
+| `apps/snake-game` | Static demo page |
 | `docs/`, `architecture/` | Design and architecture documents |
-
-> Note: `packages/engine-plugins/` currently exists but is empty (reserved/legacy directory).
 
 ---
 
-## Architecture (as implemented today)
+## Architecture (current)
 
-### 1) Engine bootstrapping
-`Engine.initialize()` creates a `PluginManager`, loads built-in plugins by default, then merges tools from:
+### 1) Engine bootstrap
+`Engine.initialize()` creates a `PluginManager`, loads built-in plugins by default, then merges tools in this order:
 1. built-in tools,
 2. plugin-registered tools,
 3. user-supplied tools (`EngineOptions.tools`, highest priority).
 
 ### 2) Plugin system
-The engine has two loading tracks:
-- **Engine plugins** (code plugins, with lifecycle and hook registration)
-- **User config plugins** (`config.{json|yaml|yml}` scanning; currently mostly parsed/validated/logged)
+Two plugin tracks are supported:
+- **Engine plugins**: runtime code plugins with lifecycle + hooks
+- **User config plugins**: scanned config files (`config.{json|yaml|yml}`)
 
-Engine plugin scan paths include:
+Engine plugin scan paths:
 - `.pulse-coder/engine-plugins`
-- `.coder/engine-plugins` (legacy compatible)
+- `.coder/engine-plugins` (legacy)
 - `~/.pulse-coder/engine-plugins`
 - `~/.coder/engine-plugins`
 
 ### 3) Agent loop behavior
-Core loop (`packages/engine/src/core/loop.ts`) supports:
+Core loop (`packages/engine/src/core/loop.ts`) provides:
 - streaming text/tool events,
-- tool call hooks (`beforeToolCall` / `afterToolCall`),
-- LLM call hooks (`beforeLLMCall` / `afterLLMCall`),
+- LLM/tool hook pipelines (`before*`/`after*`),
 - retry with backoff for retryable failures (`429/5xx`),
 - abort handling,
 - automatic context compaction.
 
 ### 4) Built-in plugins
 The engine auto-loads:
-- `built-in-mcp`: loads MCP servers from `.pulse-coder/mcp.json` (or legacy `.coder/mcp.json`), exposes tools as `mcp_<server>_<tool>`.
-- `built-in-skills`: scans `SKILL.md` files and exposes a `skill` tool.
-- `built-in-plan-mode`: supports `planning`/`executing` mode with prompt-level policy injection and eventing.
-- `built-in-task-tracking`: adds `task_create/task_get/task_list/task_update` tools with local JSON persistence.
+- `built-in-mcp`: loads MCP servers from `.pulse-coder/mcp.json` (or `.coder/mcp.json`) and exposes tools as `mcp_<server>_<tool>`.
+- `built-in-skills`: scans `SKILL.md` files and exposes the `skill` tool.
+- `built-in-plan-mode`: planning/executing mode management.
+- `built-in-task-tracking`: `task_create/task_get/task_list/task_update` with local persistence.
 - `SubAgentPlugin`: loads Markdown agent definitions and exposes `<name>_agent` tools.
 
 ### 5) CLI runtime model
 `pulse-coder-cli` adds:
 - session persistence under `~/.pulse-coder/sessions`,
-- per-session task list binding,
+- per-session task-list binding,
 - one-shot skill command transformation (`/skills ...`),
-- ESC-based abort while streaming,
-- clarification interaction via `clarify` tool,
+- ESC abort for in-flight responses,
+- clarification flow via `clarify` tool,
 - built-in `run_js` tool from `pulse-sandbox`.
 
 ---
 
-## Built-in tools (engine)
+## Built-in tools
 
-Default toolset includes:
-- `read`, `write`, `edit`, `grep`, `ls`, `bash`, `tavily`, `clarify`
+Engine built-ins:
+- `read`, `write`, `edit`, `grep`, `ls`, `bash`, `tavily`, `gemini_pro_image`, `clarify`
 
 Task tracking plugin adds:
 - `task_create`, `task_get`, `task_list`, `task_update`
@@ -96,16 +95,23 @@ pnpm install
 ```
 
 ### 2) Configure environment
-Create a local `.env` at repo root (no root `.env.example` is currently shipped):
+Create `.env` at repo root:
 
 ```env
+# OpenAI-compatible provider (default path)
 OPENAI_API_KEY=your_key_here
-OPENAI_MODEL=gpt-4o-mini
 OPENAI_API_URL=https://api.openai.com/v1
-# Optional
-# TAVILY_API_KEY=...
+OPENAI_MODEL=novita/deepseek/deepseek_v3
+
+# Optional Anthropic path
 # USE_ANTHROPIC=true
 # ANTHROPIC_API_KEY=...
+# ANTHROPIC_API_URL=https://api.anthropic.com/v1
+# ANTHROPIC_MODEL=claude-3-5-sonnet-latest
+
+# Optional tools
+# TAVILY_API_KEY=...
+# GEMINI_API_KEY=...
 ```
 
 ### 3) Build
@@ -149,7 +155,7 @@ Interactive controls:
 
 ## Configuration conventions
 
-### MCP servers
+### MCP
 Create `.pulse-coder/mcp.json`:
 
 ```json
@@ -163,7 +169,7 @@ Create `.pulse-coder/mcp.json`:
 ```
 
 ### Skills
-Create `.pulse-coder/skills/<skill-name>/SKILL.md` with frontmatter:
+Create `.pulse-coder/skills/<skill-name>/SKILL.md`:
 
 ```md
 ---
@@ -175,8 +181,11 @@ description: What this skill helps with
 ...
 ```
 
+Optional remote skills config:
+- `.pulse-coder/skills/remote.json`
+
 ### Sub-agents
-Create `.pulse-coder/agents/<agent-name>.md` with frontmatter:
+Create `.pulse-coder/agents/<agent-name>.md`:
 
 ```md
 ---
@@ -187,33 +196,7 @@ description: Specialized code review helper
 System prompt content here.
 ```
 
-> Legacy `.coder/...` paths are still supported for compatibility.
-
----
-
-## Programmatic usage (engine)
-
-```ts
-import { Engine } from 'pulse-coder-engine';
-import { createOpenAI } from '@ai-sdk/openai';
-
-const provider = createOpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-
-const engine = new Engine({
-  llmProvider: provider.responses,
-  model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-  systemPrompt: { append: 'Prefer minimal diffs and keep tests green.' }
-});
-
-await engine.initialize();
-
-const context = {
-  messages: [{ role: 'user', content: 'Review this module and propose a refactor plan.' }]
-};
-
-const answer = await engine.run(context);
-console.log(answer);
-```
+> Legacy `.coder/...` paths are still supported.
 
 ---
 
@@ -235,12 +218,13 @@ pnpm --filter pulse-coder-engine test
 pnpm --filter pulse-coder-engine typecheck
 pnpm --filter pulse-coder-cli test
 pnpm --filter pulse-sandbox test
+pnpm --filter pulse-coder-memory-plugin test
 pnpm --filter pulse-agent-test test
 ```
 
-Current test status in this repo:
-- `pnpm test` (packages) passes.
-- `pnpm run test:apps` currently fails because `apps/coder-demo` still has a placeholder test script.
+Notes:
+- `pnpm test` runs package tests (`./packages/*`).
+- `pnpm run test:apps` runs app tests (`./apps/*`), and `apps/coder-demo` currently keeps a placeholder test script.
 
 ---
 
@@ -253,13 +237,6 @@ pnpm release -- --packages=engine,cli --bump=patch --tag=latest
 ```
 
 Release script supports `--dry-run`, `--skip-version`, `--skip-build`, `--preid`, and package filtering.
-
----
-
-## Known caveats
-
-- Some legacy helper scripts (`build.sh`, `quick-start.sh`) still reference older package naming/layout. Prefer `pnpm` scripts from `package.json`.
-- `userConfigPlugins` loading is implemented, but many config sections are currently logged rather than fully materialized into runtime behavior.
 
 ---
 
