@@ -2,7 +2,7 @@
 name: git-workflow
 description: Standard git workflow for handling changes on the current branch - add, commit, push, then optionally trigger MR generation
 description_zh: Standard git workflow on current branch with optional handoff to mr-generator after push.
-version: 1.4.0
+version: 1.5.0
 author: Pulse Coder Team
 ---
 
@@ -23,12 +23,16 @@ Review the branch state and identify:
 
 ### 2. Stage changes
 ```bash
-git add <files...>
+git add -A
 ```
-Choose based on context:
-- `git add .` - stage all current changes
-- `git add -A` - stage all changes including deletions
-- `git add <specific-files>` - stage only selected files
+Default behavior:
+- Always stage all current worktree changes (modified, untracked, and deletions) with `git add -A`
+- This ensures commit includes both staged and unstaged changes from the working tree
+- Use `git add <specific-files>` only when the user explicitly asks for partial commits
+
+Important:
+- `git commit` only includes staged content
+- If anything remains unstaged, it will not be part of the commit
 
 ### 3. Commit changes
 ```bash
@@ -72,7 +76,7 @@ Git workflow completed. Do you want to run mr-generator now?
 ```bash
 # End-to-end quick run
 git status
-git add .
+git add -A
 git commit -m "Describe your changes"
 git push
 # Then ask whether to run mr-generator

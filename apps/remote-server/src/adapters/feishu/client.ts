@@ -162,7 +162,7 @@ export async function sendImageMessage(
  */
 export async function addMessageReaction(messageId: string, emojiType: string): Promise<void> {
   const token = await getTenantAccessToken();
-  const normalizedEmojiType = emojiType.trim().toUpperCase();
+  const normalizedEmojiType = emojiType.trim();
   if (!normalizedEmojiType) {
     throw new Error('emojiType is required');
   }

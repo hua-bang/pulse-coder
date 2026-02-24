@@ -107,8 +107,8 @@ export class FeishuAdapter implements PlatformAdapter {
 
     if (messageId) {
       // Best-effort acknowledgement reaction for accepted user messages.
-      addMessageReaction(messageId, 'GET').catch((err) => {
-        console.error('[feishu] Failed to add GET reaction:', err);
+      addMessageReaction(messageId, 'Get').catch((err) => {
+        console.error('[feishu] Failed to add Get reaction:', err);
       });
     }
 
