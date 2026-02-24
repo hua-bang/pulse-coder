@@ -4,6 +4,7 @@ import { createApp } from './server.js';
 import { engine } from './core/engine-singleton.js';
 import { sessionStore } from './core/session-store.js';
 import { memoryIntegration } from './core/memory-integration.js';
+import { DiscordDmGateway } from './adapters/discord/gateway.js';
 
 async function main() {
   // Initialize session store (creates directories if needed, loads index)
@@ -13,6 +14,9 @@ async function main() {
   await memoryIntegration.initialize();
 
   await engine.initialize();
+
+  const discordDmGateway = new DiscordDmGateway();
+  discordDmGateway.start();
 
   const app = createApp();
   const port = Number(process.env.PORT ?? 3000);
@@ -27,6 +31,7 @@ async function main() {
   // console.log(`  GET  /api/stream/:streamId`);
   // console.log(`  POST /api/clarify/:streamId`);
   console.log(`  POST /webhooks/feishu`);
+  console.log(`  POST /webhooks/discord`);
   console.log(`  POST /internal/agent/run`);
   // console.log(`  POST /webhooks/telegram`);
 }
