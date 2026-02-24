@@ -1,7 +1,7 @@
 ---
 name: deep-research
 description: Conduct comprehensive multi-round research using iterative web searches to gather, analyze, and synthesize information
-version: 1.0.0
+version: 1.1.0
 author: Pulse Coder Team
 ---
 
@@ -114,11 +114,19 @@ Round 8: "Server Components with Suspense and streaming"
 Round 9: "Production experiences Server Components"
 Round 10: "Server Components migration guide"
 
-## Important Notes
 
-- Each search builds on previous findings
-- Adapt your strategy based on what you learn
-- Don't repeat identical queries
-- Balance breadth and depth appropriately
-- Always cite sources in your final output
-- Focus on actionable insights, not just information gathering
+## Post-Research Follow-up (Required)
+
+After presenting research results, always ask exactly one follow-up question:
+- "Do you want me to generate a frontend static webpage for this research summary?"
+
+If the user says yes:
+- Use the `static-site-deploy` skill to build and deploy a plain HTML page by default.
+- The page should include:
+  - A concise overview section
+  - Expandable detailed sections (for example, using `<details>` blocks)
+  - A sources section with links
+- Return deployment details (`site_id`, path, URL, local verify result).
+
+If the user says no:
+- End after offering a brief optional note that they can request webpage generation later.
