@@ -36,6 +36,7 @@ DISCORD_BOT_TOKEN=your_discord_bot_token
 # Optional overrides:
 # DISCORD_API_BASE_URL=https://discord.com/api/v10
 # DISCORD_GATEWAY_URL=wss://gateway.discord.gg/?v=10&encoding=json
+# DISCORD_PROXY_URL=http://127.0.0.1:7890
 # DISCORD_DM_GATEWAY_ENABLED=true
 ```
 

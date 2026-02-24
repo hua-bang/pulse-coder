@@ -2,6 +2,7 @@ import { dispatchIncoming } from '../../core/dispatcher.js';
 import type { IncomingMessage } from '../../core/types.js';
 import { discordAdapter } from './adapter.js';
 import { DiscordClient } from './client.js';
+import { getDiscordProxyDispatcher } from './proxy.js';
 
 interface GatewayPayload {
   op: number;
@@ -84,7 +85,9 @@ export class DiscordDmGateway {
     this.clearReconnect();
 
     try {
-      const ws = new WebSocket(this.gatewayUrl);
+      const ws = new WebSocket(this.gatewayUrl, {
+        dispatcher: getDiscordProxyDispatcher(),
+      });
       this.ws = ws;
 
       ws.addEventListener('open', () => {

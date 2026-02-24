@@ -1,4 +1,5 @@
 import { readFile } from 'fs/promises';
+import { getDiscordProxyDispatcher } from './proxy.js';
 
 const DEFAULT_DISCORD_API_BASE_URL = 'https://discord.com/api/v10';
 const DISCORD_MESSAGE_LIMIT = 2000;
@@ -147,6 +148,7 @@ export class DiscordClient {
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       headers,
+      dispatcher: getDiscordProxyDispatcher(),
     });
 
     if (!response.ok) {
