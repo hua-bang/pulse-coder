@@ -1,43 +1,43 @@
 # Pulse Coder
 
-一个以插件架构为核心的 Coding Agent Monorepo，包含可复用引擎、交互式 CLI，以及沙箱化 JavaScript 执行组件。
+一个以插件为核心的 Coding Agent Monorepo，包含可复用引擎、交互式 CLI，以及可选的服务端/运行时集成。
 
 ## 语言
-- English README: [`README.md`](./README.md)
+- English docs: [`README.md`](./README.md)
 - 中文文档（当前）：`README-CN.md`
 
-## 仓库当前组成
+## 仓库结构
 
 这是一个 `pnpm` workspace monorepo：
 
 | 路径 | 作用 |
 | --- | --- |
-| `packages/engine` | 核心运行时（`pulse-coder-engine`）：循环、工具、插件管理、内置插件 |
+| `packages/engine` | 核心运行时（`pulse-coder-engine`）：循环、hooks、内置工具、插件管理 |
 | `packages/cli` | 终端交互应用（`pulse-coder-cli`） |
-| `packages/pulse-sandbox` | 隔离 JS 执行器 + `run_js` 工具适配 |
-| `apps/pulse-agent-test` | 轻量 Node 集成检查 |
-| `apps/coder-demo` | 较早期/实验性 demo |
-| `apps/remote-server` | 可选的 HTTP 服务封装 |
+| `packages/pulse-sandbox` | 沙箱 JavaScript 执行器与 `run_js` 适配 |
+| `packages/memory-plugin` | memory 插件/集成服务 |
+| `apps/remote-server` | 可选 HTTP 服务封装 |
+| `apps/pulse-agent-test` | 轻量集成检查 |
+| `apps/coder-demo` | 早期实验 app |
+| `apps/snake-game` | 静态 demo 页面 |
 | `docs/`, `architecture/` | 设计与架构文档 |
-
-> 说明：`packages/engine-plugins/` 目录当前为空（保留/历史遗留）。
 
 ---
 
-## 当前实现下的核心架构
+## 当前架构
 
-### 1）Engine 初始化流程
+### 1）Engine 初始化
 `Engine.initialize()` 会创建 `PluginManager`，默认加载内置插件，然后按优先级合并工具：
 1. 内置工具
 2. 插件注册工具
 3. 用户传入工具（`EngineOptions.tools`，优先级最高）
 
 ### 2）插件系统
-引擎有两条插件加载链路：
-- **Engine 插件**（代码级插件，带生命周期与 hook）
-- **用户配置插件**（扫描 `config.{json|yaml|yml}`，目前以解析/校验/日志为主）
+支持两类插件链路：
+- **Engine 插件**：代码级插件（生命周期 + hooks）
+- **用户配置插件**：扫描配置文件（`config.{json|yaml|yml}`）
 
-Engine 插件扫描路径包括：
+Engine 插件扫描路径：
 - `.pulse-coder/engine-plugins`
 - `.coder/engine-plugins`（兼容旧路径）
 - `~/.pulse-coder/engine-plugins`
@@ -46,34 +46,33 @@ Engine 插件扫描路径包括：
 ### 3）Agent Loop 行为
 核心循环（`packages/engine/src/core/loop.ts`）支持：
 - 文本/工具事件流式回调
-- 工具调用 hook（`beforeToolCall` / `afterToolCall`）
-- LLM 调用 hook（`beforeLLMCall` / `afterLLMCall`）
+- LLM 与工具 hooks（`before*` / `after*`）
 - 可重试错误指数退避（`429/5xx`）
 - 中断信号处理
 - 自动上下文压缩
 
 ### 4）内置插件（默认自动加载）
 - `built-in-mcp`：读取 `.pulse-coder/mcp.json`（兼容 `.coder/mcp.json`），工具命名为 `mcp_<server>_<tool>`
-- `built-in-skills`：扫描 `SKILL.md`，暴露 `skill` 工具
-- `built-in-plan-mode`：`planning` / `executing` 模式，按模式注入提示策略
-- `built-in-task-tracking`：提供 `task_create/task_get/task_list/task_update`，本地 JSON 持久化
+- `built-in-skills`：扫描 `SKILL.md` 并暴露 `skill` 工具
+- `built-in-plan-mode`：planning/executing 模式管理
+- `built-in-task-tracking`：`task_create/task_get/task_list/task_update` 本地持久化
 - `SubAgentPlugin`：加载 Markdown 子代理定义，注册 `<name>_agent` 工具
 
 ### 5）CLI 运行模型
 `pulse-coder-cli` 在引擎之上增加：
 - 会话持久化（`~/.pulse-coder/sessions`）
-- 会话与 task list 绑定
+- 会话 task-list 绑定
 - `/skills` 单次技能消息转换
-- 流式输出中 Esc 中断
-- `clarify` 工具的人机追问交互
+- Esc 中断当前响应
+- `clarify` 追问交互
 - 注入来自 `pulse-sandbox` 的 `run_js` 工具
 
 ---
 
-## 内置工具（engine）
+## 内置工具
 
-默认工具：
-- `read`, `write`, `edit`, `grep`, `ls`, `bash`, `tavily`, `clarify`
+Engine 默认工具：
+- `read`, `write`, `edit`, `grep`, `ls`, `bash`, `tavily`, `gemini_pro_image`, `clarify`
 
 任务跟踪插件附加：
 - `task_create`, `task_get`, `task_list`, `task_update`
@@ -95,16 +94,23 @@ pnpm install
 ```
 
 ### 2）环境变量
-在仓库根目录手动创建 `.env`（当前未提供根目录 `.env.example`）：
+在仓库根目录创建 `.env`：
 
 ```env
+# OpenAI-compatible provider（默认）
 OPENAI_API_KEY=your_key_here
-OPENAI_MODEL=gpt-4o-mini
 OPENAI_API_URL=https://api.openai.com/v1
-# 可选
-# TAVILY_API_KEY=...
+OPENAI_MODEL=novita/deepseek/deepseek_v3
+
+# 可选 Anthropic
 # USE_ANTHROPIC=true
 # ANTHROPIC_API_KEY=...
+# ANTHROPIC_API_URL=https://api.anthropic.com/v1
+# ANTHROPIC_MODEL=claude-3-5-sonnet-latest
+
+# 可选工具
+# TAVILY_API_KEY=...
+# GEMINI_API_KEY=...
 ```
 
 ### 3）构建
@@ -148,7 +154,7 @@ pnpm start
 
 ## 配置约定
 
-### MCP 服务器
+### MCP
 创建 `.pulse-coder/mcp.json`：
 
 ```json
@@ -174,6 +180,9 @@ description: 该技能用于什么场景
 ...
 ```
 
+可选远程技能配置：
+- `.pulse-coder/skills/remote.json`
+
 ### 子代理
 创建 `.pulse-coder/agents/<agent-name>.md`：
 
@@ -187,32 +196,6 @@ System prompt content here.
 ```
 
 > 兼容旧路径 `.coder/...`。
-
----
-
-## 引擎 SDK 使用示例
-
-```ts
-import { Engine } from 'pulse-coder-engine';
-import { createOpenAI } from '@ai-sdk/openai';
-
-const provider = createOpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-
-const engine = new Engine({
-  llmProvider: provider.responses,
-  model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-  systemPrompt: { append: 'Prefer minimal diffs and keep tests green.' }
-});
-
-await engine.initialize();
-
-const context = {
-  messages: [{ role: 'user', content: 'Review this module and propose a refactor plan.' }]
-};
-
-const answer = await engine.run(context);
-console.log(answer);
-```
 
 ---
 
@@ -234,12 +217,13 @@ pnpm --filter pulse-coder-engine test
 pnpm --filter pulse-coder-engine typecheck
 pnpm --filter pulse-coder-cli test
 pnpm --filter pulse-sandbox test
+pnpm --filter pulse-coder-memory-plugin test
 pnpm --filter pulse-agent-test test
 ```
 
-当前仓库测试现状：
-- `pnpm test`（packages）可通过。
-- `pnpm run test:apps` 目前会失败，因为 `apps/coder-demo` 仍是占位测试脚本。
+说明：
+- `pnpm test` 仅运行 packages 测试（`./packages/*`）。
+- `pnpm run test:apps` 运行 apps 测试（`./apps/*`），`apps/coder-demo` 当前仍是占位测试脚本。
 
 ---
 
@@ -252,13 +236,6 @@ pnpm release -- --packages=engine,cli --bump=patch --tag=latest
 ```
 
 支持 `--dry-run`、`--skip-version`、`--skip-build`、`--preid`、`--packages` 等参数。
-
----
-
-## 已知注意事项
-
-- 一些历史脚本（如 `build.sh`、`quick-start.sh`）仍引用旧包名/旧结构，建议优先使用 `package.json` 中的 `pnpm` 脚本。
-- `userConfigPlugins` 机制已接入，但不少配置项目前主要是日志级处理，还未完全落地为运行时行为。
 
 ---
 
