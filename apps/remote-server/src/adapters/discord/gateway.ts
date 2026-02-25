@@ -42,6 +42,7 @@ interface MessageCreatePayload {
 interface ThreadCreatePayload {
   id?: string;
   type?: number;
+  member?: unknown;
 }
 
 const DEFAULT_GATEWAY_URL = 'wss://gateway.discord.gg/?v=10&encoding=json';
@@ -211,7 +212,18 @@ export class DiscordDmGateway {
       return;
     }
 
-    this.client.ensureThreadMembership(threadId, { assumeThread: true }).catch((err) => {
+    const hasMember = Boolean(thread.member);
+    console.log(`[discord-gateway] THREAD_CREATE id=${threadId} hasMember=${hasMember}`);
+    if (hasMember) {
+      this.client.markThreadJoined(threadId);
+      return;
+    }
+
+    this.client.ensureThreadMembership(threadId, {
+      assumeThread: true,
+      source: 'thread_create_event',
+      log: true,
+    }).catch((err) => {
       console.warn(`[discord-gateway] Failed to join thread ${threadId} on create:`, err);
     });
   }
@@ -256,7 +268,10 @@ export class DiscordDmGateway {
     }
 
     if (resolvedIsThread) {
-      await this.client.ensureThreadMembership(channelId);
+      await this.client.ensureThreadMembership(channelId, {
+        source: 'message_create',
+        log: true,
+      });
     }
 
     const platformKey = buildDiscordPlatformKey({
@@ -272,6 +287,7 @@ export class DiscordDmGateway {
         platformKey,
         channelId,
         clarificationText,
+        resolvedIsThread,
       );
       if (consumedClarification) {
         return;
@@ -288,7 +304,7 @@ export class DiscordDmGateway {
       return;
     }
 
-    await this.client.triggerTypingIndicator(channelId).catch((err) => {
+    await this.client.triggerTypingIndicator(channelId, { assumeThread: resolvedIsThread }).catch((err) => {
       console.error('[discord-gateway] Failed to send typing indicator:', err);
     });
 
@@ -298,7 +314,7 @@ export class DiscordDmGateway {
       streamId: messageId,
     };
 
-    discordAdapter.registerChannelStreamMeta(platformKey, messageId, channelId);
+    discordAdapter.registerChannelStreamMeta(platformKey, messageId, channelId, resolvedIsThread);
     dispatchIncoming(discordAdapter, incoming);
   }
 
