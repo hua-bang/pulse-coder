@@ -38,6 +38,7 @@ interface EnsureThreadMembershipOptions {
 
 interface ChannelRequestOptions {
   assumeThread?: boolean;
+  replyToMessageId?: string;
 }
 
 export class DiscordClient {
@@ -204,7 +205,7 @@ export class DiscordClient {
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ content: limitDiscordContent(content) }),
+          body: JSON.stringify(buildChannelMessagePayload(content, options.replyToMessageId)),
         },
         true,
       ),
@@ -405,6 +406,25 @@ function limitDiscordContent(text: string): string {
   }
 
   return `${normalized.slice(0, DISCORD_MESSAGE_LIMIT - 3)}...`;
+}
+
+function buildChannelMessagePayload(content: string, replyToMessageId?: string): { content: string; message_reference?: { message_id: string; fail_if_not_exists: boolean } } {
+  const payload: {
+    content: string;
+    message_reference?: { message_id: string; fail_if_not_exists: boolean };
+  } = {
+    content: limitDiscordContent(content),
+  };
+
+  const trimmedReplyId = replyToMessageId?.trim();
+  if (trimmedReplyId) {
+    payload.message_reference = {
+      message_id: trimmedReplyId,
+      fail_if_not_exists: false,
+    };
+  }
+
+  return payload;
 }
 
 function wait(ms: number): Promise<void> {

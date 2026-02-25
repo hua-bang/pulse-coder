@@ -310,13 +310,15 @@ export class DiscordDmGateway {
       console.error('[discord-gateway] Failed to send typing indicator:', err);
     });
 
+    const replyToMessageId = messageId;
+
     const incoming: IncomingMessage = {
       platformKey,
       text: normalizedText,
       streamId: messageId,
     };
 
-    discordAdapter.registerChannelStreamMeta(platformKey, messageId, channelId, resolvedIsThread);
+    discordAdapter.registerChannelStreamMeta(platformKey, messageId, channelId, resolvedIsThread, replyToMessageId);
     dispatchIncoming(discordAdapter, incoming);
   }
 
