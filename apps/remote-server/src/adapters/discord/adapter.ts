@@ -8,7 +8,7 @@ import { clarificationQueue } from '../../core/clarification-queue.js';
 import { getActiveStreamId } from '../../core/active-run-store.js';
 import { extractGeminiImageResult } from '../feishu/image-result.js';
 import { DiscordClient } from './client.js';
-import { buildDiscordPlatformKey, isDiscordThreadChannelType } from './platform-key.js';
+import { buildDiscordMemoryKey, buildDiscordPlatformKey, isDiscordThreadChannelType } from './platform-key.js';
 
 interface DiscordInteraction {
   id: string;
@@ -146,6 +146,7 @@ export class DiscordAdapter implements PlatformAdapter {
       userId,
       isThread,
     });
+    const memoryKey = buildDiscordMemoryKey(userId);
 
     const activeStreamId = getActiveStreamId(platformKey);
     if (activeStreamId && clarificationQueue.hasPending(activeStreamId)) {
@@ -168,7 +169,7 @@ export class DiscordAdapter implements PlatformAdapter {
     this.streamMetaByPlatformKey.set(platformKey, streamMeta);
     this.ackByRequest.set(req, { type: 5 });
 
-    return { platformKey, text, streamId };
+    return { platformKey, memoryKey, text, streamId };
   }
 
   ackRequest(c: HonoContext, incoming: IncomingMessage | null): Response {

@@ -26,3 +26,7 @@ export function buildDiscordPlatformKey(options: {
 
   return `discord:channel:${channelId}:${userId}`;
 }
+
+export function buildDiscordMemoryKey(userId: string): string {
+  return `discord:user:${userId}`;
+}

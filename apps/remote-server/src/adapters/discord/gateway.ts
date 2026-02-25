@@ -3,7 +3,7 @@ import type { IncomingMessage } from '../../core/types.js';
 import { discordAdapter } from './adapter.js';
 import { DiscordClient } from './client.js';
 import { getDiscordProxyDispatcher } from './proxy.js';
-import { buildDiscordPlatformKey, isDiscordThreadChannelType } from './platform-key.js';
+import { buildDiscordMemoryKey, buildDiscordPlatformKey, isDiscordThreadChannelType } from './platform-key.js';
 
 interface GatewayPayload {
   op: number;
@@ -281,6 +281,7 @@ export class DiscordDmGateway {
       userId,
       isThread: resolvedIsThread,
     });
+    const memoryKey = buildDiscordMemoryKey(userId);
 
     const clarificationText = normalizeGatewayText(stripSelfMention(rawContent, this.selfUserId));
     if (clarificationText) {
@@ -314,6 +315,7 @@ export class DiscordDmGateway {
 
     const incoming: IncomingMessage = {
       platformKey,
+      memoryKey,
       text: normalizedText,
       streamId: messageId,
     };
