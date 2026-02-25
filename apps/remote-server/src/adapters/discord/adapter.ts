@@ -8,6 +8,7 @@ import { clarificationQueue } from '../../core/clarification-queue.js';
 import { getActiveStreamId } from '../../core/active-run-store.js';
 import { extractGeminiImageResult } from '../feishu/image-result.js';
 import { DiscordClient } from './client.js';
+import { buildDiscordPlatformKey, isDiscordThreadChannelType } from './platform-key.js';
 
 interface DiscordInteraction {
   id: string;
@@ -133,9 +134,16 @@ export class DiscordAdapter implements PlatformAdapter {
       return null;
     }
 
-    const platformKey = interaction.guild_id
-      ? `discord:channel:${channelId}:${userId}`
-      : `discord:${userId}`;
+    const isGuildMessage = Boolean(interaction.guild_id);
+    const channelType = isGuildMessage ? await this.client.getChannelType(channelId) : null;
+    const isThread = isGuildMessage && isDiscordThreadChannelType(channelType);
+
+    const platformKey = buildDiscordPlatformKey({
+      guildId: interaction.guild_id,
+      channelId,
+      userId,
+      isThread,
+    });
 
     const activeStreamId = getActiveStreamId(platformKey);
     if (activeStreamId && clarificationQueue.hasPending(activeStreamId)) {
