@@ -45,11 +45,12 @@ interface DiscordInteractionStreamMeta {
 interface DiscordChannelStreamMeta {
   kind: 'channel';
   channelId: string;
+  isThread?: boolean;
 }
 
 type DiscordStreamMeta = DiscordInteractionStreamMeta | DiscordChannelStreamMeta;
 
-type DiscordStreamIo = {
+interface DiscordStreamIo {
   updatePrimary: (content: string) => Promise<void>;
   sendExtraText: (content: string) => Promise<void>;
   sendExtraFile: (
@@ -58,7 +59,7 @@ type DiscordStreamIo = {
     mimeType?: string,
     content?: string,
   ) => Promise<void>;
-};
+}
 
 const DISCORD_ACK_EPHEMERAL_FLAG = 1 << 6;
 const DISCORD_PROGRESS_UPDATE_INTERVAL_MS = 1200;
@@ -176,10 +177,11 @@ export class DiscordAdapter implements PlatformAdapter {
     return c.json(payload, 200);
   }
 
-  registerChannelStreamMeta(platformKey: string, streamId: string, channelId: string): void {
+  registerChannelStreamMeta(platformKey: string, streamId: string, channelId: string, isThread = false): void {
     const streamMeta: DiscordChannelStreamMeta = {
       kind: 'channel',
       channelId,
+      isThread,
     };
 
     this.streamMetaByStreamId.set(streamId, streamMeta);
@@ -198,7 +200,8 @@ export class DiscordAdapter implements PlatformAdapter {
     }
 
     clarificationQueue.submitAnswer(activeStreamId, pending.request.id, text);
-    await this.client.sendChannelMessage(channelId, `Got it: "${text}"`).catch((err) => {
+    const isThread = platformKey.startsWith('discord:thread:');
+    await this.client.sendChannelMessage(channelId, `Got it: "${text}"`, { isThread }).catch((err) => {
       console.error('[discord] Failed to send channel clarification ack:', err);
     });
     return true;
@@ -237,12 +240,13 @@ export class DiscordAdapter implements PlatformAdapter {
   }
 
   private async createChannelStreamHandle(meta: DiscordChannelStreamMeta): Promise<StreamHandle> {
-    const initial = await this.client.sendChannelMessage(meta.channelId, 'Working on it...');
+    const isThread = meta.isThread === true;
+    const initial = await this.client.sendChannelMessage(meta.channelId, 'Working on it...', { isThread });
 
     return this.createStreamingHandle({
-      updatePrimary: (content) => this.client.editChannelMessage(meta.channelId, initial.id, content),
+      updatePrimary: (content) => this.client.editChannelMessage(meta.channelId, initial.id, content, { isThread }),
       sendExtraText: async (content) => {
-        await this.client.sendChannelMessage(meta.channelId, content);
+        await this.client.sendChannelMessage(meta.channelId, content, { isThread });
       },
       sendExtraFile: (filePath, fileName, mimeType, content) => this.client.sendChannelFile(
         meta.channelId,
@@ -250,6 +254,7 @@ export class DiscordAdapter implements PlatformAdapter {
         fileName,
         mimeType,
         content,
+        { isThread },
       ),
     });
   }

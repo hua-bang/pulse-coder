@@ -31,6 +31,17 @@ interface ChannelTypeCacheEntry {
 
 interface EnsureThreadMembershipOptions {
   assumeThread?: boolean;
+  source?: string;
+  log?: boolean;
+}
+
+interface DiscordSendChannelOptions {
+  isThread?: boolean;
+}
+
+interface RequestRetryOptions {
+  isThread: boolean;
+  operation: string;
 }
 
 export class DiscordClient {
@@ -89,27 +100,42 @@ export class DiscordClient {
 
   async ensureThreadMembership(channelId: string, options: EnsureThreadMembershipOptions = {}): Promise<boolean> {
     const assumeThread = options.assumeThread === true;
+    const source = options.source?.trim() || 'unknown';
+    const shouldLog = options.log === true;
     const channelType = assumeThread ? null : await this.getChannelType(channelId);
+
     if (!assumeThread && (channelType === null || !isDiscordThreadChannelType(channelType))) {
+      if (shouldLog) {
+        console.log(`[discord] Thread membership skipped for ${channelId} source=${source} reason=not_thread type=${String(channelType)}`);
+      }
       return false;
     }
 
     if (this.joinedThreadIds.has(channelId)) {
+      if (shouldLog) {
+        console.log(`[discord] Thread membership already known for ${channelId} source=${source}`);
+      }
       return true;
     }
 
     try {
       await this.joinThread(channelId);
       this.joinedThreadIds.add(channelId);
+      if (shouldLog) {
+        console.log(`[discord] Joined thread ${channelId} source=${source} assumeThread=${assumeThread}`);
+      }
       return true;
     } catch (err) {
-      console.warn(`[discord] Failed to join thread ${channelId}:`, err);
+      console.warn(
+        `[discord] Failed to join thread ${channelId} source=${source} assumeThread=${assumeThread} err=${describeDiscordError(err)}`,
+      );
       return false;
     }
   }
 
-  markThreadMembership(channelId: string): void {
+  markThreadMembership(channelId: string, source = 'unknown'): void {
     this.joinedThreadIds.add(channelId);
+    console.log(`[discord] Thread membership marked for ${channelId} source=${source}`);
   }
 
   async getChannelType(channelId: string): Promise<number | null> {
@@ -160,11 +186,18 @@ export class DiscordClient {
     );
   }
 
-  async sendChannelMessage(channelId: string, content: string): Promise<DiscordMessageResponse> {
+  async sendChannelMessage(
+    channelId: string,
+    content: string,
+    options: DiscordSendChannelOptions = {},
+  ): Promise<DiscordMessageResponse> {
     this.ensureBotToken();
-    await this.ensureThreadMembership(channelId);
+    const isThread = options.isThread === true;
+    if (isThread) {
+      await this.ensureThreadMembership(channelId, { source: 'send_message', log: true });
+    }
 
-    return this.request<DiscordMessageResponse>(
+    return this.requestWithRetry<DiscordMessageResponse>(
       `/channels/${encodeURIComponent(channelId)}/messages`,
       {
         method: 'POST',
@@ -172,27 +205,46 @@ export class DiscordClient {
         body: JSON.stringify({ content: limitDiscordContent(content) }),
       },
       true,
+      {
+        isThread,
+        operation: `send channel message channel=${channelId}`,
+      },
     );
   }
 
-  async triggerTypingIndicator(channelId: string): Promise<void> {
+  async triggerTypingIndicator(channelId: string, options: DiscordSendChannelOptions = {}): Promise<void> {
     this.ensureBotToken();
-    await this.ensureThreadMembership(channelId);
+    const isThread = options.isThread === true;
+    if (isThread) {
+      await this.ensureThreadMembership(channelId, { source: 'typing', log: true });
+    }
 
-    await this.request<void>(
+    await this.requestWithRetry<void>(
       `/channels/${encodeURIComponent(channelId)}/typing`,
       {
         method: 'POST',
       },
       true,
+      {
+        isThread,
+        operation: `send typing indicator channel=${channelId}`,
+      },
     );
   }
 
-  async editChannelMessage(channelId: string, messageId: string, content: string): Promise<void> {
+  async editChannelMessage(
+    channelId: string,
+    messageId: string,
+    content: string,
+    options: DiscordSendChannelOptions = {},
+  ): Promise<void> {
     this.ensureBotToken();
-    await this.ensureThreadMembership(channelId);
+    const isThread = options.isThread === true;
+    if (isThread) {
+      await this.ensureThreadMembership(channelId, { source: 'edit_message', log: true });
+    }
 
-    await this.request<void>(
+    await this.requestWithRetry<void>(
       `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
       {
         method: 'PATCH',
@@ -200,6 +252,10 @@ export class DiscordClient {
         body: JSON.stringify({ content: limitDiscordContent(content) }),
       },
       true,
+      {
+        isThread,
+        operation: `edit channel message channel=${channelId} message=${messageId}`,
+      },
     );
   }
 
@@ -209,9 +265,13 @@ export class DiscordClient {
     fileName: string,
     mimeType = 'application/octet-stream',
     content?: string,
+    options: DiscordSendChannelOptions = {},
   ): Promise<void> {
     this.ensureBotToken();
-    await this.ensureThreadMembership(channelId);
+    const isThread = options.isThread === true;
+    if (isThread) {
+      await this.ensureThreadMembership(channelId, { source: 'send_file', log: true });
+    }
 
     const fileBuffer = await readFile(filePath);
     const payload = {
@@ -223,14 +283,51 @@ export class DiscordClient {
     formData.append('payload_json', JSON.stringify(payload));
     formData.append('files[0]', new Blob([fileBuffer], { type: mimeType }), fileName);
 
-    await this.request<void>(
+    await this.requestWithRetry<void>(
       `/channels/${encodeURIComponent(channelId)}/messages`,
       {
         method: 'POST',
         body: formData,
       },
       true,
+      {
+        isThread,
+        operation: `send channel file channel=${channelId} file=${fileName}`,
+      },
     );
+  }
+
+  private async requestWithRetry<T>(
+    path: string,
+    init: RequestInit,
+    useBotAuthorization: boolean,
+    options: RequestRetryOptions,
+  ): Promise<T> {
+    try {
+      return await this.request<T>(path, init, useBotAuthorization);
+    } catch (err) {
+      if (!options.isThread || !isDiscordTransientNetworkError(err)) {
+        throw err;
+      }
+
+      const channelMatch = path.match(/^\/channels\/([^/]+)/);
+      const channelId = channelMatch ? decodeURIComponent(channelMatch[1]) : '';
+
+      console.warn(
+        `[discord] Retrying thread request after transient error op=${options.operation} err=${describeDiscordError(err)}`,
+      );
+
+      if (channelId) {
+        await this.ensureThreadMembership(channelId, {
+          assumeThread: true,
+          source: `retry:${options.operation}`,
+          log: true,
+        });
+      }
+
+      await wait(350);
+      return this.request<T>(path, init, useBotAuthorization);
+    }
   }
 
   private async request<T>(path: string, init: RequestInit, useBotAuthorization = false): Promise<T> {
@@ -283,4 +380,49 @@ function limitDiscordContent(text: string): string {
   }
 
   return `${normalized.slice(0, DISCORD_MESSAGE_LIMIT - 3)}...`;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isDiscordTransientNetworkError(err: unknown): boolean {
+  const text = describeDiscordError(err).toLowerCase();
+  return text.includes('econnreset')
+    || text.includes('connect timeout')
+    || text.includes('und_err_connect_timeout')
+    || text.includes('fetch failed')
+    || text.includes('socket disconnected');
+}
+
+function describeDiscordError(err: unknown): string {
+  if (!err) {
+    return 'unknown';
+  }
+
+  if (err instanceof Error) {
+    const anyErr = err as Error & { code?: string; cause?: unknown };
+    const code = typeof anyErr.code === 'string' ? anyErr.code : '';
+    const causeCode = extractCauseCode(anyErr.cause);
+    return [code, causeCode, anyErr.message].filter(Boolean).join(' ').trim() || anyErr.name;
+  }
+
+  if (typeof err === 'string') {
+    return err;
+  }
+
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+function extractCauseCode(cause: unknown): string {
+  if (!cause || typeof cause !== 'object') {
+    return '';
+  }
+
+  const code = (cause as { code?: unknown }).code;
+  return typeof code === 'string' ? code : '';
 }

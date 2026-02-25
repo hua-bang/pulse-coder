@@ -212,19 +212,32 @@ export class DiscordDmGateway {
       return;
     }
 
-    if (thread.member) {
-      this.client.markThreadMembership(threadId);
+    const hasMember = Boolean(thread.member);
+    console.log(`[discord-gateway] THREAD_CREATE id=${threadId} hasMember=${hasMember}`);
+
+    if (hasMember) {
+      this.client.markThreadMembership(threadId, 'thread_create_payload_member');
       return;
     }
 
-    this.client.ensureThreadMembership(threadId, { assumeThread: true }).then((joined) => {
-      if (!joined) {
-        console.warn(`[discord-gateway] Missing thread membership for ${threadId}; check Send Messages in Threads permission`);
-      }
-    }).catch((err) => {
-      console.warn(`[discord-gateway] Failed to join thread ${threadId} on create:`, err);
-    });
+    this.client
+      .ensureThreadMembership(threadId, {
+        assumeThread: true,
+        source: 'thread_create_event',
+        log: true,
+      })
+      .then((joined) => {
+        if (!joined) {
+          console.warn(
+            `[discord-gateway] Missing thread membership for ${threadId}; check Send Messages in Threads permission`,
+          );
+        }
+      })
+      .catch((err) => {
+        console.warn(`[discord-gateway] Failed to join thread ${threadId} on create:`, err);
+      });
   }
+
 
   private async handleMessageCreate(message: MessageCreatePayload): Promise<void> {
     if (!message || typeof message !== 'object') {
@@ -266,7 +279,10 @@ export class DiscordDmGateway {
     }
 
     if (resolvedIsThread) {
-      await this.client.ensureThreadMembership(channelId);
+      await this.client.ensureThreadMembership(channelId, {
+        source: 'message_create',
+        log: true,
+      });
     }
 
     const platformKey = buildDiscordPlatformKey({
@@ -298,7 +314,7 @@ export class DiscordDmGateway {
       return;
     }
 
-    await this.client.triggerTypingIndicator(channelId).catch((err) => {
+    await this.client.triggerTypingIndicator(channelId, { isThread: resolvedIsThread }).catch((err) => {
       console.error('[discord-gateway] Failed to send typing indicator:', err);
     });
 
@@ -308,7 +324,7 @@ export class DiscordDmGateway {
       streamId: messageId,
     };
 
-    discordAdapter.registerChannelStreamMeta(platformKey, messageId, channelId);
+    discordAdapter.registerChannelStreamMeta(platformKey, messageId, channelId, resolvedIsThread);
     dispatchIncoming(discordAdapter, incoming);
   }
 
