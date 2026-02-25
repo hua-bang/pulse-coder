@@ -3,6 +3,7 @@ import type { IncomingMessage } from '../../core/types.js';
 import { discordAdapter } from './adapter.js';
 import { DiscordClient } from './client.js';
 import { getDiscordProxyDispatcher } from './proxy.js';
+import { buildDiscordPlatformKey, isDiscordThreadChannelType } from './platform-key.js';
 
 interface GatewayPayload {
   op: number;
@@ -26,6 +27,9 @@ interface MessageCreatePayload {
   guild_id?: string;
   channel_id?: string;
   content?: string;
+  thread?: {
+    id?: string;
+  };
   author?: {
     id?: string;
     bot?: boolean;
@@ -197,6 +201,8 @@ export class DiscordDmGateway {
     const userId = message.author?.id?.trim();
     const rawContent = message.content ?? '';
     const isGuildMessage = Boolean(message.guild_id);
+    const threadId = message.thread?.id?.trim();
+    const isThread = Boolean(threadId);
 
     if (!messageId || !channelId || !userId) {
       return;
@@ -218,9 +224,22 @@ export class DiscordDmGateway {
       this.seenMessageIds.delete(this.seenMessageIds.values().next().value as string);
     }
 
-    const platformKey = isGuildMessage
-      ? `discord:channel:${channelId}:${userId}`
-      : `discord:${userId}`;
+    let resolvedIsThread = isThread;
+    if (!resolvedIsThread && isGuildMessage) {
+      const channelType = await this.client.getChannelType(channelId);
+      resolvedIsThread = isDiscordThreadChannelType(channelType);
+    }
+
+    if (resolvedIsThread) {
+      await this.client.ensureThreadMembership(channelId);
+    }
+
+    const platformKey = buildDiscordPlatformKey({
+      guildId: message.guild_id,
+      channelId,
+      userId,
+      isThread: resolvedIsThread,
+    });
 
     const clarificationText = normalizeGatewayText(stripSelfMention(rawContent, this.selfUserId));
     if (clarificationText) {

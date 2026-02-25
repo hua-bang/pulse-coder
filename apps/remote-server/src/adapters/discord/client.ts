@@ -1,8 +1,10 @@
 import { readFile } from 'fs/promises';
 import { getDiscordProxyDispatcher } from './proxy.js';
+import { isDiscordThreadChannelType } from './platform-key.js';
 
 const DEFAULT_DISCORD_API_BASE_URL = 'https://discord.com/api/v10';
 const DISCORD_MESSAGE_LIMIT = 2000;
+const CHANNEL_TYPE_CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface DiscordApiError {
   message?: string;
@@ -17,9 +19,21 @@ interface DiscordMessageResponse {
   id: string;
 }
 
+interface DiscordChannelResponse {
+  id: string;
+  type?: number;
+}
+
+interface ChannelTypeCacheEntry {
+  type: number | null;
+  expiresAt: number;
+}
+
 export class DiscordClient {
   private readonly baseUrl: string;
   private readonly botToken: string;
+  private readonly channelTypeCache = new Map<string, ChannelTypeCacheEntry>();
+  private readonly joinedThreadIds = new Set<string>();
 
   constructor(
     baseUrl = process.env.DISCORD_API_BASE_URL?.trim() || DEFAULT_DISCORD_API_BASE_URL,
@@ -69,8 +83,75 @@ export class DiscordClient {
     });
   }
 
+  async ensureThreadMembership(channelId: string): Promise<void> {
+    const channelType = await this.getChannelType(channelId);
+    if (channelType === null || !isDiscordThreadChannelType(channelType)) {
+      return;
+    }
+
+    if (this.joinedThreadIds.has(channelId)) {
+      return;
+    }
+
+    try {
+      await this.joinThread(channelId);
+      this.joinedThreadIds.add(channelId);
+    } catch (err) {
+      console.warn(`[discord] Failed to join thread ${channelId}:`, err);
+    }
+  }
+
+  async getChannelType(channelId: string): Promise<number | null> {
+    if (!this.botToken) {
+      return null;
+    }
+
+    const cached = this.channelTypeCache.get(channelId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.type;
+    }
+
+    try {
+      const channel = await this.getChannel(channelId);
+      const type = typeof channel.type === 'number' ? channel.type : null;
+      this.channelTypeCache.set(channelId, {
+        type,
+        expiresAt: Date.now() + CHANNEL_TYPE_CACHE_TTL_MS,
+      });
+      return type;
+    } catch (err) {
+      console.warn(`[discord] Failed to fetch channel metadata for ${channelId}:`, err);
+      return null;
+    }
+  }
+
+  async getChannel(channelId: string): Promise<DiscordChannelResponse> {
+    this.ensureBotToken();
+
+    return this.request<DiscordChannelResponse>(
+      `/channels/${encodeURIComponent(channelId)}`,
+      {
+        method: 'GET',
+      },
+      true,
+    );
+  }
+
+  async joinThread(channelId: string): Promise<void> {
+    this.ensureBotToken();
+
+    await this.request<void>(
+      `/channels/${encodeURIComponent(channelId)}/thread-members/@me`,
+      {
+        method: 'PUT',
+      },
+      true,
+    );
+  }
+
   async sendChannelMessage(channelId: string, content: string): Promise<DiscordMessageResponse> {
     this.ensureBotToken();
+    await this.ensureThreadMembership(channelId);
 
     return this.request<DiscordMessageResponse>(
       `/channels/${encodeURIComponent(channelId)}/messages`,
@@ -85,6 +166,7 @@ export class DiscordClient {
 
   async triggerTypingIndicator(channelId: string): Promise<void> {
     this.ensureBotToken();
+    await this.ensureThreadMembership(channelId);
 
     await this.request<void>(
       `/channels/${encodeURIComponent(channelId)}/typing`,
@@ -97,6 +179,7 @@ export class DiscordClient {
 
   async editChannelMessage(channelId: string, messageId: string, content: string): Promise<void> {
     this.ensureBotToken();
+    await this.ensureThreadMembership(channelId);
 
     await this.request<void>(
       `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
@@ -117,6 +200,7 @@ export class DiscordClient {
     content?: string,
   ): Promise<void> {
     this.ensureBotToken();
+    await this.ensureThreadMembership(channelId);
 
     const fileBuffer = await readFile(filePath);
     const payload = {
