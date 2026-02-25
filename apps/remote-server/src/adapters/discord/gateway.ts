@@ -42,6 +42,7 @@ interface MessageCreatePayload {
 interface ThreadCreatePayload {
   id?: string;
   type?: number;
+  member?: unknown;
 }
 
 const DEFAULT_GATEWAY_URL = 'wss://gateway.discord.gg/?v=10&encoding=json';
@@ -211,7 +212,16 @@ export class DiscordDmGateway {
       return;
     }
 
-    this.client.ensureThreadMembership(threadId, { assumeThread: true }).catch((err) => {
+    if (thread.member) {
+      this.client.markThreadMembership(threadId);
+      return;
+    }
+
+    this.client.ensureThreadMembership(threadId, { assumeThread: true }).then((joined) => {
+      if (!joined) {
+        console.warn(`[discord-gateway] Missing thread membership for ${threadId}; check Send Messages in Threads permission`);
+      }
+    }).catch((err) => {
       console.warn(`[discord-gateway] Failed to join thread ${threadId} on create:`, err);
     });
   }

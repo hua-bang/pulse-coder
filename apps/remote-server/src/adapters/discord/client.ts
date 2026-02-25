@@ -87,23 +87,29 @@ export class DiscordClient {
     });
   }
 
-  async ensureThreadMembership(channelId: string, options: EnsureThreadMembershipOptions = {}): Promise<void> {
+  async ensureThreadMembership(channelId: string, options: EnsureThreadMembershipOptions = {}): Promise<boolean> {
     const assumeThread = options.assumeThread === true;
     const channelType = assumeThread ? null : await this.getChannelType(channelId);
     if (!assumeThread && (channelType === null || !isDiscordThreadChannelType(channelType))) {
-      return;
+      return false;
     }
 
     if (this.joinedThreadIds.has(channelId)) {
-      return;
+      return true;
     }
 
     try {
       await this.joinThread(channelId);
       this.joinedThreadIds.add(channelId);
+      return true;
     } catch (err) {
       console.warn(`[discord] Failed to join thread ${channelId}:`, err);
+      return false;
     }
+  }
+
+  markThreadMembership(channelId: string): void {
+    this.joinedThreadIds.add(channelId);
   }
 
   async getChannelType(channelId: string): Promise<number | null> {
