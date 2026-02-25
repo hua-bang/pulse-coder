@@ -46,6 +46,7 @@ interface DiscordChannelStreamMeta {
   kind: 'channel';
   channelId: string;
   isThread: boolean;
+  replyToMessageId?: string;
 }
 
 type DiscordStreamMeta = DiscordInteractionStreamMeta | DiscordChannelStreamMeta;
@@ -177,11 +178,18 @@ export class DiscordAdapter implements PlatformAdapter {
     return c.json(payload, 200);
   }
 
-  registerChannelStreamMeta(platformKey: string, streamId: string, channelId: string, isThread = false): void {
+  registerChannelStreamMeta(
+    platformKey: string,
+    streamId: string,
+    channelId: string,
+    isThread = false,
+    replyToMessageId?: string,
+  ): void {
     const streamMeta: DiscordChannelStreamMeta = {
       kind: 'channel',
       channelId,
       isThread,
+      replyToMessageId,
     };
 
     this.streamMetaByStreamId.set(streamId, streamMeta);
@@ -246,6 +254,7 @@ export class DiscordAdapter implements PlatformAdapter {
   private async createChannelStreamHandle(meta: DiscordChannelStreamMeta): Promise<StreamHandle> {
     const initial = await this.client.sendChannelMessage(meta.channelId, 'Working on it...', {
       assumeThread: meta.isThread,
+      replyToMessageId: meta.replyToMessageId,
     });
 
     return this.createStreamingHandle({
