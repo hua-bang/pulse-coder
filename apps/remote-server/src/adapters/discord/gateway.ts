@@ -39,6 +39,11 @@ interface MessageCreatePayload {
   }>;
 }
 
+interface ThreadCreatePayload {
+  id?: string;
+  type?: number;
+}
+
 const DEFAULT_GATEWAY_URL = 'wss://gateway.discord.gg/?v=10&encoding=json';
 const DISCORD_GATEWAY_INTENTS = 1 + 512 + 4096 + 32768;
 const MAX_RECONNECT_DELAY_MS = 30000;
@@ -186,9 +191,29 @@ export class DiscordDmGateway {
       return;
     }
 
+    if (type === 'THREAD_CREATE') {
+      this.handleThreadCreate(data as ThreadCreatePayload);
+      return;
+    }
+
     if (type === 'MESSAGE_CREATE') {
       await this.handleMessageCreate(data as MessageCreatePayload);
     }
+  }
+
+  private handleThreadCreate(thread: ThreadCreatePayload): void {
+    const threadId = thread.id?.trim();
+    if (!threadId) {
+      return;
+    }
+
+    if (typeof thread.type === 'number' && !isDiscordThreadChannelType(thread.type)) {
+      return;
+    }
+
+    this.client.ensureThreadMembership(threadId, { assumeThread: true }).catch((err) => {
+      console.warn(`[discord-gateway] Failed to join thread ${threadId} on create:`, err);
+    });
   }
 
   private async handleMessageCreate(message: MessageCreatePayload): Promise<void> {
