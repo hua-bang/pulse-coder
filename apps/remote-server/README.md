@@ -7,17 +7,18 @@
 
 > Telegram and Web API adapters exist in code but are currently not mounted by default.
 
-## Discord setup (hybrid mode)
+## Discord setup (gateway-friendly)
 
-Hybrid mode behavior:
+Gateway mode behavior:
 
-- Guild/channel chats use **slash commands** via interactions webhook (`/ask`, `/new`, `/status`, etc.).
+- Guild/channel chats support **@mention direct text** via Discord Gateway listener.
+- Guild/channel slash commands via interactions webhook still work if you have an HTTPS endpoint.
 - DM chats support **direct text messages** (no `/ask` required) via Discord Gateway listener.
 
 ### 1) Configure app settings in Discord Developer Portal
 
 1. Copy the **Public Key** from your application settings.
-2. Configure **Interactions Endpoint URL**:
+2. Optional (only when you have HTTPS): configure **Interactions Endpoint URL**:
 
 ```text
 https://your-server-domain/webhooks/discord
@@ -25,6 +26,7 @@ https://your-server-domain/webhooks/discord
 
 3. In **Bot** settings, enable intents:
    - `Direct Messages`
+   - `Server Messages`
    - `Message Content Intent`
 
 ### 2) Set environment variables
@@ -40,16 +42,21 @@ DISCORD_BOT_TOKEN=your_discord_bot_token
 # DISCORD_DM_GATEWAY_ENABLED=true
 ```
 
-### 3) Register slash commands (recommended)
+### 3) Guild usage (no HTTPS required)
+
+- Mention the bot in a guild channel, then type your prompt.
+- Example: `@YourBot explain this stack trace`
+- Plain text without mentioning the bot is ignored in guild channels.
+
+### 4) Slash commands (optional, requires HTTPS interactions endpoint)
 
 - `/ask <text>` for prompts in guild channels.
 - Optional pass-through commands: `/help`, `/new`, `/compact`, `/resume`, `/status`, etc.
 
-### 4) DM usage
+### 5) DM usage
 
 - DM message text is forwarded directly to the agent.
 - `/ask foo`, `/chat foo`, `/prompt foo` in DM are normalized to `foo` for compatibility.
-- Group/guild plain text is ignored; keep using slash commands there.
 
 ## PM2 deployment (recommended)
 

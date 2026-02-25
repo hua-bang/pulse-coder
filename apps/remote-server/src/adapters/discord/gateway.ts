@@ -30,10 +30,13 @@ interface MessageCreatePayload {
     id?: string;
     bot?: boolean;
   };
+  mentions?: Array<{
+    id?: string;
+  }>;
 }
 
 const DEFAULT_GATEWAY_URL = 'wss://gateway.discord.gg/?v=10&encoding=json';
-const DISCORD_DM_INTENTS = 4096 + 32768;
+const DISCORD_GATEWAY_INTENTS = 1 + 512 + 4096 + 32768;
 const MAX_RECONNECT_DELAY_MS = 30000;
 
 export class DiscordDmGateway {
@@ -53,12 +56,12 @@ export class DiscordDmGateway {
 
   start(): void {
     if (!this.enabled) {
-      console.log('[discord-gateway] DM gateway disabled by DISCORD_DM_GATEWAY_ENABLED=false');
+      console.log('[discord-gateway] Gateway listener disabled by DISCORD_DM_GATEWAY_ENABLED=false');
       return;
     }
 
     if (!this.botToken) {
-      console.log('[discord-gateway] DM gateway disabled: DISCORD_BOT_TOKEN is not set');
+      console.log('[discord-gateway] Gateway listener disabled: DISCORD_BOT_TOKEN is not set');
       return;
     }
 
@@ -189,14 +192,11 @@ export class DiscordDmGateway {
       return;
     }
 
-    if (message.guild_id) {
-      return;
-    }
-
     const messageId = message.id?.trim();
     const channelId = message.channel_id?.trim();
     const userId = message.author?.id?.trim();
-    const content = message.content?.trim() ?? '';
+    const rawContent = message.content ?? '';
+    const isGuildMessage = Boolean(message.guild_id);
 
     if (!messageId || !channelId || !userId) {
       return;
@@ -218,15 +218,29 @@ export class DiscordDmGateway {
       this.seenMessageIds.delete(this.seenMessageIds.values().next().value as string);
     }
 
-    const platformKey = `discord:${userId}`;
-    const normalizedText = normalizeDmText(content);
+    const platformKey = isGuildMessage
+      ? `discord:channel:${channelId}:${userId}`
+      : `discord:${userId}`;
 
-    if (!normalizedText) {
+    const clarificationText = normalizeGatewayText(stripSelfMention(rawContent, this.selfUserId));
+    if (clarificationText) {
+      const consumedClarification = await discordAdapter.tryHandleChannelClarification(
+        platformKey,
+        channelId,
+        clarificationText,
+      );
+      if (consumedClarification) {
+        return;
+      }
+    }
+
+    if (isGuildMessage && !isMessageMentioningSelf(message, this.selfUserId)) {
       return;
     }
 
-    const consumedClarification = await discordAdapter.tryHandleDmClarification(platformKey, channelId, normalizedText);
-    if (consumedClarification) {
+    const textSource = isGuildMessage ? stripSelfMention(rawContent, this.selfUserId) : rawContent;
+    const normalizedText = normalizeGatewayText(textSource);
+    if (!normalizedText) {
       return;
     }
 
@@ -240,16 +254,17 @@ export class DiscordDmGateway {
       streamId: messageId,
     };
 
-    discordAdapter.registerDmStreamMeta(platformKey, messageId, channelId);
+    discordAdapter.registerChannelStreamMeta(platformKey, messageId, channelId);
     dispatchIncoming(discordAdapter, incoming);
   }
+
 
   private identify(): void {
     this.send({
       op: 2,
       d: {
         token: this.botToken,
-        intents: DISCORD_DM_INTENTS,
+        intents: DISCORD_GATEWAY_INTENTS,
         properties: {
           os: process.platform,
           browser: 'pulse-remote-server',
@@ -364,7 +379,7 @@ async function toGatewayPayloadText(raw: unknown): Promise<string | null> {
   return null;
 }
 
-function normalizeDmText(text: string): string {
+function normalizeGatewayText(text: string): string {
   const trimmed = text.trim();
   const lowered = trimmed.toLowerCase();
 
@@ -385,4 +400,31 @@ function normalizeDmText(text: string): string {
   }
 
   return trimmed;
+}
+
+function isMessageMentioningSelf(message: MessageCreatePayload, selfUserId: string | null): boolean {
+  if (!selfUserId) {
+    return false;
+  }
+
+  if (message.mentions?.some((mention) => mention.id?.trim() === selfUserId)) {
+    return true;
+  }
+
+  const content = message.content ?? '';
+  return content.includes(`<@${selfUserId}>`) || content.includes(`<@!${selfUserId}>`);
+}
+
+function stripSelfMention(text: string, selfUserId: string | null): string {
+  const trimmed = text.trim();
+  if (!trimmed || !selfUserId) {
+    return trimmed;
+  }
+
+  const escapedId = escapeRegExp(selfUserId);
+  return trimmed.replace(new RegExp(`<@!?${escapedId}>`, 'g'), ' ').replace(/\s+/g, ' ').trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

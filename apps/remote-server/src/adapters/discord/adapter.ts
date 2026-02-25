@@ -41,12 +41,12 @@ interface DiscordInteractionStreamMeta {
   interactionToken: string;
 }
 
-interface DiscordDmStreamMeta {
-  kind: 'dm';
+interface DiscordChannelStreamMeta {
+  kind: 'channel';
   channelId: string;
 }
 
-type DiscordStreamMeta = DiscordInteractionStreamMeta | DiscordDmStreamMeta;
+type DiscordStreamMeta = DiscordInteractionStreamMeta | DiscordChannelStreamMeta;
 
 type DiscordStreamIo = {
   updatePrimary: (content: string) => Promise<void>;
@@ -168,9 +168,9 @@ export class DiscordAdapter implements PlatformAdapter {
     return c.json(payload, 200);
   }
 
-  registerDmStreamMeta(platformKey: string, streamId: string, channelId: string): void {
-    const streamMeta: DiscordDmStreamMeta = {
-      kind: 'dm',
+  registerChannelStreamMeta(platformKey: string, streamId: string, channelId: string): void {
+    const streamMeta: DiscordChannelStreamMeta = {
+      kind: 'channel',
       channelId,
     };
 
@@ -178,7 +178,7 @@ export class DiscordAdapter implements PlatformAdapter {
     this.streamMetaByPlatformKey.set(platformKey, streamMeta);
   }
 
-  async tryHandleDmClarification(platformKey: string, channelId: string, text: string): Promise<boolean> {
+  async tryHandleChannelClarification(platformKey: string, channelId: string, text: string): Promise<boolean> {
     const activeStreamId = getActiveStreamId(platformKey);
     if (!activeStreamId || !clarificationQueue.hasPending(activeStreamId)) {
       return false;
@@ -191,7 +191,7 @@ export class DiscordAdapter implements PlatformAdapter {
 
     clarificationQueue.submitAnswer(activeStreamId, pending.request.id, text);
     await this.client.sendChannelMessage(channelId, `Got it: "${text}"`).catch((err) => {
-      console.error('[discord] Failed to send DM clarification ack:', err);
+      console.error('[discord] Failed to send channel clarification ack:', err);
     });
     return true;
   }
@@ -210,7 +210,7 @@ export class DiscordAdapter implements PlatformAdapter {
       return this.createInteractionStreamHandle(meta);
     }
 
-    return this.createDmStreamHandle(meta);
+    return this.createChannelStreamHandle(meta);
   }
 
   private async createInteractionStreamHandle(meta: DiscordInteractionStreamMeta): Promise<StreamHandle> {
@@ -228,7 +228,7 @@ export class DiscordAdapter implements PlatformAdapter {
     });
   }
 
-  private async createDmStreamHandle(meta: DiscordDmStreamMeta): Promise<StreamHandle> {
+  private async createChannelStreamHandle(meta: DiscordChannelStreamMeta): Promise<StreamHandle> {
     const initial = await this.client.sendChannelMessage(meta.channelId, 'Working on it...');
 
     return this.createStreamingHandle({
