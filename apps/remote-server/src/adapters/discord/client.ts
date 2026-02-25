@@ -29,6 +29,10 @@ interface ChannelTypeCacheEntry {
   expiresAt: number;
 }
 
+interface EnsureThreadMembershipOptions {
+  assumeThread?: boolean;
+}
+
 export class DiscordClient {
   private readonly baseUrl: string;
   private readonly botToken: string;
@@ -83,9 +87,10 @@ export class DiscordClient {
     });
   }
 
-  async ensureThreadMembership(channelId: string): Promise<void> {
-    const channelType = await this.getChannelType(channelId);
-    if (channelType === null || !isDiscordThreadChannelType(channelType)) {
+  async ensureThreadMembership(channelId: string, options: EnsureThreadMembershipOptions = {}): Promise<void> {
+    const assumeThread = options.assumeThread === true;
+    const channelType = assumeThread ? null : await this.getChannelType(channelId);
+    if (!assumeThread && (channelType === null || !isDiscordThreadChannelType(channelType))) {
       return;
     }
 
