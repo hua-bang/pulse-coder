@@ -54,6 +54,7 @@ export class DiscordDmGateway {
   private readonly gatewayUrl = process.env.DISCORD_GATEWAY_URL?.trim() || DEFAULT_GATEWAY_URL;
   private readonly botToken = process.env.DISCORD_BOT_TOKEN?.trim() || '';
   private readonly enabled = parseEnabledFlag(process.env.DISCORD_DM_GATEWAY_ENABLED);
+  private readonly guildRequireMention = parseEnabledFlag(process.env.DISCORD_GUILD_REQUIRE_MENTION, true);
 
   private ws: WebSocket | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -294,7 +295,8 @@ export class DiscordDmGateway {
       }
     }
 
-    if (isGuildMessage && !isMessageMentioningSelf(message, this.selfUserId)) {
+    const mentionedSelf = isMessageMentioningSelf(message, this.selfUserId);
+    if (isGuildMessage && !resolvedIsThread && this.guildRequireMention && !mentionedSelf) {
       return;
     }
 
@@ -406,10 +408,10 @@ export class DiscordDmGateway {
   }
 }
 
-function parseEnabledFlag(raw: string | undefined): boolean {
+function parseEnabledFlag(raw: string | undefined, defaultValue = true): boolean {
   const normalized = raw?.trim().toLowerCase();
   if (!normalized) {
-    return true;
+    return defaultValue;
   }
 
   if (normalized === '0' || normalized === 'false' || normalized === 'off' || normalized === 'no') {
