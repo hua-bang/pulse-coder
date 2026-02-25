@@ -52,6 +52,7 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
 
   const command = normalizeCommand(tokens[0].toLowerCase());
   const args = tokens.slice(1);
+  const memoryKey = incoming.memoryKey ?? incoming.platformKey;
 
   const activeRun = getActiveRun(incoming.platformKey);
   if (activeRun && !COMMANDS_ALLOWED_WHILE_RUNNING.has(command)) {
@@ -118,7 +119,7 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
       return await handleCompactCommand(incoming.platformKey);
 
     case 'memory':
-      return await handleMemoryCommand(incoming.platformKey, args);
+      return await handleMemoryCommand(incoming.platformKey, memoryKey, args);
 
     default:
       return {
@@ -332,7 +333,7 @@ async function handleCompactCommand(platformKey: string): Promise<CommandResult>
 }
 
 
-async function handleMemoryCommand(platformKey: string, args: string[]): Promise<CommandResult> {
+async function handleMemoryCommand(platformKey: string, memoryKey: string, args: string[]): Promise<CommandResult> {
   const sub = args[0]?.toLowerCase() ?? 'list';
   const currentSessionId = sessionStore.getCurrentSessionId(platformKey);
 
@@ -345,7 +346,7 @@ async function handleMemoryCommand(platformKey: string, args: string[]): Promise
     }
 
     const enabled = sub === 'on';
-    await memoryService.setSessionEnabled(platformKey, currentSessionId, enabled);
+    await memoryService.setSessionEnabled(memoryKey, currentSessionId, enabled);
     return {
       type: 'handled',
       message: enabled
@@ -363,7 +364,7 @@ async function handleMemoryCommand(platformKey: string, args: string[]): Promise
       };
     }
 
-    const result = await memoryService.pin(platformKey, id);
+    const result = await memoryService.pin(memoryKey, id);
     if (!result.ok) {
       return {
         type: 'handled',
@@ -386,7 +387,7 @@ async function handleMemoryCommand(platformKey: string, args: string[]): Promise
       };
     }
 
-    const result = await memoryService.forget(platformKey, id);
+    const result = await memoryService.forget(memoryKey, id);
     if (!result.ok) {
       return {
         type: 'handled',
@@ -401,8 +402,8 @@ async function handleMemoryCommand(platformKey: string, args: string[]): Promise
   }
 
   if (sub === 'status') {
-    const enabled = currentSessionId ? memoryService.isSessionEnabled(platformKey, currentSessionId) : true;
-    const list = await memoryService.list({ platformKey, sessionId: currentSessionId, limit: 1 });
+    const enabled = currentSessionId ? memoryService.isSessionEnabled(memoryKey, currentSessionId) : true;
+    const list = await memoryService.list({ platformKey: memoryKey, sessionId: currentSessionId, limit: 1 });
     return {
       type: 'handled',
       message: [
@@ -415,12 +416,12 @@ async function handleMemoryCommand(platformKey: string, args: string[]): Promise
   }
 
   const list = await memoryService.list({
-    platformKey,
+    platformKey: memoryKey,
     sessionId: currentSessionId,
     limit: 10,
   });
 
-  const enabled = currentSessionId ? memoryService.isSessionEnabled(platformKey, currentSessionId) : true;
+  const enabled = currentSessionId ? memoryService.isSessionEnabled(memoryKey, currentSessionId) : true;
 
   if (list.length === 0) {
     return {

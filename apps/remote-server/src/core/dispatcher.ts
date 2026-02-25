@@ -74,6 +74,7 @@ export function dispatchIncoming(adapter: PlatformAdapter, incoming: IncomingMes
 
 async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage): Promise<void> {
   const { platformKey, forceNewSession } = incoming;
+  const memoryKey = incoming.memoryKey ?? platformKey;
   let text = incoming.text;
 
   // Start streaming feedback early for long-running slash commands (for better UX on Feishu/Telegram)
@@ -151,7 +152,7 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
 
     const finalText = await memoryIntegration.withRunContext(
       {
-        platformKey,
+        platformKey: memoryKey,
         sessionId,
         userText: text,
       },
@@ -208,7 +209,7 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
 
     await sessionStore.save(sessionId, context);
     await recordDailyLogFromSuccessPath({
-      platformKey,
+      platformKey: memoryKey,
       sessionId,
       userText: text,
       assistantText: finalText,

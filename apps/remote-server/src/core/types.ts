@@ -10,6 +10,11 @@ export type { Context, ClarificationRequest };
 export interface IncomingMessage {
   /** "feishu:ou_abc123" | "telegram:987654" | "web:user-xyz" */
   platformKey: string;
+  /**
+   * Optional memory identity key. If omitted, platformKey is used.
+   * This lets adapters share long-term memory without merging runtime session/concurrency scopes.
+   */
+  memoryKey?: string;
   /** The user's text input */
   text: string;
   /** True when the platform payload explicitly requests a fresh session */
