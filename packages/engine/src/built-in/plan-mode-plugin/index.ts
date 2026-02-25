@@ -145,21 +145,6 @@ const KNOWN_TOOL_META: Record<string, Omit<ToolMeta, 'name'>> = {
     risk: 'low',
     description: 'Search web results from external sources.'
   },
-  tavily_extract: {
-    category: 'search',
-    risk: 'low',
-    description: 'Extract cleaned page content from specific URLs.'
-  },
-  tavily_crawl: {
-    category: 'search',
-    risk: 'low',
-    description: 'Crawl websites and collect multi-page content.'
-  },
-  tavily_map: {
-    category: 'search',
-    risk: 'low',
-    description: 'Discover URLs from a base site without full extraction.'
-  },
   skill: {
     category: 'search',
     risk: 'low',
