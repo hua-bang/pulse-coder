@@ -44,9 +44,13 @@ DISCORD_BOT_TOKEN=your_discord_bot_token
 
 ### 3) Guild usage (no HTTPS required)
 
-- Mention the bot in a guild channel, then type your prompt.
+- Default behavior: mention the bot in a guild channel, then type your prompt.
 - Example: `@YourBot explain this stack trace`
-- Plain text without mentioning the bot is ignored in guild channels.
+- To allow plain text without mention in guild channels, set:
+
+```bash
+DISCORD_GUILD_REQUIRE_MENTION=false
+```
 
 ### 4) Slash commands (optional, requires HTTPS interactions endpoint)
 
