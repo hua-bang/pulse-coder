@@ -1,9 +1,21 @@
-import z from "zod";
-import type { Tool } from "../shared/types";
-import { truncateOutput } from "./utils";
+import z from 'zod';
+import type { Tool } from '../shared/types';
+import { truncateOutput } from './utils';
+import { tavilyPost } from './tavily-http';
+
+interface TavilySearchResult {
+  title?: string;
+  url?: string;
+  content?: string;
+  score?: number;
+}
+
+interface TavilySearchResponse {
+  results?: TavilySearchResult[];
+}
 
 export const TavilyTool: Tool<
-  { query: string; maxResults?: number },
+  { query: string; maxResults?: number; timeout?: number },
   { results: Array<{ title: string; url: string; content: string; score?: number }> }
 > = {
   name: 'tavily',
@@ -11,43 +23,33 @@ export const TavilyTool: Tool<
   inputSchema: z.object({
     query: z.string().describe('The search query'),
     maxResults: z.number().optional().default(5).describe('Maximum number of results to return'),
+    timeout: z
+      .number()
+      .optional()
+      .describe('Request timeout in milliseconds. Defaults to 120000 (2 minutes).'),
   }),
-  execute: async ({ query, maxResults = 5 }) => {
-    const apiKey = process.env.TAVILY_API_KEY;
-
-    if (!apiKey) {
-      throw new Error('TAVILY_API_KEY environment variable is not set');
-    }
-
-    const response = await fetch('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        api_key: apiKey,
+  execute: async ({ query, maxResults = 5, timeout }) => {
+    const data = await tavilyPost<TavilySearchResponse>({
+      endpoint: '/search',
+      timeout,
+      body: {
         query,
         max_results: maxResults,
         search_depth: 'basic',
         include_answer: false,
         include_raw_content: false,
         include_images: false,
-      }),
+      },
     });
 
-    if (!response.ok) {
-      throw new Error(`Tavily API error: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-
     return {
-      results: data.results?.map((result: any) => ({
-        title: result.title || '',
-        url: result.url || '',
-        content: truncateOutput(result.content || ''),
-        score: result.score || 0,
-      })) || [],
+      results:
+        data.results?.map((result) => ({
+          title: result.title || '',
+          url: result.url || '',
+          content: truncateOutput(result.content || ''),
+          score: result.score || 0,
+        })) || [],
     };
   },
 };
