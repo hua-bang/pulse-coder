@@ -429,6 +429,130 @@ describe('FileMemoryPluginService', () => {
     expect(recall.items.every((item) => item.sourceType === 'daily-log')).toBe(true);
   });
 
+  it('supports relative day filters in recall queries', async () => {
+    vi.useFakeTimers();
+    const { service } = await createService();
+
+    vi.setSystemTime(new Date('2026-02-24T09:00:00Z'));
+    await service.recordTurn({
+      platformKey: 'test-platform',
+      sessionId: 'session-recall-time-filter',
+      userText: 'Rule: keep rollback steps documented.',
+      assistantText: 'Decision: keep rollback notes with every release.',
+      sourceType: 'daily-log',
+    });
+
+    vi.setSystemTime(new Date('2026-02-25T09:00:00Z'));
+    await service.recordTurn({
+      platformKey: 'test-platform',
+      sessionId: 'session-recall-time-filter',
+      userText: 'Rule: track risky changes with owner names.',
+      assistantText: 'Decision: enforce owner tags for risky changes.',
+      sourceType: 'daily-log',
+    });
+
+    vi.setSystemTime(new Date('2026-02-26T09:00:00Z'));
+    await service.recordTurn({
+      platformKey: 'test-platform',
+      sessionId: 'session-recall-time-filter',
+      userText: 'Rule: keep migration dry-run logs.',
+      assistantText: 'Decision: require dry-run logs in release checklist.',
+      sourceType: 'daily-log',
+    });
+
+    vi.setSystemTime(new Date('2026-02-26T12:00:00Z'));
+
+    const yesterday = await service.recall({
+      platformKey: 'test-platform',
+      sessionId: 'session-recall-time-filter',
+      query: '我昨天有什么决策',
+      limit: 8,
+    });
+
+    expect(yesterday.items.length).toBeGreaterThan(0);
+    expect(yesterday.items.every((item) => item.dayKey === '2026-02-25')).toBe(true);
+
+    const recentTwoDays = await service.recall({
+      platformKey: 'test-platform',
+      sessionId: 'session-recall-time-filter',
+      query: '最近2天有哪些决策',
+      limit: 8,
+    });
+
+    expect(recentTwoDays.items.length).toBeGreaterThan(0);
+    expect(recentTwoDays.items.every((item) => item.dayKey === '2026-02-25' || item.dayKey === '2026-02-26')).toBe(true);
+    expect(recentTwoDays.items.some((item) => item.dayKey === '2026-02-24')).toBe(false);
+  });
+
+
+  it('lists only daily-log items for a specific day', async () => {
+    vi.useFakeTimers();
+    const { service } = await createService();
+
+    vi.setSystemTime(new Date('2026-02-24T09:00:00Z'));
+    await service.recordTurn({
+      platformKey: 'test-platform',
+      sessionId: 'session-day-list',
+      userText: 'Rule: keep rollback steps documented.',
+      assistantText: 'Decision: keep rollback notes with every release.',
+      sourceType: 'daily-log',
+    });
+
+    vi.setSystemTime(new Date('2026-02-25T09:00:00Z'));
+    await service.recordTurn({
+      platformKey: 'test-platform',
+      sessionId: 'session-day-list',
+      userText: 'Rule: track risky changes with owner names.',
+      assistantText: 'Decision: enforce owner tags for risky changes.',
+      sourceType: 'daily-log',
+    });
+
+    await service.recordTurn({
+      platformKey: 'test-platform',
+      sessionId: 'session-day-list',
+      userText: 'Profile: my favorite editor is Vim.',
+      assistantText: 'Profile captured.',
+      sourceType: 'explicit',
+    });
+
+    const listed = await service.listDailyLogByDay({
+      platformKey: 'test-platform',
+      sessionId: 'session-day-list',
+      dayKey: '2026-02-25',
+      limit: 20,
+    });
+
+    expect(listed.length).toBeGreaterThan(0);
+    expect(listed.every((item) => item.sourceType === 'daily-log')).toBe(true);
+    expect(listed.every((item) => item.dayKey === '2026-02-25')).toBe(true);
+    expect(listed.some((item) => item.dayKey === '2026-02-24')).toBe(false);
+  });
+
+  it('supports type filtering for day-specific daily-log listing', async () => {
+    vi.useFakeTimers();
+    const { service } = await createService();
+
+    vi.setSystemTime(new Date('2026-02-25T09:00:00Z'));
+    await service.recordTurn({
+      platformKey: 'test-platform',
+      sessionId: 'session-day-type-list',
+      userText: 'Rule: track risky changes with owner names.',
+      assistantText: 'Decision: enforce owner tags for risky changes.',
+      sourceType: 'daily-log',
+    });
+
+    const decisions = await service.listDailyLogByDay({
+      platformKey: 'test-platform',
+      sessionId: 'session-day-type-list',
+      dayKey: '2026-02-25',
+      types: ['decision'],
+      limit: 20,
+    });
+
+    expect(decisions.length).toBeGreaterThan(0);
+    expect(decisions.every((item) => item.type === 'decision')).toBe(true);
+  });
+
   it('supports shadow mode for daily-log without persisting items', async () => {
     const { service } = await createService({
       dailyLogPolicy: {

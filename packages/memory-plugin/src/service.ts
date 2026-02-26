@@ -22,6 +22,7 @@ import type { ExtractedMemory } from './service/models.js';
 import { buildMemoryPrompt } from './service/recall.js';
 import { LayeredMemoryStateStore } from './service/state-store.js';
 import type {
+  DailyLogByDayInput,
   EmbeddingProvider,
   FileMemoryServiceOptions,
   ListInput,
@@ -29,6 +30,7 @@ import type {
   MemoryItem,
   MemorySourceType,
   MemoryState,
+  MemoryType,
   MutateResult,
   RecallInput,
   RecallResult,
@@ -129,9 +131,14 @@ export class FileMemoryPluginService {
     const hasSemanticQuery = Boolean(queryVector);
     const now = Date.now();
 
-    const visibleItems = this.state.items
+    const timeFilter = resolveRecallTimeFilter(input.query, now);
+    let visibleItems = this.state.items
       .filter((item) => this.isCandidateVisible(item, input.platformKey, input.sessionId))
       .filter((item) => item.sourceType === 'daily-log');
+
+    if (timeFilter) {
+      visibleItems = visibleItems.filter((item) => isItemInRecallTimeFilter(item, timeFilter));
+    }
 
     if (visibleItems.length === 0) {
       return {
@@ -229,6 +236,35 @@ export class FileMemoryPluginService {
       items: ranked,
       promptAppend,
     };
+  }
+
+  async listDailyLogByDay(input: DailyLogByDayInput): Promise<MemoryItem[]> {
+    const enabled = this.isSessionEnabled(input.platformKey, input.sessionId);
+    if (!enabled) {
+      return [];
+    }
+
+    const normalizedDayKey = normalizeDayKey(input.dayKey);
+    if (!normalizedDayKey) {
+      return [];
+    }
+
+    const typeFilter = normalizeMemoryTypeFilter(input.types);
+    const now = Date.now();
+
+    return this.state.items
+      .filter((item) => this.isCandidateVisible(item, input.platformKey, input.sessionId))
+      .filter((item) => item.sourceType === 'daily-log')
+      .filter((item) => item.dayKey === normalizedDayKey)
+      .filter((item) => !typeFilter || typeFilter.has(item.type))
+      .sort((a, b) => {
+        if (a.pinned !== b.pinned) {
+          return a.pinned ? -1 : 1;
+        }
+        return b.updatedAt - a.updatedAt;
+      })
+      .slice(0, clamp(input.limit ?? 20, 1, 100))
+      .map((item) => ({ ...item, lastAccessedAt: item.lastAccessedAt || now }));
   }
 
   async list(input: ListInput): Promise<MemoryItem[]> {
@@ -507,6 +543,106 @@ export class FileMemoryPluginService {
     }
     return b.item.updatedAt - a.item.updatedAt;
   }
+}
+
+interface RecallTimeFilter {
+  dayKeys: Set<string>;
+}
+
+function resolveRecallTimeFilter(query: string, now: number): RecallTimeFilter | undefined {
+  const normalized = normalizeWhitespace(query).toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+
+  const today = toDayKey(now);
+  const days = new Set<string>();
+
+  if (/\bday before yesterday\b/.test(normalized) || normalized.includes('前天')) {
+    days.add(shiftDayKey(today, -2));
+  }
+
+  if (/\byesterday\b/.test(normalized) || normalized.includes('昨天')) {
+    days.add(shiftDayKey(today, -1));
+  }
+
+  if (/\btoday\b/.test(normalized) || normalized.includes('今天')) {
+    days.add(today);
+  }
+
+  const cnRecentMatch = normalized.match(/最近\s*(\d+)\s*天/);
+  if (cnRecentMatch) {
+    const raw = Number.parseInt(cnRecentMatch[1], 10);
+    if (Number.isFinite(raw)) {
+      for (const day of collectRecentDayKeys(today, raw)) {
+        days.add(day);
+      }
+    }
+  }
+
+  const enRecentMatch = normalized.match(/\blast\s*(\d+)\s*days?\b/);
+  if (enRecentMatch) {
+    const raw = Number.parseInt(enRecentMatch[1], 10);
+    if (Number.isFinite(raw)) {
+      for (const day of collectRecentDayKeys(today, raw)) {
+        days.add(day);
+      }
+    }
+  }
+
+  return days.size > 0 ? { dayKeys: days } : undefined;
+}
+
+function isItemInRecallTimeFilter(item: MemoryItem, filter: RecallTimeFilter): boolean {
+  return Boolean(item.dayKey && filter.dayKeys.has(item.dayKey));
+}
+
+function collectRecentDayKeys(todayDayKey: string, rawDays: number): string[] {
+  const days = clamp(Math.round(rawDays), 1, 30);
+  const collected: string[] = [];
+  for (let offset = 0; offset < days; offset += 1) {
+    collected.push(shiftDayKey(todayDayKey, -offset));
+  }
+  return collected;
+}
+
+function shiftDayKey(dayKey: string, dayOffset: number): string {
+  const date = new Date(`${dayKey}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + dayOffset);
+  return toDayKey(date.getTime());
+}
+
+function toDayKey(timestamp: number): string {
+  return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+function normalizeDayKey(raw: string): string | undefined {
+  const normalized = normalizeWhitespace(raw).replace(/\//g, '-');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return undefined;
+  }
+
+  const date = new Date(`${normalized}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+
+  return toDayKey(date.getTime()) === normalized ? normalized : undefined;
+}
+
+function normalizeMemoryTypeFilter(types?: MemoryType[]): Set<MemoryType> | undefined {
+  if (!types || types.length === 0) {
+    return undefined;
+  }
+
+  const validTypes: MemoryType[] = [];
+  for (const type of types) {
+    if (type === 'preference' || type === 'rule' || type === 'decision' || type === 'fix' || type === 'fact') {
+      validTypes.push(type);
+    }
+  }
+
+  return validTypes.length > 0 ? new Set(validTypes) : undefined;
 }
 
 export { HashEmbeddingProvider };

@@ -36,14 +36,22 @@ function resolveSystemPrompt(option: SystemPromptOption | undefined): string {
 
 function createPluginContextMock() {
   const hooks: Record<string, Array<(input: any) => Promise<any>>> = {};
+  const tools: Record<string, any> = {};
 
   return {
     hooks,
+    tools,
     context: {
-      registerTool: () => {},
-      registerTools: () => {},
-      getTool: () => undefined,
-      getTools: () => ({}),
+      registerTool: (tool: any) => {
+        if (tool?.name) {
+          tools[tool.name] = tool;
+        }
+      },
+      registerTools: (incoming: Record<string, any>) => {
+        Object.assign(tools, incoming);
+      },
+      getTool: (name: string) => tools[name],
+      getTools: () => ({ ...tools }),
       registerHook: (name: string, handler: (input: any) => Promise<any>) => {
         hooks[name] = hooks[name] ?? [];
         hooks[name].push(handler);
@@ -128,6 +136,45 @@ describe('memory-plugin beforeRun auto injection', () => {
     expect(prompt).not.toContain('use emoji in status updates');
 
     runContext = undefined;
+  });
+
+
+  it('registers day-specific daily-log tool and returns scoped day items', async () => {
+    const { service } = await createService();
+
+    await service.recordTurn({
+      platformKey: 'test-platform',
+      sessionId: 'session-tool-day-list',
+      userText: 'Rule: keep rollback steps documented.',
+      assistantText: 'Decision: keep rollback notes with every release.',
+      sourceType: 'daily-log',
+    });
+
+    const runContext: MemoryRunContext = {
+      platformKey: 'test-platform',
+      sessionId: 'session-tool-day-list',
+      userText: 'show day items',
+    };
+
+    const plugin = createMemoryEnginePlugin({
+      service,
+      getRunContext: () => runContext,
+    });
+
+    const mock = createPluginContextMock();
+    await plugin.initialize(mock.context as any);
+
+    const tool = mock.tools.memory_get_daily_log_by_day;
+    expect(tool).toBeDefined();
+
+    const result = await tool.execute({
+      dayKey: new Date().toISOString().slice(0, 10),
+      types: ['decision'],
+      limit: 10,
+    });
+
+    expect(result.count).toBeGreaterThan(0);
+    expect(result.items.every((item: any) => item.type === 'decision')).toBe(true);
   });
 
   it('keeps policy append when run context is unavailable', async () => {

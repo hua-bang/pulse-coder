@@ -11,6 +11,16 @@ const MEMORY_RECALL_INPUT_SCHEMA = z.object({
   limit: z.number().int().min(1).max(8).optional().describe('Maximum number of memory items to return.'),
 });
 
+const MEMORY_GET_DAILY_LOG_BY_DAY_INPUT_SCHEMA = z.object({
+  dayKey: z.string().min(1).describe('Target day in YYYY-MM-DD format.'),
+  limit: z.number().int().min(1).max(100).optional().describe('Maximum number of daily-log memory items to return.'),
+  types: z
+    .array(z.enum(['preference', 'rule', 'decision', 'fix', 'fact']))
+    .max(5)
+    .optional()
+    .describe('Optional memory type filter for the target day.'),
+});
+
 const MEMORY_RECORD_INPUT_SCHEMA = z.object({
   content: z.string().min(1).describe('The memory content to store.'),
   kind: z
@@ -23,6 +33,7 @@ const MEMORY_TOOL_POLICY_APPEND = [
   '## Memory Tool Policy (On-Demand)',
   'Memory access is tool-based. Do not read/write memory on every turn.',
   'Use `memory_recall` only when memory is relevant to the current task.',
+  'Use `memory_get_daily_log_by_day` when the user asks for decisions/rules on a specific date.',
   'Use `memory_record` only when the user provides stable profile/preferences/rules or when a fix is worth remembering.',
   'If user intent conflicts with recalled memory, follow the latest user instruction.',
 ].join('\n');
@@ -144,6 +155,7 @@ export function createMemoryEnginePlugin(options: CreateMemoryEnginePluginOption
 
       context.registerTools({
         memory_recall: buildMemoryRecallTool(options.service, options.getRunContext),
+        memory_get_daily_log_by_day: buildMemoryGetDailyLogByDayTool(options.service, options.getRunContext),
         memory_record: buildMemoryRecordTool(options.service, options.getRunContext),
       });
 
@@ -543,6 +555,33 @@ function buildMemoryRecallTool(
         query: recallQuery,
         promptAppend: recalled.promptAppend,
         items: recalled.items.map((item) => summarizeMemoryItem(item)),
+      };
+    },
+  };
+}
+
+function buildMemoryGetDailyLogByDayTool(
+  memoryService: FileMemoryPluginService,
+  getRunContext: () => MemoryRunContext | undefined,
+): Tool<z.infer<typeof MEMORY_GET_DAILY_LOG_BY_DAY_INPUT_SCHEMA>, unknown> {
+  return {
+    name: 'memory_get_daily_log_by_day',
+    description: 'Get daily-log memory items for a specific day (YYYY-MM-DD) in current session.',
+    inputSchema: MEMORY_GET_DAILY_LOG_BY_DAY_INPUT_SCHEMA,
+    execute: async ({ dayKey, limit, types }) => {
+      const runContext = requireRunContext(getRunContext);
+      const listed = await memoryService.listDailyLogByDay({
+        platformKey: runContext.platformKey,
+        sessionId: runContext.sessionId,
+        dayKey,
+        limit,
+        types,
+      });
+
+      return {
+        dayKey,
+        count: listed.length,
+        items: listed.map((item) => summarizeMemoryItem(item)),
       };
     },
   };
