@@ -332,8 +332,8 @@ export class DiscordAdapter implements PlatformAdapter {
         scheduleProgress();
       },
 
-      async onToolCall(name, _input) {
-        latestToolHint = `Tool: ${name}`;
+      async onToolCall(name, input) {
+        latestToolHint = formatDiscordToolHint(name, input);
         scheduleProgress();
       },
 
@@ -489,6 +489,48 @@ function collectOptionValues(options: DiscordCommandOption[]): string[] {
   }
 
   return values;
+}
+
+function formatDiscordToolHint(name: string, input: unknown): string {
+  const toolName = name.trim() || 'unknown';
+  const serializedInput = serializeToolInputForDiscord(input);
+
+  if (!serializedInput) {
+    return `Tool: ${toolName}`;
+  }
+
+  return `Tool: ${toolName}\nArgs: ${serializedInput}`;
+}
+
+function serializeToolInputForDiscord(input: unknown): string {
+  if (input === undefined || input === null) {
+    return '';
+  }
+
+  if (typeof input === 'string') {
+    const trimmed = input.trim();
+    return trimmed ? trimDiscordToolInput(trimmed) : '';
+  }
+
+  try {
+    const serialized = JSON.stringify(input);
+    if (!serialized || serialized === '{}' || serialized === '[]') {
+      return '';
+    }
+    return trimDiscordToolInput(serialized);
+  } catch {
+    return '[unserializable]';
+  }
+}
+
+function trimDiscordToolInput(value: string): string {
+  const singleLine = value.replace(/\s+/g, ' ').trim();
+  const maxLength = 220;
+  if (singleLine.length <= maxLength) {
+    return singleLine;
+  }
+
+  return `${singleLine.slice(0, maxLength - 3)}...`;
 }
 
 function splitDiscordText(text: string): string[] {
