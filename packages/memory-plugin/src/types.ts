@@ -82,6 +82,14 @@ export interface RecallInput {
   limit?: number;
 }
 
+export interface DailyLogByDayInput {
+  platformKey: string;
+  sessionId: string;
+  dayKey: string;
+  limit?: number;
+  types?: MemoryType[];
+}
+
 export interface ListInput {
   platformKey: string;
   sessionId?: string;

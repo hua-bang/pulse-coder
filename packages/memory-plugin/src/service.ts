@@ -22,6 +22,7 @@ import type { ExtractedMemory } from './service/models.js';
 import { buildMemoryPrompt } from './service/recall.js';
 import { LayeredMemoryStateStore } from './service/state-store.js';
 import type {
+  DailyLogByDayInput,
   EmbeddingProvider,
   FileMemoryServiceOptions,
   ListInput,
@@ -29,6 +30,7 @@ import type {
   MemoryItem,
   MemorySourceType,
   MemoryState,
+  MemoryType,
   MutateResult,
   RecallInput,
   RecallResult,
@@ -234,6 +236,35 @@ export class FileMemoryPluginService {
       items: ranked,
       promptAppend,
     };
+  }
+
+  async listDailyLogByDay(input: DailyLogByDayInput): Promise<MemoryItem[]> {
+    const enabled = this.isSessionEnabled(input.platformKey, input.sessionId);
+    if (!enabled) {
+      return [];
+    }
+
+    const normalizedDayKey = normalizeDayKey(input.dayKey);
+    if (!normalizedDayKey) {
+      return [];
+    }
+
+    const typeFilter = normalizeMemoryTypeFilter(input.types);
+    const now = Date.now();
+
+    return this.state.items
+      .filter((item) => this.isCandidateVisible(item, input.platformKey, input.sessionId))
+      .filter((item) => item.sourceType === 'daily-log')
+      .filter((item) => item.dayKey === normalizedDayKey)
+      .filter((item) => !typeFilter || typeFilter.has(item.type))
+      .sort((a, b) => {
+        if (a.pinned !== b.pinned) {
+          return a.pinned ? -1 : 1;
+        }
+        return b.updatedAt - a.updatedAt;
+      })
+      .slice(0, clamp(input.limit ?? 20, 1, 100))
+      .map((item) => ({ ...item, lastAccessedAt: item.lastAccessedAt || now }));
   }
 
   async list(input: ListInput): Promise<MemoryItem[]> {
@@ -583,6 +614,35 @@ function shiftDayKey(dayKey: string, dayOffset: number): string {
 
 function toDayKey(timestamp: number): string {
   return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+function normalizeDayKey(raw: string): string | undefined {
+  const normalized = normalizeWhitespace(raw).replace(/\//g, '-');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return undefined;
+  }
+
+  const date = new Date(`${normalized}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+
+  return toDayKey(date.getTime()) === normalized ? normalized : undefined;
+}
+
+function normalizeMemoryTypeFilter(types?: MemoryType[]): Set<MemoryType> | undefined {
+  if (!types || types.length === 0) {
+    return undefined;
+  }
+
+  const validTypes: MemoryType[] = [];
+  for (const type of types) {
+    if (type === 'preference' || type === 'rule' || type === 'decision' || type === 'fix' || type === 'fact') {
+      validTypes.push(type);
+    }
+  }
+
+  return validTypes.length > 0 ? new Set(validTypes) : undefined;
 }
 
 export { HashEmbeddingProvider };
