@@ -10,6 +10,7 @@ import type { Context } from './types.js';
 interface RemoteSession {
   id: string;
   platformKey: string;
+  ownerKey?: string;
   createdAt: number;
   updatedAt: number;
   messages: unknown[]; // Stored as-is; cast to Context['messages'] on load
@@ -109,12 +110,20 @@ class RemoteSessionStore {
    * Find the current session for a platform user, or create a new one.
    * Returns a Context whose messages array is directly usable by engine.run().
    */
-  async getOrCreate(platformKey: string, forceNew?: boolean): Promise<{ sessionId: string; context: Context; isNew: boolean }> {
+  async getOrCreate(
+    platformKey: string,
+    forceNew?: boolean,
+    ownerKey?: string,
+  ): Promise<{ sessionId: string; context: Context; isNew: boolean }> {
     let sessionId = forceNew ? undefined : this.index[platformKey];
 
     if (sessionId) {
       const session = await this.readSession(sessionId);
       if (session) {
+        if (ownerKey && !session.ownerKey) {
+          session.ownerKey = ownerKey;
+          await this.writeSession(session);
+        }
         return { sessionId, context: { messages: session.messages as Context['messages'] }, isNew: false };
       }
       // Session file missing — create fresh
@@ -126,6 +135,7 @@ class RemoteSessionStore {
     const session: RemoteSession = {
       id: sessionId,
       platformKey,
+      ownerKey,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
@@ -141,8 +151,8 @@ class RemoteSessionStore {
   /**
    * Create and attach a brand-new session for the user.
    */
-  async createNewSession(platformKey: string): Promise<string> {
-    const result = await this.getOrCreate(platformKey, true);
+  async createNewSession(platformKey: string, ownerKey?: string): Promise<string> {
+    const result = await this.getOrCreate(platformKey, true, ownerKey);
     return result.sessionId;
   }
 
@@ -248,18 +258,22 @@ class RemoteSessionStore {
    * Clear current session context while keeping the session attached.
    * If no current session exists (or file is missing), create a fresh one.
    */
-  async clearCurrent(platformKey: string): Promise<ClearSessionResult> {
+  async clearCurrent(platformKey: string, ownerKey?: string): Promise<ClearSessionResult> {
     const sessionId = this.index[platformKey];
 
     if (!sessionId) {
-      const newSessionId = await this.createNewSession(platformKey);
+      const newSessionId = await this.createNewSession(platformKey, ownerKey);
       return { ok: true, sessionId: newSessionId, createdNew: true };
     }
 
     const session = await this.readSession(sessionId);
     if (!session || session.platformKey !== platformKey) {
-      const newSessionId = await this.createNewSession(platformKey);
+      const newSessionId = await this.createNewSession(platformKey, ownerKey);
       return { ok: true, sessionId: newSessionId, createdNew: true };
+    }
+
+    if (ownerKey && !session.ownerKey) {
+      session.ownerKey = ownerKey;
     }
 
     session.messages = [];
@@ -271,15 +285,15 @@ class RemoteSessionStore {
 
   /**
    * Fork a session into a new session id and attach it as current.
-   * Source session must belong to the same platformKey.
+   * Source session must belong to the same platformKey, or to the same ownerKey.
    */
-  async forkSession(platformKey: string, sourceSessionId: string): Promise<ForkSessionResult> {
+  async forkSession(platformKey: string, sourceSessionId: string, ownerKey?: string): Promise<ForkSessionResult> {
     const session = await this.readSession(sourceSessionId);
     if (!session) {
       return { ok: false, reason: `Session not found: ${sourceSessionId}` };
     }
 
-    if (session.platformKey !== platformKey) {
+    if (!this.canAccessSession(session, platformKey, ownerKey)) {
       return { ok: false, reason: 'Session does not belong to current user' };
     }
 
@@ -288,6 +302,7 @@ class RemoteSessionStore {
     const forkedSession: RemoteSession = {
       id: forkedSessionId,
       platformKey,
+      ownerKey: ownerKey ?? this.resolveOwnerKey(session),
       createdAt: now,
       updatedAt: now,
       messages: this.cloneMessages(session.messages),
@@ -397,6 +412,51 @@ class RemoteSessionStore {
     } catch {
       return [...messages];
     }
+  }
+
+  private canAccessSession(session: RemoteSession, platformKey: string, ownerKey?: string): boolean {
+    if (session.platformKey === platformKey) {
+      return true;
+    }
+
+    if (!ownerKey) {
+      return false;
+    }
+
+    return this.resolveOwnerKey(session) === ownerKey;
+  }
+
+  private resolveOwnerKey(session: RemoteSession): string | undefined {
+    if (session.ownerKey) {
+      return session.ownerKey;
+    }
+
+    const discordChannel = /^discord:channel:[^:]+:([^:]+)$/.exec(session.platformKey);
+    if (discordChannel) {
+      return `discord:user:${discordChannel[1]}`;
+    }
+
+    const discordDm = /^discord:([^:]+)$/.exec(session.platformKey);
+    if (discordDm) {
+      return `discord:user:${discordDm[1]}`;
+    }
+
+    const feishuGroup = /^feishu:group:[^:]+:([^:]+)$/.exec(session.platformKey);
+    if (feishuGroup) {
+      return `feishu:user:${feishuGroup[1]}`;
+    }
+
+    const feishuDm = /^feishu:([^:]+)$/.exec(session.platformKey);
+    if (feishuDm) {
+      return `feishu:user:${feishuDm[1]}`;
+    }
+
+    const web = /^web:(.+)$/.exec(session.platformKey);
+    if (web) {
+      return `web:${web[1]}`;
+    }
+
+    return undefined;
   }
 }
 

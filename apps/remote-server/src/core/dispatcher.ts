@@ -141,7 +141,7 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
   const compactionEvents: CompactionSnapshot[] = [];
 
   try {
-    const result = await sessionStore.getOrCreate(platformKey, forceNewSession);
+    const result = await sessionStore.getOrCreate(platformKey, forceNewSession, memoryKey);
     sessionId = result.sessionId;
     const context = result.context;
 

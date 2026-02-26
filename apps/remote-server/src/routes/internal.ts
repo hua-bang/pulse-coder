@@ -112,7 +112,7 @@ internalRouter.post('/agent/run', async (c) => {
   const imageNotifyTasks: Promise<void>[] = [];
 
   try {
-    const session = await sessionStore.getOrCreate(platformKey, forceNewSession);
+    const session = await sessionStore.getOrCreate(platformKey, forceNewSession, platformKey);
     sessionId = session.sessionId;
     const context = session.context;
 

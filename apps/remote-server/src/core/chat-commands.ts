@@ -68,7 +68,7 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
       return { type: 'handled', message: buildHelpMessage() };
 
     case 'new': {
-      const sessionId = await sessionStore.createNewSession(incoming.platformKey);
+      const sessionId = await sessionStore.createNewSession(incoming.platformKey, memoryKey);
       return {
         type: 'handled',
         message: `✅ 已创建新会话\nSession ID: ${sessionId}`,
@@ -76,7 +76,7 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
     }
 
     case 'clear': {
-      const result = await sessionStore.clearCurrent(incoming.platformKey);
+      const result = await sessionStore.clearCurrent(incoming.platformKey, memoryKey);
       if (result.createdNew) {
         return {
           type: 'handled',
@@ -95,7 +95,7 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
       return await handleResumeCommand(incoming.platformKey, args);
 
     case 'fork':
-      return await handleForkCommand(incoming.platformKey, args);
+      return await handleForkCommand(incoming.platformKey, memoryKey, args);
 
     case 'status':
       return await handleStatusCommand(incoming.platformKey);
@@ -188,7 +188,7 @@ async function handleResumeCommand(platformKey: string, args: string[]): Promise
   };
 }
 
-async function handleForkCommand(platformKey: string, args: string[]): Promise<CommandResult> {
+async function handleForkCommand(platformKey: string, memoryKey: string, args: string[]): Promise<CommandResult> {
   const sourceSessionId = args[0]?.trim();
   if (!sourceSessionId) {
     return {
@@ -197,7 +197,7 @@ async function handleForkCommand(platformKey: string, args: string[]): Promise<C
     };
   }
 
-  const result = await sessionStore.forkSession(platformKey, sourceSessionId);
+  const result = await sessionStore.forkSession(platformKey, sourceSessionId, memoryKey);
   if (!result.ok || !result.sessionId) {
     return {
       type: 'handled',
