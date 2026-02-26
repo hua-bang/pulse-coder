@@ -129,9 +129,14 @@ export class FileMemoryPluginService {
     const hasSemanticQuery = Boolean(queryVector);
     const now = Date.now();
 
-    const visibleItems = this.state.items
+    const timeFilter = resolveRecallTimeFilter(input.query, now);
+    let visibleItems = this.state.items
       .filter((item) => this.isCandidateVisible(item, input.platformKey, input.sessionId))
       .filter((item) => item.sourceType === 'daily-log');
+
+    if (timeFilter) {
+      visibleItems = visibleItems.filter((item) => isItemInRecallTimeFilter(item, timeFilter));
+    }
 
     if (visibleItems.length === 0) {
       return {
@@ -507,6 +512,77 @@ export class FileMemoryPluginService {
     }
     return b.item.updatedAt - a.item.updatedAt;
   }
+}
+
+interface RecallTimeFilter {
+  dayKeys: Set<string>;
+}
+
+function resolveRecallTimeFilter(query: string, now: number): RecallTimeFilter | undefined {
+  const normalized = normalizeWhitespace(query).toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+
+  const today = toDayKey(now);
+  const days = new Set<string>();
+
+  if (/\bday before yesterday\b/.test(normalized) || normalized.includes('前天')) {
+    days.add(shiftDayKey(today, -2));
+  }
+
+  if (/\byesterday\b/.test(normalized) || normalized.includes('昨天')) {
+    days.add(shiftDayKey(today, -1));
+  }
+
+  if (/\btoday\b/.test(normalized) || normalized.includes('今天')) {
+    days.add(today);
+  }
+
+  const cnRecentMatch = normalized.match(/最近\s*(\d+)\s*天/);
+  if (cnRecentMatch) {
+    const raw = Number.parseInt(cnRecentMatch[1], 10);
+    if (Number.isFinite(raw)) {
+      for (const day of collectRecentDayKeys(today, raw)) {
+        days.add(day);
+      }
+    }
+  }
+
+  const enRecentMatch = normalized.match(/\blast\s*(\d+)\s*days?\b/);
+  if (enRecentMatch) {
+    const raw = Number.parseInt(enRecentMatch[1], 10);
+    if (Number.isFinite(raw)) {
+      for (const day of collectRecentDayKeys(today, raw)) {
+        days.add(day);
+      }
+    }
+  }
+
+  return days.size > 0 ? { dayKeys: days } : undefined;
+}
+
+function isItemInRecallTimeFilter(item: MemoryItem, filter: RecallTimeFilter): boolean {
+  return Boolean(item.dayKey && filter.dayKeys.has(item.dayKey));
+}
+
+function collectRecentDayKeys(todayDayKey: string, rawDays: number): string[] {
+  const days = clamp(Math.round(rawDays), 1, 30);
+  const collected: string[] = [];
+  for (let offset = 0; offset < days; offset += 1) {
+    collected.push(shiftDayKey(todayDayKey, -offset));
+  }
+  return collected;
+}
+
+function shiftDayKey(dayKey: string, dayOffset: number): string {
+  const date = new Date(`${dayKey}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + dayOffset);
+  return toDayKey(date.getTime());
+}
+
+function toDayKey(timestamp: number): string {
+  return new Date(timestamp).toISOString().slice(0, 10);
 }
 
 export { HashEmbeddingProvider };
