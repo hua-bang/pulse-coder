@@ -262,8 +262,8 @@ export class FeishuAdapter implements PlatformAdapter {
         scheduleProgressUpdate();
       },
 
-      async onToolCall(name, _input) {
-        latestToolHint = `🛠️ Calling tool: \`${name}\``;
+      async onToolCall(name, input) {
+        latestToolHint = formatFeishuToolHint(name, input);
         scheduleProgressUpdate();
       },
 
@@ -329,6 +329,47 @@ export class FeishuAdapter implements PlatformAdapter {
       },
     };
   }
+}
+function formatFeishuToolHint(name: string, input: unknown): string {
+  const toolName = name.trim() || 'unknown';
+  const serializedInput = serializeToolInputForFeishu(input);
+
+  if (!serializedInput) {
+    return `🛠️ Calling tool: \`${toolName}\``;
+  }
+
+  return `🛠️ Calling tool: \`${toolName}\`\nArgs: \`${serializedInput}\``;
+}
+
+function serializeToolInputForFeishu(input: unknown): string {
+  if (input === undefined || input === null) {
+    return '';
+  }
+
+  if (typeof input === 'string') {
+    const trimmed = input.trim();
+    return trimmed ? trimFeishuToolInput(trimmed) : '';
+  }
+
+  try {
+    const serialized = JSON.stringify(input);
+    if (!serialized || serialized === '{}' || serialized === '[]') {
+      return '';
+    }
+    return trimFeishuToolInput(serialized);
+  } catch {
+    return '[unserializable]';
+  }
+}
+
+function trimFeishuToolInput(value: string): string {
+  const singleLine = value.replace(/\s+/g, ' ').trim();
+  const maxLength = 220;
+  if (singleLine.length <= maxLength) {
+    return singleLine;
+  }
+
+  return `${singleLine.slice(0, maxLength - 3)}...`;
 }
 
 
