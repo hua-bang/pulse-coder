@@ -134,12 +134,14 @@ export class BuiltInSkillRegistry {
     const skills: SkillInfo[] = [];
 
     const scanPaths = [
-      // 项目级技能（优先 .pulse-coder，兼容旧版 .coder 和 .claude）
+      // 项目级技能（优先 .pulse-coder，兼容 .agents / 旧版 .coder 和 .claude）
       { base: cwd, pattern: '.pulse-coder/skills/**/SKILL.md' },
+      { base: cwd, pattern: '.agents/skills/**/SKILL.md' },
       { base: cwd, pattern: '.coder/skills/**/SKILL.md' },
       { base: cwd, pattern: '.claude/skills/**/SKILL.md' },
-      // 用户级技能（优先 .pulse-coder，兼容旧版 .coder）
+      // 用户级技能（优先 .pulse-coder，兼容 .agents / 旧版 .coder）
       { base: homedir(), pattern: '.pulse-coder/skills/**/SKILL.md' },
+      { base: homedir(), pattern: '.agents/skills/**/SKILL.md' },
       { base: homedir(), pattern: '.coder/skills/**/SKILL.md' }
     ];
 
