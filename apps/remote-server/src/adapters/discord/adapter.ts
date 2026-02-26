@@ -447,6 +447,7 @@ const PASSTHROUGH_SLASH_COMMANDS = new Set([
   'detach',
   'resume',
   'sessions',
+  'fork',
   'status',
   'stop',
   'cancel',

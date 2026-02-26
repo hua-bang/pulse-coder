@@ -20,7 +20,7 @@ export type CommandResult =
   | { type: 'handled_silent' }
   | { type: 'transformed'; text: string };
 
-const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping', 'memory']);
+const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping', 'memory', 'fork']);
 const COMMAND_ALIASES: Record<string, string> = {
   '?': 'help',
   h: 'help',
@@ -31,8 +31,8 @@ const COMMAND_ALIASES: Record<string, string> = {
   ls: 'sessions',
   session: 'current',
   mem: 'memory',
+  clone: 'fork',
 };
-
 /**
  * Parse and execute slash commands for remote chat channels.
  */
@@ -46,7 +46,7 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
   if (tokens.length === 0) {
     return {
       type: 'handled',
-      message: '⚠️ 请输入命令，例如 `/new`、`/clear`、`/compact`、`/resume`、`/memory`、`/status`、`/stop`、`/skills`。',
+      message: '⚠️ 请输入命令，例如 `/new`、`/clear`、`/compact`、`/resume`、`/fork`、`/memory`、`/status`、`/stop`、`/skills`。',
     };
   }
 
@@ -93,6 +93,9 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
     case 'resume':
     case 'sessions':
       return await handleResumeCommand(incoming.platformKey, args);
+
+    case 'fork':
+      return await handleForkCommand(incoming.platformKey, args);
 
     case 'status':
       return await handleStatusCommand(incoming.platformKey);
@@ -182,6 +185,35 @@ async function handleResumeCommand(platformKey: string, args: string[]): Promise
   return {
     type: 'handled',
     message: `✅ 已恢复会话：${sessionId}`,
+  };
+}
+
+async function handleForkCommand(platformKey: string, args: string[]): Promise<CommandResult> {
+  const sourceSessionId = args[0]?.trim();
+  if (!sourceSessionId) {
+    return {
+      type: 'handled',
+      message: '❌ 缺少 session-id\n用法：/fork <session-id>',
+    };
+  }
+
+  const result = await sessionStore.forkSession(platformKey, sourceSessionId);
+  if (!result.ok || !result.sessionId) {
+    return {
+      type: 'handled',
+      message: `❌ 无法 fork 会话：${result.reason ?? '未知错误'}\n用法：/fork <session-id>`,
+    };
+  }
+
+  return {
+    type: 'handled',
+    message: [
+      '🌱 已基于历史会话创建分叉会话',
+      `- Source Session ID: ${result.sourceSessionId ?? sourceSessionId}`,
+      `- New Session ID: ${result.sessionId}`,
+      `- 复制消息数：${result.messageCount ?? 0}`,
+      '- 当前已自动切换到新会话。',
+    ].join('\n'),
   };
 }
 
@@ -575,6 +607,7 @@ function buildHelpMessage(): string {
     '/resume [list] [N] - 查看最近 N 条历史会话（N 范围 1-30）',
     '/sessions - /resume 的别名',
     '/resume <session-id> - 恢复指定会话',
+    '/fork <session-id> - 基于指定会话创建新分叉会话并自动切换',
     '/status - 查看当前运行状态与会话信息',
     '/stop - 停止当前正在运行的任务',
     '/cancel - /stop 的别名',

@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI 编程范式转移：从编码到编排</title>
+  <meta name="description" content="基于 Karpathy 与 Michael Truell 观点的 AI 编程范式转移总结：从手工编码到软件工厂编排。">
+  <meta property="og:title" content="AI 编程范式转移：从编码到编排">
+  <meta property="og:description" content="抽象层上移，但细节责任仍在人类：目标、约束、边界、验收。">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="http://42.192.62.24/apps/s-20260226-171342-g9o9/">
+  <meta property="og:image" content="http://42.192.62.24/apps/s-20260226-171342-g9o9/michael-truell-third-era-summary-zh.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <style>
+    :root {
+      --bg-1: #07111f;
+      --bg-2: #0e2c44;
+      --bg-3: #f28f45;
+      --ink: #f6f3ea;
+      --muted: #c2d1de;
+      --card: rgba(7, 18, 30, 0.72);
+      --line: rgba(255, 255, 255, 0.12);
+      --accent: #ffcc66;
+      --ok: #73e0b1;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
+      background:
+        radial-gradient(1200px 500px at 80% -10%, rgba(242, 143, 69, 0.22), transparent 60%),
+        radial-gradient(900px 420px at -10% 10%, rgba(65, 187, 255, 0.16), transparent 65%),
+        linear-gradient(130deg, var(--bg-1), var(--bg-2) 54%, #183147 70%, var(--bg-3));
+      min-height: 100vh;
+    }
+
+    .grid {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.2;
+      background-image:
+        linear-gradient(to right, rgba(255,255,255,0.07) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,0.07) 1px, transparent 1px);
+      background-size: 40px 40px;
+      mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
+    }
+
+    .container {
+      width: min(1080px, 92vw);
+      margin: 0 auto;
+      padding: 42px 0 64px;
+    }
+
+    .hero {
+      background: linear-gradient(140deg, rgba(4, 16, 29, 0.88), rgba(19, 35, 54, 0.84));
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 34px 28px;
+      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(2px);
+      animation: rise .8s ease-out both;
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      letter-spacing: .08em;
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 5.4vw, 52px);
+      line-height: 1.08;
+      letter-spacing: .01em;
+      text-wrap: balance;
+    }
+
+    .lead {
+      margin-top: 16px;
+      color: var(--muted);
+      font-family: "Noto Sans SC", "PingFang SC", sans-serif;
+      font-size: 17px;
+      line-height: 1.75;
+      max-width: 72ch;
+    }
+
+    .band {
+      margin-top: 18px;
+      padding: 13px 16px;
+      border-left: 3px solid var(--accent);
+      background: rgba(255, 204, 102, 0.08);
+      border-radius: 8px;
+      font-family: "Noto Sans SC", "PingFang SC", sans-serif;
+      color: #ffe8b8;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+
+    .cols {
+      margin-top: 26px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+      animation: rise .8s ease-out both;
+    }
+
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 22px;
+    }
+
+    .meta {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-family: "Noto Sans SC", "PingFang SC", sans-serif;
+      font-size: 14px;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 1.15em;
+    }
+
+    li {
+      margin: 8px 0;
+      line-height: 1.6;
+      font-family: "Noto Sans SC", "PingFang SC", sans-serif;
+      color: #ecf4fb;
+    }
+
+    .workflow {
+      margin-top: 18px;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .step {
+      padding: 12px 10px;
+      border-radius: 10px;
+      border: 1px dashed rgba(255,255,255,.24);
+      text-align: center;
+      background: rgba(255,255,255,0.04);
+      font-family: "Noto Sans SC", "PingFang SC", sans-serif;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .step strong { color: var(--ok); font-size: 13px; }
+
+    .images {
+      margin-top: 26px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    figure {
+      margin: 0;
+      background: rgba(4, 13, 22, 0.72);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    img {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #09111a;
+    }
+
+    figcaption {
+      padding: 10px 12px;
+      font-family: "Noto Sans SC", "PingFang SC", sans-serif;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .footer {
+      margin-top: 22px;
+      font-family: "Noto Sans SC", "PingFang SC", sans-serif;
+      font-size: 13px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 900px) {
+      .cols, .images { grid-template-columns: 1fr; }
+      .workflow { grid-template-columns: 1fr 1fr; }
+      .container { padding-top: 24px; }
+      .hero { padding: 24px 18px; border-radius: 18px; }
+    }
+
+    @media (max-width: 520px) {
+      .workflow { grid-template-columns: 1fr; }
+      .lead { font-size: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="grid"></div>
+  <main class="container">
+    <section class="hero">
+      <div class="eyebrow">AGENTIC ENGINEERING BRIEF · 2026</div>
+      <h1>AI 编程正在经历范式转移：<br>从“手工编码”走向“软件工厂编排”</h1>
+      <p class="lead">
+        基于 Karpathy 与 Michael Truell 的观点：开发已从逐行输入代码，升级为让多个 Agent 在云端并行执行。
+        人类职责从“写细节”转向“定义问题、设约束、做验收与纠偏”。
+      </p>
+      <div class="band">核心结论：抽象层上移，但细节责任没有消失，只是从“实现细节”迁移到“管理细节”。</div>
+    </section>
+
+    <section class="cols">
+      <article class="card" style="animation-delay: .08s;">
+        <h2>Karpathy：阶段突变</h2>
+        <p class="meta">关键词：非线性跃迁、长程一致性、任务接管</p>
+        <ul>
+          <li>2025 年 12 月前后，coding agent 从“基本不可用”跨到“可独立完成长任务”。</li>
+          <li>开发流程被重写：人类在英文层面分派任务，再并行审查结果。</li>
+          <li>高杠杆来自构建 orchestrator：工具、记忆、指令与多 Agent 协同。</li>
+          <li>仍需判断与监督：方向、品味、边界 case、测试验收不可省略。</li>
+        </ul>
+      </article>
+
+      <article class="card" style="animation-delay: .16s;">
+        <h2>Truell（Cursor）：第三时代</h2>
+        <p class="meta">关键词：云端自治、工厂化、并行规模化</p>
+        <ul>
+          <li>第一阶段 Tab：逐行提效；第二阶段同步 Agent：高频人机回合。</li>
+          <li>第三阶段是云端自治 Agent：更长时、更大任务、低监督执行。</li>
+          <li>关键数据：Agent 使用量一年 15x+，内部约 35% PR 已由自治 Agent 生成。</li>
+          <li>角色变化：开发者从编码者，转向软件生产系统编排者。</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="card" style="margin-top: 18px; animation-delay: .22s;">
+      <h2>你问到的关键：还要不要懂细节？</h2>
+      <p class="meta">答案：要。不是“全懂再做”，而是“识别关键细节并可验证”。</p>
+      <div class="workflow">
+        <div class="step"><strong>1. 目标</strong><br>明确要达成的业务结果</div>
+        <div class="step"><strong>2. 约束</strong><br>成本、时延、安全、兼容性</div>
+        <div class="step"><strong>3. 边界</strong><br>失败样例与极端输入</div>
+        <div class="step"><strong>4. 验收</strong><br>可跑测试与通过标准</div>
+      </div>
+    </section>
+
+    <section class="images">
+      <figure>
+        <img src="karpathy-agentic-engineering-summary-zh.png" alt="Karpathy 观点信息图">
+        <figcaption>Karpathy 观点图：抽象层上移与细节责任共存</figcaption>
+      </figure>
+      <figure>
+        <img src="michael-truell-third-era-summary-zh.png" alt="Michael Truell 观点信息图">
+        <figcaption>Truell 观点图：AI 软件开发第三时代</figcaption>
+      </figure>
+    </section>
+
+    <div class="footer">Prepared for Jasper · Agentic workflow notes</div>
+  </main>
+</body>
+</html>
