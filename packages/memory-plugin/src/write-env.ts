@@ -21,7 +21,7 @@ const DEFAULT_DAILY_LOG_POLICY: MemoryDailyLogPolicy = {
 };
 
 const DEFAULT_COMPACTION_WRITE_POLICY: MemoryCompactionWritePolicy = {
-  enabled: false,
+  enabled: true,
   minTokenDelta: 8000,
   minRemovedMessages: 4,
   maxPerRun: 1,
