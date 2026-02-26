@@ -1,4 +1,4 @@
-import type { MemoryDailyLogMode, MemoryDailyLogPolicy } from './types.js';
+import type { MemoryCompactionExtractor, MemoryCompactionWritePolicy, MemoryDailyLogMode, MemoryDailyLogPolicy } from './types.js';
 import {
   clamp,
   clampInteger,
@@ -9,6 +9,7 @@ import {
 
 export interface MemoryWriteRuntimeConfig {
   dailyLogPolicy: MemoryDailyLogPolicy;
+  compactionWritePolicy: MemoryCompactionWritePolicy;
 }
 
 const DEFAULT_DAILY_LOG_POLICY: MemoryDailyLogPolicy = {
@@ -17,6 +18,14 @@ const DEFAULT_DAILY_LOG_POLICY: MemoryDailyLogPolicy = {
   minConfidence: 0.65,
   maxPerTurn: 3,
   maxPerDay: 30,
+};
+
+const DEFAULT_COMPACTION_WRITE_POLICY: MemoryCompactionWritePolicy = {
+  enabled: true,
+  minTokenDelta: 8000,
+  minRemovedMessages: 4,
+  maxPerRun: 1,
+  extractor: 'rule',
 };
 
 export function resolveMemoryWriteRuntimeConfigFromEnv(
@@ -40,6 +49,30 @@ export function resolveMemoryWriteRuntimeConfigFromEnv(
     200,
   );
 
+  const compactionEnabled = parseBooleanEnv(
+    env.MEMORY_COMPACTION_WRITE_ENABLED,
+    DEFAULT_COMPACTION_WRITE_POLICY.enabled,
+  );
+  const compactionMinTokenDelta = clampInteger(
+    parseIntegerEnv(env.MEMORY_COMPACTION_MIN_TOKEN_DELTA) ?? DEFAULT_COMPACTION_WRITE_POLICY.minTokenDelta,
+    1,
+    200000,
+  );
+  const compactionMinRemovedMessages = clampInteger(
+    parseIntegerEnv(env.MEMORY_COMPACTION_MIN_REMOVED_MESSAGES) ?? DEFAULT_COMPACTION_WRITE_POLICY.minRemovedMessages,
+    1,
+    200,
+  );
+  const compactionMaxPerRun = clampInteger(
+    parseIntegerEnv(env.MEMORY_COMPACTION_MAX_PER_RUN) ?? DEFAULT_COMPACTION_WRITE_POLICY.maxPerRun,
+    1,
+    10,
+  );
+  const compactionExtractor = parseCompactionExtractor(
+    env.MEMORY_COMPACTION_EXTRACTOR,
+    DEFAULT_COMPACTION_WRITE_POLICY.extractor,
+  );
+
   return {
     dailyLogPolicy: {
       enabled,
@@ -47,6 +80,13 @@ export function resolveMemoryWriteRuntimeConfigFromEnv(
       minConfidence,
       maxPerTurn,
       maxPerDay,
+    },
+    compactionWritePolicy: {
+      enabled: compactionEnabled,
+      minTokenDelta: compactionMinTokenDelta,
+      minRemovedMessages: compactionMinRemovedMessages,
+      maxPerRun: compactionMaxPerRun,
+      extractor: compactionExtractor,
     },
   };
 }
@@ -58,6 +98,17 @@ function parseDailyLogMode(raw: string | undefined, fallback: MemoryDailyLogMode
   }
   if (normalized === 'write') {
     return 'write';
+  }
+  return fallback;
+}
+
+function parseCompactionExtractor(
+  raw: string | undefined,
+  fallback: MemoryCompactionExtractor,
+): MemoryCompactionExtractor {
+  const normalized = raw?.trim().toLowerCase();
+  if (normalized === 'rule') {
+    return 'rule';
   }
   return fallback;
 }

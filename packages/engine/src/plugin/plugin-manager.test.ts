@@ -56,6 +56,8 @@ describe('PluginManager', () => {
     expect(status.enginePlugins).toEqual(['alpha', 'beta']);
     expect(status.tools).toContain('alphaTool');
     expect(status.services).toContain('alphaService');
+    expect(status.hooks.beforeRun).toBe(1);
+    expect(status.hooks.onCompacted).toBe(0);
   });
 
   it('throws when dependency is missing', async () => {

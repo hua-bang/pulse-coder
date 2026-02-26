@@ -27,6 +27,7 @@ export class PluginManager {
     afterLLMCall: [],
     beforeToolCall: [],
     afterToolCall: [],
+    onCompacted: [],
   };
   private services = new Map<string, any>();
   private config = new Map<string, any>();

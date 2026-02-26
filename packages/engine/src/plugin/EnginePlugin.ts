@@ -1,4 +1,5 @@
 import type { EventEmitter } from 'events';
+import type { ModelMessage } from 'ai';
 
 import type { Context, SystemPromptOption } from '../shared/types.js';
 
@@ -63,8 +64,29 @@ export interface AfterToolCallResult {
   output?: any;
 }
 
+// -- onCompacted --
+
+export interface OnCompactedEvent {
+  attempt: number;
+  trigger: 'pre-loop' | 'length-retry';
+  reason?: string;
+  forced: boolean;
+  beforeMessageCount: number;
+  afterMessageCount: number;
+  beforeEstimatedTokens: number;
+  afterEstimatedTokens: number;
+  strategy: 'summary' | 'summary-too-large' | 'fallback';
+}
+
+export interface OnCompactedInput {
+  context: Context;
+  event: OnCompactedEvent;
+  previousMessages: ModelMessage[];
+  newMessages: ModelMessage[];
+}
+
 // ---------------------------------------------------------------------------
-// Hook map – the definitive list of engine hooks and their signatures
+// Hook map - the definitive list of engine hooks and their signatures
 // ---------------------------------------------------------------------------
 
 export interface EngineHookMap {
@@ -85,6 +107,9 @@ export interface EngineHookMap {
 
   /** Fires after each individual tool execution. Can modify output. */
   afterToolCall: (input: AfterToolCallInput) => Promisable<AfterToolCallResult | void>;
+
+  /** Fires after context compaction produced a new message list. */
+  onCompacted: (input: OnCompactedInput) => Promisable<void>;
 }
 
 export type EngineHookName = keyof EngineHookMap;
@@ -106,7 +131,7 @@ export interface EnginePlugin {
 }
 
 // ---------------------------------------------------------------------------
-// Plugin context – passed to every plugin during its lifecycle
+// Plugin context - passed to every plugin during its lifecycle
 // ---------------------------------------------------------------------------
 
 export interface EnginePluginContext {

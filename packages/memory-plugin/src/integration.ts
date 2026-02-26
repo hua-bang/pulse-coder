@@ -1,10 +1,10 @@
 import { AsyncLocalStorage } from 'async_hooks';
 import { z } from 'zod';
-import type { EnginePlugin, SystemPromptOption, Tool } from 'pulse-coder-engine';
+import type { EnginePlugin, OnCompactedInput, SystemPromptOption, Tool } from 'pulse-coder-engine';
 import { FileMemoryPluginService } from './service.js';
 import { resolveMemoryEmbeddingRuntimeConfigFromEnv } from './embedding-env.js';
 import { resolveMemoryWriteRuntimeConfigFromEnv } from './write-env.js';
-import type { FileMemoryServiceOptions, MemoryItem } from './types.js';
+import type { FileMemoryServiceOptions, MemoryCompactionWritePolicy, MemoryItem } from './types.js';
 
 const MEMORY_RECALL_INPUT_SCHEMA = z.object({
   query: z.string().optional().describe('Natural language recall query. Defaults to current user message when omitted.'),
@@ -29,6 +29,19 @@ const MEMORY_TOOL_POLICY_APPEND = [
 
 type MemoryRecordKind = 'preference' | 'rule' | 'fix' | 'profile';
 
+const DEFAULT_COMPACTION_WRITE_POLICY: MemoryCompactionWritePolicy = {
+  enabled: false,
+  minTokenDelta: 8000,
+  minRemovedMessages: 4,
+  maxPerRun: 1,
+  extractor: 'rule',
+};
+
+const COMPACTED_CONTEXT_PREFIX = '[COMPACTED_CONTEXT]';
+
+type CompactionMessages = OnCompactedInput['previousMessages'];
+type CompactionMessage = CompactionMessages[number];
+
 export interface MemoryRunContext {
   platformKey: string;
   sessionId: string;
@@ -46,6 +59,7 @@ export interface CreateMemoryEnginePluginOptions {
   name?: string;
   version?: string;
   toolPolicyAppend?: string;
+  compactionWritePolicy?: Partial<MemoryCompactionWritePolicy>;
 }
 
 export interface CreateMemoryIntegrationOptions extends FileMemoryServiceOptions {
@@ -57,7 +71,7 @@ export interface CreateMemoryIntegrationOptions extends FileMemoryServiceOptions
 }
 
 export interface CreateMemoryIntegrationFromEnvOptions extends Omit<CreateMemoryIntegrationOptions,
-  'semanticRecallEnabled' | 'embeddingDimensions' | 'embeddingProvider' | 'dailyLogPolicy'> {
+  'semanticRecallEnabled' | 'embeddingDimensions' | 'embeddingProvider' | 'dailyLogPolicy' | 'compactionWritePolicy'> {
   env?: Record<string, string | undefined>;
 }
 
@@ -80,6 +94,7 @@ export function createMemoryIntegrationFromEnv(options: CreateMemoryIntegrationF
     embeddingDimensions: embedding.embeddingDimensions,
     embeddingProvider: embedding.embeddingProvider,
     dailyLogPolicy: writePolicy.dailyLogPolicy,
+    compactionWritePolicy: writePolicy.compactionWritePolicy,
   });
 }
 
@@ -90,6 +105,7 @@ export function createMemoryIntegration(options: CreateMemoryIntegrationOptions 
     pluginName,
     pluginVersion,
     toolPolicyAppend,
+    compactionWritePolicy,
     ...serviceOptions
   } = options;
 
@@ -101,6 +117,7 @@ export function createMemoryIntegration(options: CreateMemoryIntegrationOptions 
     name: pluginName,
     version: pluginVersion,
     toolPolicyAppend,
+    compactionWritePolicy,
   });
 
   return {
@@ -116,6 +133,7 @@ export function createMemoryEnginePlugin(options: CreateMemoryEnginePluginOption
   const pluginName = options.name ?? 'memory-plugin';
   const pluginVersion = options.version ?? '0.0.1';
   const policyAppend = options.toolPolicyAppend ?? MEMORY_TOOL_POLICY_APPEND;
+  const compactionWritePolicy = resolveCompactionWritePolicy(options.compactionWritePolicy);
 
   return {
     name: pluginName,
@@ -145,8 +163,212 @@ export function createMemoryEnginePlugin(options: CreateMemoryEnginePluginOption
         nextPrompt = appendSystemPrompt(nextPrompt, autoInjectedPrompt);
         return { systemPrompt: nextPrompt };
       });
+
+      let compactionWritesInRun = 0;
+      context.registerHook('beforeRun', async () => {
+        compactionWritesInRun = 0;
+      });
+
+      context.registerHook('onCompacted', async (input) => {
+        const runContext = options.getRunContext();
+        if (!runContext) {
+          return;
+        }
+
+        if (!shouldWriteCompactionMemory(input, compactionWritePolicy, compactionWritesInRun)) {
+          return;
+        }
+
+        const extracted = extractCompactedTurnTexts(input);
+        if (!extracted) {
+          return;
+        }
+
+        await options.service.recordTurn({
+          platformKey: runContext.platformKey,
+          sessionId: runContext.sessionId,
+          userText: extracted.userText,
+          assistantText: extracted.assistantText,
+          sourceType: 'daily-log',
+        });
+
+        compactionWritesInRun += 1;
+      });
     },
   };
+}
+
+function resolveCompactionWritePolicy(
+  input?: Partial<MemoryCompactionWritePolicy>,
+): MemoryCompactionWritePolicy {
+  const merged: MemoryCompactionWritePolicy = {
+    ...DEFAULT_COMPACTION_WRITE_POLICY,
+    ...input,
+  };
+
+  return {
+    enabled: Boolean(merged.enabled),
+    minTokenDelta: clampInteger(merged.minTokenDelta, 1, 200000),
+    minRemovedMessages: clampInteger(merged.minRemovedMessages, 1, 200),
+    maxPerRun: clampInteger(merged.maxPerRun, 1, 10),
+    extractor: merged.extractor === 'rule' ? 'rule' : DEFAULT_COMPACTION_WRITE_POLICY.extractor,
+  };
+}
+
+function shouldWriteCompactionMemory(
+  input: OnCompactedInput,
+  policy: MemoryCompactionWritePolicy,
+  writesInRun: number,
+): boolean {
+  if (!policy.enabled) {
+    return false;
+  }
+
+  if (writesInRun >= policy.maxPerRun) {
+    return false;
+  }
+
+  const tokenDelta = input.event.beforeEstimatedTokens - input.event.afterEstimatedTokens;
+  if (tokenDelta < policy.minTokenDelta) {
+    return false;
+  }
+
+  const removedMessages = countRemovedMessages(input.previousMessages, input.newMessages);
+  if (removedMessages < policy.minRemovedMessages) {
+    return false;
+  }
+
+  return true;
+}
+
+function extractCompactedTurnTexts(
+  input: OnCompactedInput,
+): { userText: string; assistantText: string } | undefined {
+  const removedPrefix = getRemovedPrefix(input.previousMessages, input.newMessages);
+  if (removedPrefix.length === 0) {
+    return undefined;
+  }
+
+  const userParts: string[] = [];
+  const assistantParts: string[] = [];
+
+  for (const message of removedPrefix) {
+    if (message.role === 'system') {
+      continue;
+    }
+
+    const text = normalizeCompactionMessageText(message);
+    if (!text) {
+      continue;
+    }
+
+    if (message.role === 'user') {
+      userParts.push(text);
+      continue;
+    }
+
+    if (message.role === 'assistant') {
+      assistantParts.push(text);
+    }
+  }
+
+  const userText = userParts.join('\n');
+  const assistantText = assistantParts.join('\n');
+
+  if (!userText && !assistantText) {
+    return undefined;
+  }
+
+  return {
+    userText: userText || 'Compaction retained assistant context.',
+    assistantText: assistantText || 'Compaction retained user context.',
+  };
+}
+
+function getRemovedPrefix(previousMessages: CompactionMessages, newMessages: CompactionMessages): CompactionMessage[] {
+  let previousIndex = previousMessages.length - 1;
+  let nextIndex = newMessages.length - 1;
+
+  while (previousIndex >= 0 && nextIndex >= 0) {
+    if (!areMessagesEquivalent(previousMessages[previousIndex], newMessages[nextIndex])) {
+      break;
+    }
+    previousIndex -= 1;
+    nextIndex -= 1;
+  }
+
+  if (previousIndex < 0) {
+    return [];
+  }
+
+  return previousMessages.slice(0, previousIndex + 1);
+}
+
+function countRemovedMessages(previousMessages: CompactionMessages, newMessages: CompactionMessages): number {
+  return getRemovedPrefix(previousMessages, newMessages).length;
+}
+
+function areMessagesEquivalent(left: CompactionMessage, right: CompactionMessage): boolean {
+  if (left.role !== right.role) {
+    return false;
+  }
+
+  return normalizeCompactionMessageText(left) === normalizeCompactionMessageText(right);
+}
+
+function normalizeCompactionMessageText(message: CompactionMessage): string {
+  if (typeof message.content === 'string') {
+    const compact = message.content.replace(/\s+/g, ' ').trim();
+    if (!compact || compact.startsWith(COMPACTED_CONTEXT_PREFIX)) {
+      return '';
+    }
+    return compact;
+  }
+
+  if (!Array.isArray(message.content)) {
+    return '';
+  }
+
+  const segments: string[] = [];
+  for (const part of message.content) {
+    if (!part || typeof part !== 'object' || !('type' in part)) {
+      continue;
+    }
+
+    const typedPart = part as { type?: string; text?: string; toolName?: string; input?: unknown; output?: unknown };
+    if (typedPart.type === 'text' && typeof typedPart.text === 'string') {
+      segments.push(typedPart.text);
+      continue;
+    }
+
+    if (typedPart.type === 'tool-call' && typedPart.toolName) {
+      segments.push(`[tool-call:${typedPart.toolName}] ${safeStringify(typedPart.input)}`);
+      continue;
+    }
+
+    if (typedPart.type === 'tool-result' && typedPart.toolName) {
+      segments.push(`[tool-result:${typedPart.toolName}] ${safeStringify(typedPart.output)}`);
+    }
+  }
+
+  const compact = segments.join(' ').replace(/\s+/g, ' ').trim();
+  return compact;
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+
+  return Math.min(max, Math.max(min, Math.round(value)));
 }
 
 function createAsyncLocalRunContextAdapter(): MemoryRunContextAdapter {

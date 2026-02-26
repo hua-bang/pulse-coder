@@ -1,6 +1,6 @@
 import { ToolSet, type StepResult, type ModelMessage } from "ai";
 import type { Context, ClarificationRequest, Tool, LLMProviderFactory, SystemPromptOption } from "../shared/types";
-import type { EngineHookMap } from "../plugin/EnginePlugin.js";
+import type { EngineHookMap, OnCompactedEvent } from "../plugin/EnginePlugin.js";
 import { streamTextAI } from "../ai";
 import { maybeCompactContext, type CompactStats } from "../context";
 import {
@@ -18,6 +18,7 @@ export interface LoopHooks {
   afterLLMCall?: Array<EngineHookMap['afterLLMCall']>;
   beforeToolCall?: Array<EngineHookMap['beforeToolCall']>;
   afterToolCall?: Array<EngineHookMap['afterToolCall']>;
+  onCompacted?: Array<EngineHookMap['onCompacted']>;
 }
 
 export interface CompactionEvent extends CompactStats {
@@ -45,7 +46,7 @@ export interface LoopOptions {
   /** Custom system prompt. See SystemPromptOption for the three supported forms. */
   systemPrompt?: SystemPromptOption;
 
-  /** Engine hook arrays – managed by Engine, not by callers directly. */
+  /** Engine hook arrays - managed by Engine, not by callers directly. */
   hooks?: LoopHooks;
 }
 
@@ -109,8 +110,10 @@ function estimateMessageTokens(messages: ModelMessage[]): number {
   return Math.ceil(totalChars / 4);
 }
 
-function emitCompactionEvent(
+async function emitCompactionEvent(
+  context: Context,
   options: LoopOptions | undefined,
+  loopHooks: LoopHooks,
   params: {
     currentMessages: ModelMessage[];
     newMessages: ModelMessage[];
@@ -119,11 +122,7 @@ function emitCompactionEvent(
     reason?: string;
     stats?: CompactStats;
   },
-): void {
-  if (!options?.onCompacted) {
-    return;
-  }
-
+): Promise<void> {
   const event: CompactionEvent = {
     attempt: params.attempt,
     trigger: params.trigger,
@@ -136,7 +135,30 @@ function emitCompactionEvent(
     strategy: params.stats?.strategy ?? 'fallback',
   };
 
-  options.onCompacted(params.newMessages, event);
+  if (options?.onCompacted) {
+    options.onCompacted(params.newMessages, event);
+  }
+
+  const compactionHooks = loopHooks.onCompacted ?? [];
+  if (compactionHooks.length === 0) {
+    return;
+  }
+
+  const compactionEvent: OnCompactedEvent = event;
+  const hookInput: Parameters<EngineHookMap['onCompacted']>[0] = {
+    context,
+    event: compactionEvent,
+    previousMessages: [...params.currentMessages],
+    newMessages: [...params.newMessages],
+  };
+
+  for (const hook of compactionHooks) {
+    try {
+      await hook(hookInput);
+    } catch {
+      // Keep compaction as best-effort; plugin failures must not block the main loop.
+    }
+  }
 }
 
 export async function loop(context: Context, options?: LoopOptions): Promise<string> {
@@ -162,7 +184,7 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
           compactionAttempts = nextAttempt;
 
           if (newMessages) {
-            emitCompactionEvent(options, {
+            await emitCompactionEvent(context, options, loopHooks, {
               currentMessages: context.messages,
               newMessages,
               trigger: 'pre-loop',
@@ -280,7 +302,7 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
             const nextAttempt = compactionAttempts + 1;
             compactionAttempts = nextAttempt;
             if (newMessages) {
-              emitCompactionEvent(options, {
+              await emitCompactionEvent(context, options, loopHooks, {
                 currentMessages: context.messages,
                 newMessages,
                 trigger: 'length-retry',
