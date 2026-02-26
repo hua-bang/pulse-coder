@@ -104,6 +104,7 @@ export class FeishuAdapter implements PlatformAdapter {
     const platformKey = chatType === 'group' && chatId
       ? `feishu:group:${chatId}:${openId}`
       : `feishu:${openId}`;
+    const memoryKey = `feishu:user:${openId}`;
 
     if (messageId) {
       // Best-effort acknowledgement reaction for accepted user messages.
@@ -131,7 +132,7 @@ export class FeishuAdapter implements PlatformAdapter {
       return null;
     }
 
-    return { platformKey, text };
+    return { platformKey, memoryKey, text };
   }
 
   // URL verification challenge to return in ackRequest
