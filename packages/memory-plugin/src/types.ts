@@ -14,6 +14,16 @@ export interface MemoryDailyLogPolicy {
   maxPerDay: number;
 }
 
+export type MemoryCompactionExtractor = 'rule';
+
+export interface MemoryCompactionWritePolicy {
+  enabled: boolean;
+  minTokenDelta: number;
+  minRemovedMessages: number;
+  maxPerRun: number;
+  extractor: MemoryCompactionExtractor;
+}
+
 export interface MemorySourceRef {
   path: string;
   offset: number;
@@ -103,4 +113,5 @@ export interface FileMemoryServiceOptions {
   embeddingDimensions?: number;
   embeddingProvider?: EmbeddingProvider;
   dailyLogPolicy?: Partial<MemoryDailyLogPolicy>;
+  compactionWritePolicy?: Partial<MemoryCompactionWritePolicy>;
 }

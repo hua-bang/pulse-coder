@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { SystemPromptOption } from 'pulse-coder-engine';
+import type { ModelMessage, SystemPromptOption } from 'pulse-coder-engine';
 import { createMemoryEnginePlugin, type MemoryRunContext } from './integration.js';
 import { FileMemoryPluginService } from './service.js';
 
@@ -151,5 +151,165 @@ describe('memory-plugin beforeRun auto injection', () => {
     const prompt = resolveSystemPrompt(result?.systemPrompt);
     expect(prompt).toContain('Memory Tool Policy (On-Demand)');
     expect(prompt).not.toContain('Persistent user memory (auto-injected each run');
+  });
+});
+
+describe('memory-plugin compaction write hook', () => {
+  it('writes one daily-log turn from removed compaction messages', async () => {
+    const { service } = await createService();
+
+    const runContext: MemoryRunContext = {
+      platformKey: 'test-platform',
+      sessionId: 'session-compaction',
+      userText: 'continue',
+    };
+
+    const plugin = createMemoryEnginePlugin({
+      service,
+      getRunContext: () => runContext,
+      compactionWritePolicy: {
+        enabled: true,
+        minTokenDelta: 500,
+        minRemovedMessages: 2,
+        maxPerRun: 1,
+      },
+    });
+
+    const mock = createPluginContextMock();
+    await plugin.initialize(mock.context as any);
+
+    const beforeRun = mock.hooks.beforeRun?.[1];
+    const onCompacted = mock.hooks.onCompacted?.[0];
+    expect(beforeRun).toBeDefined();
+    expect(onCompacted).toBeDefined();
+
+    await beforeRun({
+      context: { messages: [] },
+      tools: {},
+      systemPrompt: undefined,
+    });
+
+    const previousMessages: ModelMessage[] = [
+      { role: 'user', content: 'Rule: must keep migration docs in each release ticket.' },
+      { role: 'assistant', content: 'Decision: we will enforce migration docs in PR checklist.' },
+      { role: 'user', content: 'Proceed with implementation.' },
+    ];
+
+    const newMessages: ModelMessage[] = [
+      { role: 'assistant', content: '[COMPACTED_CONTEXT]\nsummary' },
+      { role: 'user', content: 'Proceed with implementation.' },
+    ];
+
+    await onCompacted({
+      context: { messages: newMessages },
+      previousMessages,
+      newMessages,
+      event: {
+        attempt: 1,
+        trigger: 'pre-loop',
+        forced: false,
+        beforeMessageCount: previousMessages.length,
+        afterMessageCount: newMessages.length,
+        beforeEstimatedTokens: 12000,
+        afterEstimatedTokens: 2000,
+        strategy: 'summary',
+      },
+    });
+
+    const listed = await service.list({
+      platformKey: runContext.platformKey,
+      sessionId: runContext.sessionId,
+      limit: 10,
+    });
+
+    expect(listed.length).toBeGreaterThan(0);
+    expect(listed.every((item) => item.sourceType === 'daily-log')).toBe(true);
+    expect(listed.some((item) => item.content.toLowerCase().includes('migration docs'))).toBe(true);
+  });
+
+  it('respects maxPerRun by skipping second compaction write in same run', async () => {
+    const { service } = await createService();
+
+    const runContext: MemoryRunContext = {
+      platformKey: 'test-platform',
+      sessionId: 'session-compaction-quota',
+      userText: 'continue',
+    };
+
+    const plugin = createMemoryEnginePlugin({
+      service,
+      getRunContext: () => runContext,
+      compactionWritePolicy: {
+        enabled: true,
+        minTokenDelta: 200,
+        minRemovedMessages: 1,
+        maxPerRun: 1,
+      },
+    });
+
+    const mock = createPluginContextMock();
+    await plugin.initialize(mock.context as any);
+
+    const beforeRun = mock.hooks.beforeRun?.[1];
+    const onCompacted = mock.hooks.onCompacted?.[0];
+    expect(beforeRun).toBeDefined();
+    expect(onCompacted).toBeDefined();
+
+    await beforeRun({
+      context: { messages: [] },
+      tools: {},
+      systemPrompt: undefined,
+    });
+
+    const firstPrev: ModelMessage[] = [
+      { role: 'user', content: 'Rule: must run smoke tests before deploy.' },
+      { role: 'assistant', content: 'Acknowledged.' },
+    ];
+    const firstNew: ModelMessage[] = [
+      { role: 'assistant', content: '[COMPACTED_CONTEXT]\nsummary1' },
+    ];
+
+    const secondPrev: ModelMessage[] = [
+      { role: 'user', content: 'Rule: must annotate risky migrations.' },
+      { role: 'assistant', content: 'Acknowledged.' },
+    ];
+    const secondNew: ModelMessage[] = [
+      { role: 'assistant', content: '[COMPACTED_CONTEXT]\nsummary2' },
+    ];
+
+    const event = {
+      attempt: 1,
+      trigger: 'pre-loop' as const,
+      forced: false,
+      beforeMessageCount: 2,
+      afterMessageCount: 1,
+      beforeEstimatedTokens: 1000,
+      afterEstimatedTokens: 100,
+      strategy: 'summary' as const,
+    };
+
+    await onCompacted({
+      context: { messages: firstNew },
+      previousMessages: firstPrev,
+      newMessages: firstNew,
+      event,
+    });
+
+    await onCompacted({
+      context: { messages: secondNew },
+      previousMessages: secondPrev,
+      newMessages: secondNew,
+      event,
+    });
+
+    const listed = await service.list({
+      platformKey: runContext.platformKey,
+      sessionId: runContext.sessionId,
+      limit: 20,
+    });
+
+    expect(listed.length).toBeGreaterThan(0);
+    const uniqueNormalized = new Set(listed.map((item) => item.content.toLowerCase().trim()));
+    expect(uniqueNormalized.size).toBe(1);
   });
 });

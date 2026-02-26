@@ -17,6 +17,8 @@ export type {
   BeforeToolCallResult,
   AfterToolCallInput,
   AfterToolCallResult,
+  OnCompactedEvent,
+  OnCompactedInput,
 } from './plugin/EnginePlugin.js';
 export type { UserConfigPlugin, UserConfigPluginLoadOptions } from './plugin/UserConfigPlugin.js';
 export { PluginManager } from './plugin/PluginManager.js';

@@ -118,6 +118,65 @@ describe('loop', () => {
     expect(streamTextAIMock).toHaveBeenCalledTimes(2);
   });
 
+  it('invokes onCompacted plugin hooks with old/new messages', async () => {
+    const context: Context = {
+      messages: [{ role: 'user', content: 'long context' }],
+    };
+
+    const compacted = [{ role: 'assistant', content: '[COMPACTED_CONTEXT]\nshort summary' }];
+    maybeCompactContextMock
+      .mockResolvedValueOnce({
+        didCompact: true,
+        reason: 'summary',
+        newMessages: compacted,
+        stats: {
+          forced: false,
+          beforeMessageCount: 1,
+          afterMessageCount: 1,
+          beforeEstimatedTokens: 1200,
+          afterEstimatedTokens: 300,
+          strategy: 'summary',
+        },
+      })
+      .mockResolvedValueOnce({ didCompact: false });
+
+    streamTextAIMock.mockReturnValue({
+      text: Promise.resolve('done'),
+      steps: Promise.resolve([]),
+      finishReason: Promise.resolve('stop'),
+    });
+
+    const onCompactedHook = vi.fn(async () => undefined);
+    const onCompacted = vi.fn();
+
+    const result = await loop(context, {
+      onCompacted,
+      hooks: {
+        onCompacted: [onCompactedHook],
+      },
+    });
+
+    expect(result).toBe('done');
+    expect(onCompacted).toHaveBeenCalledTimes(1);
+    expect(onCompacted).toHaveBeenCalledWith(
+      compacted,
+      expect.objectContaining({
+        trigger: 'pre-loop',
+        attempt: 1,
+        beforeEstimatedTokens: 1200,
+        afterEstimatedTokens: 300,
+      }),
+    );
+    expect(onCompactedHook).toHaveBeenCalledTimes(1);
+    expect(onCompactedHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context,
+        previousMessages: context.messages,
+        newMessages: compacted,
+      }),
+    );
+  });
+
   it('stops when tool-call steps reach max step limit', async () => {
     const context: Context = {
       messages: [{ role: 'user', content: 'step limit' }],

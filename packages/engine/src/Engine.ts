@@ -194,6 +194,7 @@ export class Engine {
       afterLLMCall: this.pluginManager.getHooks('afterLLMCall'),
       beforeToolCall: [...this.pluginManager.getHooks('beforeToolCall')],
       afterToolCall: [...this.pluginManager.getHooks('afterToolCall')],
+      onCompacted: this.pluginManager.getHooks('onCompacted'),
     };
 
     // Convert legacy EngineOptions.hooks (ToolHooks) to hook entries
