@@ -1,7 +1,7 @@
 ---
 name: find-skills
 description: Discover and install skills from the open agent skills ecosystem
-version: 1.0.0
+version: 1.1.0
 author: vercel-labs (adapted for Pulse Coder)
 ---
 
@@ -27,6 +27,19 @@ Common commands:
 - `npx skills check` - check for updates
 - `npx skills update` - update installed skills
 
+## Default Install Scope
+
+Default to project scope in `.agents/skills` when installing via `npx skills add`.
+
+Use these defaults unless the user explicitly asks otherwise:
+- Project install: `npx skills add <owner/repo@skill> -y`
+- Global install: `npx skills add <owner/repo@skill> -g -y`
+
+Notes:
+- `npx skills` installs to `.agents/skills` by default for project scope.
+- Our engine also scans `.pulse-coder/skills`, `.agents/skills`, `.coder/skills`, and `.claude/skills`.
+- If a newly installed skill does not appear, run a list/status check and verify the skill directory exists under `.agents/skills/<skill-name>`.
+
 ## Workflow
 
 ### 1) Clarify the need
@@ -49,8 +62,11 @@ When results are found, provide:
 4. Marketplace/reference link (for example `https://skills.sh`)
 
 ### 4) Install on request
-Install with:
-- `npx skills add <owner/repo@skill>`
+Install with project scope by default:
+- `npx skills add <owner/repo@skill> -y`
+
+Use global install only when requested:
+- `npx skills add <owner/repo@skill> -g -y`
 
 If your runtime expects Pulse Coder local skills, place skill files under:
 - Project scope: `.pulse-coder/skills/<skill-name>/SKILL.md`
