@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agentic Engineering · 第三时代实战图</title>
+  <meta name="description" content="AI 软件开发进入第三时代：从编码执行转向软件工厂编排。">
+  <meta property="og:title" content="Agentic Engineering · 第三时代实战图">
+  <meta property="og:description" content="抽象层上移，细节责任仍在人类：目标、约束、边界、验收。">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="__OG_URL__">
+  <meta property="og:image" content="__OG_IMAGE__">
+  <meta name="twitter:card" content="summary_large_image">
+  <style>
+    :root {
+      --bg: #0b1322;
+      --ink: #f8f5ef;
+      --soft: #ced8e6;
+      --line: rgba(255,255,255,.16);
+      --panel: rgba(12, 24, 39, .78);
+      --orange: #f4a349;
+      --cyan: #67d4ff;
+      --green: #95efba;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Songti SC", "Noto Serif SC", serif;
+      background:
+        radial-gradient(900px 480px at 88% -4%, rgba(244,163,73,.28), transparent 62%),
+        radial-gradient(760px 420px at 6% 10%, rgba(103,212,255,.18), transparent 64%),
+        linear-gradient(135deg, #07111e, #10233a 45%, #2c3247 100%);
+      min-height: 100vh;
+    }
+    .grid {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: .18;
+      background-image:
+        linear-gradient(to right, rgba(255,255,255,.08) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,.08) 1px, transparent 1px);
+      background-size: 28px 28px;
+      mask-image: radial-gradient(circle at center, black 42%, transparent 100%);
+    }
+    .wrap {
+      width: min(1120px, 93vw);
+      margin: 0 auto;
+      padding: 30px 0 52px;
+    }
+    .hero {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: linear-gradient(150deg, rgba(6,16,27,.9), rgba(19,36,58,.83));
+      box-shadow: 0 18px 46px rgba(0,0,0,.35);
+      padding: 28px 24px;
+      animation: in .7s ease both;
+    }
+    .eyebrow {
+      margin: 0;
+      color: var(--cyan);
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      font-size: 12px;
+      font-family: "PingFang SC", "Noto Sans SC", sans-serif;
+    }
+    h1 {
+      margin: 10px 0 0;
+      line-height: 1.05;
+      font-size: clamp(30px, 5.4vw, 58px);
+      max-width: 12ch;
+      text-wrap: balance;
+    }
+    .lead {
+      margin: 14px 0 0;
+      color: var(--soft);
+      font-size: 16px;
+      line-height: 1.75;
+      max-width: 72ch;
+      font-family: "PingFang SC", "Noto Sans SC", sans-serif;
+    }
+    .slogan {
+      margin-top: 14px;
+      border-left: 3px solid var(--orange);
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(244,163,73,.12);
+      font-family: "PingFang SC", "Noto Sans SC", sans-serif;
+      color: #ffe8c7;
+      font-weight: 600;
+    }
+    .layout {
+      margin-top: 16px;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 1.15fr .85fr;
+    }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--panel);
+      box-shadow: 0 10px 24px rgba(0,0,0,.24);
+      padding: 16px;
+      animation: in .8s ease both;
+    }
+    .panel h2 {
+      margin: 0;
+      font-size: 23px;
+    }
+    .sub {
+      margin: 6px 0 0;
+      color: var(--soft);
+      font-size: 13px;
+      font-family: "PingFang SC", "Noto Sans SC", sans-serif;
+    }
+    .cards {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      padding: 10px;
+      background: rgba(255,255,255,.03);
+    }
+    .card b {
+      display: inline-block;
+      border: 1px solid rgba(255,255,255,.24);
+      border-radius: 999px;
+      padding: 2px 7px;
+      font-size: 11px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--green);
+      font-family: "PingFang SC", "Noto Sans SC", sans-serif;
+    }
+    .card h3 {
+      margin: 8px 0 4px;
+      font-size: 17px;
+    }
+    .card p {
+      margin: 0;
+      color: #e1ebf7;
+      font-size: 13px;
+      line-height: 1.6;
+      font-family: "PingFang SC", "Noto Sans SC", sans-serif;
+    }
+    .pipeline {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+    .node {
+      border: 1px dashed rgba(255,255,255,.26);
+      border-radius: 10px;
+      padding: 8px;
+      text-align: center;
+      font-family: "PingFang SC", "Noto Sans SC", sans-serif;
+      font-size: 13px;
+      line-height: 1.35;
+      background: rgba(255,255,255,.02);
+    }
+    .node strong {
+      display: block;
+      color: #ffd9ae;
+      letter-spacing: .04em;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+    .metric {
+      margin-top: 10px;
+      display: grid;
+      gap: 7px;
+    }
+    .metric div {
+      border: 1px dashed rgba(255,255,255,.24);
+      border-radius: 9px;
+      padding: 9px;
+      font-family: "PingFang SC", "Noto Sans SC", sans-serif;
+      background: rgba(255,255,255,.02);
+      font-size: 14px;
+    }
+    .metric b { color: var(--green); font-size: 20px; margin-right: 5px; }
+    figure {
+      margin: 10px 0 0;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      background: rgba(0,0,0,.24);
+    }
+    img { display: block; width: 100%; height: auto; }
+    figcaption {
+      padding: 7px 9px;
+      color: var(--soft);
+      font-size: 12px;
+      font-family: "PingFang SC", "Noto Sans SC", sans-serif;
+    }
+    .foot {
+      margin-top: 12px;
+      text-align: center;
+      color: var(--soft);
+      font-size: 12px;
+      font-family: "PingFang SC", "Noto Sans SC", sans-serif;
+    }
+    @keyframes in {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (max-width: 950px) {
+      .layout { grid-template-columns: 1fr; }
+      .cards { grid-template-columns: 1fr; }
+      .pipeline { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 560px) {
+      .pipeline { grid-template-columns: 1fr; }
+      .hero { padding: 22px 16px; }
+      .wrap { padding-top: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="grid"></div>
+  <main class="wrap">
+    <section class="hero">
+      <p class="eyebrow">Frontend v3 · Agentic Engineering</p>
+      <h1>从代码执行者到软件工厂编排者</h1>
+      <p class="lead">这版重新生产了一个全新 HTML 页面。核心观点来自 Karpathy 与 Michael Truell：AI 编程不是“写得更快”而已，而是进入“多 Agent 并行生产 + 人类定义标准与验收”的新工作方式。</p>
+      <div class="slogan">一句话：抽象层上移，细节责任仍在你手里。</div>
+    </section>
+
+    <section class="layout">
+      <article class="panel">
+        <h2>三阶段演进</h2>
+        <p class="sub">Tab 自动补全 -> 同步 Agent -> 云端自治 Agent</p>
+        <div class="cards">
+          <section class="card">
+            <b>Era 1</b>
+            <h3>Tab</h3>
+            <p>逐行补全，自动化低熵重复任务。</p>
+          </section>
+          <section class="card">
+            <b>Era 2</b>
+            <h3>同步 Agent</h3>
+            <p>提示-响应循环，仍需高频在环。</p>
+          </section>
+          <section class="card">
+            <b>Era 3</b>
+            <h3>云端自治 Agent</h3>
+            <p>可长时独立执行，返回可评审产物。</p>
+          </section>
+        </div>
+
+        <div class="pipeline">
+          <div class="node"><strong>Goal</strong>目标</div>
+          <div class="node"><strong>Rules</strong>约束</div>
+          <div class="node"><strong>Edge</strong>边界</div>
+          <div class="node"><strong>Tests</strong>验收</div>
+        </div>
+      </article>
+
+      <aside class="panel">
+        <h2>关键信号</h2>
+        <div class="metric">
+          <div><b>15x+</b>Agent 使用量一年增长</div>
+          <div><b>35%</b>内部合并 PR 由自治 Agent 生成</div>
+          <div><b>Flip</b>用户结构从 Tab 主导转向 Agent 主导</div>
+        </div>
+
+        <figure>
+          <img src="michael-truell-third-era-summary-zh.png" alt="Third Era">
+          <figcaption>第三时代：云端自治 Agent 与并行软件生产</figcaption>
+        </figure>
+      </aside>
+    </section>
+
+    <div class="foot">Prepared for Jasper · New address / New HTML</div>
+  </main>
+</body>
+</html>

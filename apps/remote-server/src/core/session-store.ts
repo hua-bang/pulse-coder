@@ -41,6 +41,14 @@ export interface ClearSessionResult {
   createdNew: boolean;
 }
 
+export interface ForkSessionResult {
+  ok: boolean;
+  sessionId?: string;
+  sourceSessionId?: string;
+  messageCount?: number;
+  reason?: string;
+}
+
 /**
  * Lightweight session store for the remote server.
  *
@@ -262,6 +270,42 @@ class RemoteSessionStore {
   }
 
   /**
+   * Fork a session into a new session id and attach it as current.
+   * Source session must belong to the same platformKey.
+   */
+  async forkSession(platformKey: string, sourceSessionId: string): Promise<ForkSessionResult> {
+    const session = await this.readSession(sourceSessionId);
+    if (!session) {
+      return { ok: false, reason: `Session not found: ${sourceSessionId}` };
+    }
+
+    if (session.platformKey !== platformKey) {
+      return { ok: false, reason: 'Session does not belong to current user' };
+    }
+
+    const now = Date.now();
+    const forkedSessionId = randomUUID();
+    const forkedSession: RemoteSession = {
+      id: forkedSessionId,
+      platformKey,
+      createdAt: now,
+      updatedAt: now,
+      messages: this.cloneMessages(session.messages),
+    };
+
+    await this.writeSession(forkedSession);
+    this.index[platformKey] = forkedSessionId;
+    await this.saveIndex();
+
+    return {
+      ok: true,
+      sessionId: forkedSessionId,
+      sourceSessionId,
+      messageCount: forkedSession.messages.length,
+    };
+  }
+
+  /**
    * List sessions owned by the platform user.
    */
   async listSessions(platformKey: string, limit = 20): Promise<RemoteSessionSummary[]> {
@@ -337,6 +381,22 @@ class RemoteSessionStore {
   private truncate(text: string, max = 120): string {
     if (!text) return '(no text)';
     return text.length > max ? `${text.slice(0, max)}...` : text;
+  }
+
+  private cloneMessages(messages: unknown[]): unknown[] {
+    if (typeof structuredClone === 'function') {
+      try {
+        return structuredClone(messages);
+      } catch {
+        // Fall through to JSON cloning for non-cloneable values.
+      }
+    }
+
+    try {
+      return JSON.parse(JSON.stringify(messages)) as unknown[];
+    } catch {
+      return [...messages];
+    }
   }
 }
 
