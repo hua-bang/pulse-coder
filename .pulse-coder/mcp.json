@@ -7,6 +7,16 @@
     "deepwiki": {
       "transport": "http",
       "url": "https://mcp.deepwiki.com/mcp"
+    },
+    "twitter": {
+      "transport": "stdio",
+      "command": "/root/.local/bin/uv",
+      "args": [
+        "--directory",
+        "/root/pulse-coder/.vendors/opentwitter-mcp",
+        "run",
+        "opentwitter-mcp"
+      ]
     }
   }
 }
