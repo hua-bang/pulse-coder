@@ -45,9 +45,29 @@ interface ThreadCreatePayload {
   member?: unknown;
 }
 
+export interface DiscordGatewayStatus {
+  enabled: boolean;
+  configured: boolean;
+  shouldMonitor: boolean;
+  started: boolean;
+  connected: boolean;
+  ready: boolean;
+  reconnectAttempt: number;
+  hasReconnectTimer: boolean;
+  heartbeatIntervalMs: number | null;
+  ackStaleThresholdMs: number;
+  lastStartAt: number | null;
+  lastReadyAt: number | null;
+  lastDispatchAt: number | null;
+  lastAckAt: number | null;
+  lastAckAgeMs: number | null;
+  healthy: boolean;
+}
+
 const DEFAULT_GATEWAY_URL = 'wss://gateway.discord.gg/?v=10&encoding=json';
 const DISCORD_GATEWAY_INTENTS = 1 + 512 + 4096 + 32768;
 const MAX_RECONNECT_DELAY_MS = 30000;
+const DEFAULT_ACK_STALE_THRESHOLD_MS = 90000;
 
 export class DiscordDmGateway {
   private readonly client = new DiscordClient();
@@ -60,35 +80,88 @@ export class DiscordDmGateway {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private isStopped = false;
+  private isStarted = false;
   private reconnectAttempt = 0;
   private sequence: number | null = null;
   private selfUserId: string | null = null;
+  private heartbeatIntervalMs: number | null = null;
+  private lastStartAt: number | null = null;
+  private lastReadyAt: number | null = null;
+  private lastDispatchAt: number | null = null;
+  private lastAckAt: number | null = null;
   private readonly seenMessageIds = new Set<string>();
 
   start(): void {
     if (!this.enabled) {
+      this.isStarted = false;
       console.log('[discord-gateway] Gateway listener disabled by DISCORD_DM_GATEWAY_ENABLED=false');
       return;
     }
 
     if (!this.botToken) {
+      this.isStarted = false;
       console.log('[discord-gateway] Gateway listener disabled: DISCORD_BOT_TOKEN is not set');
       return;
     }
 
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
     this.isStopped = false;
+    this.isStarted = true;
+    this.lastStartAt = Date.now();
+    this.lastAckAt = null;
     this.connect();
   }
 
   stop(): void {
     this.isStopped = true;
+    this.isStarted = false;
     this.clearHeartbeat();
     this.clearReconnect();
+    this.heartbeatIntervalMs = null;
+    this.selfUserId = null;
+    this.lastAckAt = null;
 
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
+  }
+
+  restart(): void {
+    this.stop();
+    this.start();
+  }
+
+  getStatus(now = Date.now()): DiscordGatewayStatus {
+    const configured = Boolean(this.botToken);
+    const shouldMonitor = this.enabled && configured;
+    const connected = this.ws?.readyState === WebSocket.OPEN;
+    const heartbeatIntervalMs = this.heartbeatIntervalMs;
+    const ackStaleThresholdMs = Math.max(DEFAULT_ACK_STALE_THRESHOLD_MS, (heartbeatIntervalMs ?? 0) * 3);
+    const lastAckAgeMs = this.lastAckAt ? Math.max(0, now - this.lastAckAt) : null;
+    const healthy = !shouldMonitor || (this.isStarted && connected && lastAckAgeMs !== null && lastAckAgeMs <= ackStaleThresholdMs);
+
+    return {
+      enabled: this.enabled,
+      configured,
+      shouldMonitor,
+      started: this.isStarted,
+      connected,
+      ready: this.selfUserId !== null,
+      reconnectAttempt: this.reconnectAttempt,
+      hasReconnectTimer: this.reconnectTimer !== null,
+      heartbeatIntervalMs,
+      ackStaleThresholdMs,
+      lastStartAt: this.lastStartAt,
+      lastReadyAt: this.lastReadyAt,
+      lastDispatchAt: this.lastDispatchAt,
+      lastAckAt: this.lastAckAt,
+      lastAckAgeMs,
+      healthy,
+    };
   }
 
   private connect(): void {
@@ -117,6 +190,8 @@ export class DiscordDmGateway {
       ws.addEventListener('close', (event) => {
         this.ws = null;
         this.clearHeartbeat();
+        this.selfUserId = null;
+        this.heartbeatIntervalMs = null;
 
         if (this.isStopped) {
           return;
@@ -128,6 +203,7 @@ export class DiscordDmGateway {
 
       ws.addEventListener('error', (event) => {
         console.error('[discord-gateway] Gateway socket error:', event);
+        this.forceReconnect();
       });
     } catch (err) {
       console.error('[discord-gateway] Failed to connect to Discord Gateway:', err);
@@ -158,6 +234,7 @@ export class DiscordDmGateway {
         this.handleHello(payload.d as HelloPayload);
         return;
       case 11:
+        this.lastAckAt = Date.now();
         return;
       case 1:
         this.sendHeartbeat();
@@ -171,6 +248,7 @@ export class DiscordDmGateway {
         this.forceReconnect();
         return;
       case 0:
+        this.lastDispatchAt = Date.now();
         await this.handleDispatch(payload.t, payload.d);
         return;
       default:
@@ -180,6 +258,7 @@ export class DiscordDmGateway {
 
   private handleHello(hello: HelloPayload): void {
     const interval = Math.max(1000, hello.heartbeat_interval ?? 41250);
+    this.heartbeatIntervalMs = interval;
     this.startHeartbeat(interval);
     this.identify();
   }
@@ -188,6 +267,7 @@ export class DiscordDmGateway {
     if (type === 'READY') {
       const ready = data as ReadyPayload;
       this.selfUserId = ready.user?.id ?? null;
+      this.lastReadyAt = Date.now();
       this.reconnectAttempt = 0;
       console.log('[discord-gateway] READY event received');
       return;

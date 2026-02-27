@@ -4,6 +4,7 @@ import { Hono, type Context } from 'hono';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { createLarkClient, sendImageMessage, sendTextMessage } from '../adapters/feishu/client.js';
 import { extractGeminiImageResult } from '../adapters/feishu/image-result.js';
+import { getDiscordGatewayStatus, restartDiscordGateway } from '../adapters/discord/gateway-manager.js';
 import { engine } from '../core/engine-singleton.js';
 import { sessionStore } from '../core/session-store.js';
 import { memoryIntegration, recordDailyLogFromSuccessPath } from '../core/memory-integration.js';
@@ -73,6 +74,25 @@ internalRouter.use('*', async (c, next) => {
   }
 
   await next();
+});
+
+
+internalRouter.get('/discord/gateway/status', (c) => {
+  if (!verifyInternalAuth(c.req.header('authorization'), c.req.header('x-internal-api-key'))) {
+    return c.json({ ok: false, error: 'Unauthorized' }, 401);
+  }
+
+  const status = getDiscordGatewayStatus();
+  return c.json({ ok: true, gateway: status }, 200);
+});
+
+internalRouter.post('/discord/gateway/restart', (c) => {
+  if (!verifyInternalAuth(c.req.header('authorization'), c.req.header('x-internal-api-key'))) {
+    return c.json({ ok: false, error: 'Unauthorized' }, 401);
+  }
+
+  const status = restartDiscordGateway();
+  return c.json({ ok: true, restarted: true, gateway: status }, 200);
 });
 
 internalRouter.post('/agent/run', async (c) => {
