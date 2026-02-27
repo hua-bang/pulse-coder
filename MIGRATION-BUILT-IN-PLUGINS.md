@@ -78,8 +78,8 @@ const engine = new Engine({
 ## 功能保持不变
 
 ### MCP 功能
-- 配置文件位置: `.coder/mcp.json`
-- 支持的传输方式: HTTP
+- 配置文件位置: `.coder/mcp.json`（兼容 `.pulse-coder/mcp.json`）
+- 支持的传输方式: HTTP / SSE / STDIO（默认 `http`）
 - 工具命名空间: `mcp_{serverName}_{toolName}`
 
 ### Skills 功能

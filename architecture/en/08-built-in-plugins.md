@@ -28,6 +28,7 @@ flowchart LR
 ### 2.1 Function
 
 - Reads `.pulse-coder/mcp.json` (compatible with `.coder/mcp.json`)
+- Supports `http`, `sse`, and `stdio` transports (`http` by default)
 - Creates MCP client per configured server
 - Fetches server tools and registers them into engine
 

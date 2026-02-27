@@ -28,6 +28,7 @@ flowchart LR
 ### 2.1 功能
 
 - 读取 `.pulse-coder/mcp.json`（兼容 `.coder/mcp.json`）
+- 支持 `http`、`sse`、`stdio` 三种传输（默认 `http`）
 - 逐个服务器建立 MCP client
 - 拉取 server tools 并注册到引擎
 

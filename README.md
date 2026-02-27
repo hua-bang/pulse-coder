@@ -161,12 +161,28 @@ Create `.pulse-coder/mcp.json`:
 ```json
 {
   "servers": {
-    "my_server": {
+    "remote_http": {
+      "transport": "http",
       "url": "http://localhost:3060/mcp/server"
+    },
+    "legacy_sse": {
+      "transport": "sse",
+      "url": "https://example.com/sse"
+    },
+    "local_stdio": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "cwd": "."
     }
   }
 }
 ```
+
+Notes:
+- `transport` supports `http`, `sse`, and `stdio`.
+- If `transport` is omitted, it defaults to `http` for backward compatibility.
+- `http`/`sse` use `url` (optional `headers`), while `stdio` uses `command` (+ optional `args`, `env`, `cwd`).
 
 ### Skills
 Create `.pulse-coder/skills/<skill-name>/SKILL.md`:

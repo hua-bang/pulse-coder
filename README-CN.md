@@ -160,12 +160,28 @@ pnpm start
 ```json
 {
   "servers": {
-    "my_server": {
+    "remote_http": {
+      "transport": "http",
       "url": "http://localhost:3060/mcp/server"
+    },
+    "legacy_sse": {
+      "transport": "sse",
+      "url": "https://example.com/sse"
+    },
+    "local_stdio": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "cwd": "."
     }
   }
 }
 ```
+
+说明：
+- `transport` 支持 `http`、`sse`、`stdio`。
+- 若未填写 `transport`，默认按 `http` 处理（向后兼容）。
+- `http`/`sse` 使用 `url`（可选 `headers`）；`stdio` 使用 `command`（可选 `args`、`env`、`cwd`）。
 
 ### Skills
 创建 `.pulse-coder/skills/<skill-name>/SKILL.md`：
