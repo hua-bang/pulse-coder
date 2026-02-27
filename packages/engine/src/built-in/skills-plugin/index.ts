@@ -11,6 +11,14 @@ import matter from 'gray-matter';
 import { homedir } from 'os';
 import * as path from 'path';
 import { z } from 'zod';
+import {
+  loadRemoteSkills,
+  readRemoteSkillsConfigFile,
+  mergeRemoteSkillConfigs,
+  type RemoteSkillConfig,
+} from './remote-skill-loader.js';
+
+export type { RemoteSkillConfig } from './remote-skill-loader.js';
 
 // ---------------------------------------------------------------------------
 // Remote skills config
@@ -249,6 +257,26 @@ export class BuiltInSkillRegistry {
   }
 
   /**
+   * 从远程 endpoints 加载 skill，并合并到注册表。
+   * 远程 skill 与本地 skill 同名时，本地优先（本地已存在则跳过远程）。
+   */
+  async loadRemoteEndpoints(config: RemoteSkillConfig): Promise<number> {
+    const remoteSkills = await loadRemoteSkills(config);
+    let added = 0;
+
+    for (const skill of remoteSkills) {
+      if (this.has(skill.name)) {
+        console.debug(`[RemoteSkills] Skipping remote skill "${skill.name}" (local version exists)`);
+        continue;
+      }
+      this.skills.set(skill.name, skill);
+      added++;
+    }
+
+    return added;
+  }
+
+  /**
    * 搜索技能（模糊匹配）
    */
   search(keyword: string): SkillInfo[] {
@@ -307,37 +335,83 @@ function generateSkillTool(registry: BuiltInSkillRegistry): Tool<SkillToolInput,
   };
 }
 
+/** Options accepted by createBuiltInSkillsPlugin */
+export interface BuiltInSkillsPluginOptions {
+  /**
+   * 远程 skill 配置。
+   * 提供后，engine 初始化时会并发拉取所有 endpoint 的 skill 列表，
+   * 本地同名 skill 优先（不会被远程覆盖）。
+   */
+  remoteSkills?: RemoteSkillConfig;
+}
+
 /**
- * 内置技能插件
+ * 创建内置技能插件（工厂函数）。
+ *
+ * @example 基础用法（仅本地 skill）
+ * createBuiltInSkillsPlugin()
+ *
+ * @example 带远程 endpoint
+ * createBuiltInSkillsPlugin({
+ *   remoteSkills: {
+ *     endpoints: 'https://skills.example.com/api/skills',
+ *     headers: { Authorization: 'Bearer <token>' },
+ *   }
+ * })
  */
-export const builtInSkillsPlugin: EnginePlugin = {
-  name: 'pulse-coder-engine/built-in-skills',
-  version: '1.0.0',
+export function createBuiltInSkillsPlugin(
+  options?: BuiltInSkillsPluginOptions
+): EnginePlugin {
+  return {
+    name: 'pulse-coder-engine/built-in-skills',
+    version: '1.0.0',
 
-  async initialize(context: EnginePluginContext) {
-    const registry = new BuiltInSkillRegistry();
-    await registry.initialize(process.cwd());
+    async initialize(context: EnginePluginContext) {
+      const registry = new BuiltInSkillRegistry();
+      await registry.initialize(process.cwd());
 
-    context.registerService('skillRegistry', registry);
-    context.registerTool('skill', generateSkillTool(registry));
+      // 加载远程 skill：
+      //   1. 自动扫描 .pulse-coder/remote-skills.{json,yaml,yml} 等配置文件
+      //   2. 与代码传入的 options.remoteSkills 合并（代码配置优先）
+      const fileConfig = await readRemoteSkillsConfigFile(process.cwd());
+      const mergedRemoteConfig = mergeRemoteSkillConfigs(fileConfig, options?.remoteSkills);
 
-    context.registerHook('beforeRun', ({ tools }) => {
-      return {
-        tools: {
-          ...tools,
-          skill: generateSkillTool(registry)
-        }
-      };
-    });
+      if (mergedRemoteConfig) {
+        const endpoints = Array.isArray(mergedRemoteConfig.endpoints)
+          ? mergedRemoteConfig.endpoints
+          : [mergedRemoteConfig.endpoints];
+        console.log(`[Skills] Loading remote skills from ${endpoints.length} endpoint(s)...`);
+        const added = await registry.loadRemoteEndpoints(mergedRemoteConfig);
+        console.log(`[Skills] Loaded ${added} remote skill(s)`);
+      }
 
-    const skills = registry.getAll();
-    if (skills.length === 0) {
-      console.log('[Skills] No skills found');
-      return;
+      context.registerService('skillRegistry', registry);
+      context.registerTool('skill', generateSkillTool(registry));
+
+      context.registerHook('beforeRun', ({ tools }) => {
+        return {
+          tools: {
+            ...tools,
+            skill: generateSkillTool(registry)
+          }
+        };
+      });
+
+      const skills = registry.getAll();
+      if (skills.length === 0) {
+        console.log('[Skills] No skills found');
+        return;
+      }
+
+      console.log(`[Skills] Registered ${skills.length} skill(s)`);
     }
+  };
+}
 
-    console.log(`[Skills] Registered ${skills.length} skill(s)`);
-  }
-};
+/**
+ * 内置技能插件（默认实例，仅加载本地 skill）。
+ * 需要远程 skill 时请使用 createBuiltInSkillsPlugin({ remoteSkills: ... })。
+ */
+export const builtInSkillsPlugin: EnginePlugin = createBuiltInSkillsPlugin();
 
 export default builtInSkillsPlugin;

@@ -25,7 +25,15 @@ export const builtInPlugins = [
  * 单独导出各个内置插件，便于外部使用
  */
 export { builtInMCPPlugin } from './mcp-plugin';
-export { builtInSkillsPlugin, BuiltInSkillRegistry } from './skills-plugin';
+export {
+  builtInSkillsPlugin,
+  createBuiltInSkillsPlugin,
+  BuiltInSkillRegistry,
+} from './skills-plugin';
+export type {
+  RemoteSkillConfig,
+  BuiltInSkillsPluginOptions,
+} from './skills-plugin';
 export { builtInPlanModePlugin, BuiltInPlanModeService } from './plan-mode-plugin';
 export { builtInTaskTrackingPlugin, TaskListService } from './task-tracking-plugin';
 export type { TaskStatus, WorkTask, WorkTaskListSnapshot } from './task-tracking-plugin';

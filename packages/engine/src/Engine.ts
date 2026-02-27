@@ -3,12 +3,13 @@ import type { LoopOptions, LoopHooks } from './core/loop';
 import type { EnginePluginLoadOptions } from './plugin/EnginePlugin.js';
 import type { UserConfigPluginLoadOptions } from './plugin/UserConfigPlugin.js';
 import type { PlanMode, PlanModeService } from './built-in/index.js';
+import type { RemoteSkillConfig } from './built-in/skills-plugin/index.js';
 
 import { loop } from './core/loop.js';
 import { maybeCompactContext } from './context/index.js';
 import { BuiltinToolsMap } from './tools/index.js';
 import { PluginManager } from './plugin/PluginManager.js';
-import { builtInPlugins } from './built-in/index.js';
+import { builtInMCPPlugin, builtInPlanModePlugin, builtInTaskTrackingPlugin, SubAgentPlugin, createBuiltInSkillsPlugin } from './built-in/index.js';
 
 /**
  * 引擎配置选项
@@ -111,6 +112,45 @@ export interface EngineOptions {
    * const engine = new Engine({ logger });
    */
   logger?: ILogger;
+
+  /**
+   * 远程 skill 配置。
+   * 提供后，engine 初始化时会通过 HTTP GET 拉取指定 endpoint 的 skill 列表，
+   * 与本地 SKILL.md 文件合并（本地同名 skill 优先）。
+   *
+   * 远程 endpoint 需返回以下格式的 JSON：
+   * {
+   *   "skills": [
+   *     {
+   *       "name": "string",
+   *       "description": "string",
+   *       "content": "string",   // skill 正文 (Markdown)
+   *       "version": "string",   // 可选
+   *       "author": "string"     // 可选
+   *     }
+   *   ]
+   * }
+   *
+   * @example 单个 endpoint
+   * const engine = new Engine({
+   *   remoteSkills: {
+   *     endpoints: 'https://skills.example.com/api/skills',
+   *   }
+   * });
+   *
+   * @example 多个 endpoint，带鉴权头和超时
+   * const engine = new Engine({
+   *   remoteSkills: {
+   *     endpoints: [
+   *       'https://internal.example.com/api/skills',
+   *       'https://public.example.com/api/skills',
+   *     ],
+   *     headers: { Authorization: 'Bearer <token>' },
+   *     timeout: 8000,
+   *   }
+   * });
+   */
+  remoteSkills?: RemoteSkillConfig;
 }
 
 /**
@@ -173,8 +213,14 @@ export class Engine {
       return userPlugins;
     }
 
-    // 合并内置插件和用户插件
-    const builtInPluginList = [...builtInPlugins];
+    // 内置插件列表：skills 插件通过工厂创建，以便传入远程 skill 配置
+    const builtInPluginList = [
+      builtInMCPPlugin,
+      createBuiltInSkillsPlugin({ remoteSkills: this.options.remoteSkills }),
+      builtInPlanModePlugin,
+      builtInTaskTrackingPlugin,
+      new SubAgentPlugin(),
+    ];
     const userPluginList = userPlugins.plugins || [];
 
     return {
@@ -350,3 +396,5 @@ export type { LoopOptions, LoopHooks, CompactionEvent } from './core/loop.js';
 export { streamTextAI } from './ai/index.js';
 export { maybeCompactContext } from './context/index.js';
 export * from './tools/index.js';
+export type { RemoteSkillConfig, BuiltInSkillsPluginOptions } from './built-in/skills-plugin/index.js';
+export { createBuiltInSkillsPlugin } from './built-in/index.js';
