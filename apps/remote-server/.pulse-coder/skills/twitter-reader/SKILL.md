@@ -1,50 +1,248 @@
 ---
-name: twitter-reader
-description: Analyze X/Twitter accounts, tweets, and trends through the installed Twitter MCP tools
-version: 1.0.0
-author: Pulse Coder Team
+name: opentwitter
+description: Twitter/X data via the 6551 API. Supports user profiles, tweet search, user tweets, follower events, deleted tweets, and KOL followers.
+
+user-invocable: true
+metadata:
+  openclaw:
+    requires:
+      env:
+        - TWITTER_TOKEN
+      bins:
+        - curl
+    primaryEnv: TWITTER_TOKEN
+    emoji: "\U0001F426"
+    install:
+      - id: curl
+        kind: brew
+        formula: curl
+        label: curl (HTTP client)
+    os:
+      - darwin
+      - linux
+      - win32
+  version: 1.0.0
 ---
 
-# Twitter Reader Skill
+# Twitter/X Data Skill
 
-Use this skill when you want structured Twitter/X analysis using the `mcp_twitter_*` tools.
+Query Twitter/X data from the 6551 platform REST API. All endpoints require a Bearer token via `$TWITTER_TOKEN`.
 
-## Preconditions
+**Get your token**: https://6551.io/mcp
 
-- MCP server `twitter` is configured in `.pulse-coder/mcp.json`.
-- Environment variable `TWITTER_TOKEN` is set in your runtime shell (or repo `.env`).
+**Base URL**: `https://ai.6551.io`
 
-## Workflow
+## Authentication
 
-1. Clarify the objective in one line:
-   - account profile
-   - recent tweets
-   - keyword search
-   - follower changes
-   - deleted tweets
-2. Pick the smallest matching tool set first.
-3. Return concise findings first, then supporting evidence.
-4. If results are empty, broaden filters once before concluding.
+All requests require the header:
+```
+Authorization: Bearer $TWITTER_TOKEN
+```
 
-## Tool Mapping
+---
 
-- Profile lookup: `mcp_twitter_get_twitter_user`
-- User tweets: `mcp_twitter_get_twitter_user_tweets`
-- Basic search: `mcp_twitter_search_twitter`
-- Advanced search: `mcp_twitter_search_twitter_advanced`
-- Follower events: `mcp_twitter_get_twitter_follower_events`
-- Deleted tweets: `mcp_twitter_get_twitter_deleted_tweets`
-- KOL followers: `mcp_twitter_get_twitter_kol_followers`
+## Twitter Operations
 
-## Output Contract
+### 1. Get Twitter User Info
 
-- Start with 3-6 bullet findings.
-- Include key stats (counts, top engagement, timestamps) when available.
-- Add caveats if data is partial or near real-time lag.
-- End with one practical next action.
+Get user profile by username.
 
-## Example Requests
+```bash
+curl -s -X POST "https://ai.6551.io/open/twitter_user_info" \
+  -H "Authorization: Bearer $TWITTER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "elonmusk"}'
+```
 
-- "Analyze @elonmusk recent 50 tweets and highlight the top narratives."
-- "Find ETH tweets with >1000 likes in the last 24h."
-- "Check new followers and unfollowers for @VitalikButerin this week."
+### 2. Get Twitter User by ID
+
+Get user profile by numeric ID.
+
+```bash
+curl -s -X POST "https://ai.6551.io/open/twitter_user_by_id" \
+  -H "Authorization: Bearer $TWITTER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"userId": "44196397"}'
+```
+
+### 3. Get User Tweets
+
+Get recent tweets from a user.
+
+```bash
+curl -s -X POST "https://ai.6551.io/open/twitter_user_tweets" \
+  -H "Authorization: Bearer $TWITTER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "elonmusk", "maxResults": 20, "product": "Latest"}'
+```
+
+| Parameter         | Type    | Default  | Description                    |
+|------------------|---------|----------|--------------------------------|
+| `username`       | string  | required | Twitter username (without @)   |
+| `maxResults`     | integer | 20       | Max tweets (1-100)             |
+| `product`        | string  | "Latest" | "Latest" or "Top"              |
+| `includeReplies` | boolean | false    | Include reply tweets           |
+| `includeRetweets`| boolean | false    | Include retweets               |
+
+### 4. Search Twitter
+
+Search tweets with various filters.
+
+```bash
+curl -s -X POST "https://ai.6551.io/open/twitter_search" \
+  -H "Authorization: Bearer $TWITTER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"keywords": "bitcoin", "maxResults": 20, "product": "Top"}'
+```
+
+**Search from specific user:**
+```bash
+curl -s -X POST "https://ai.6551.io/open/twitter_search" \
+  -H "Authorization: Bearer $TWITTER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"fromUser": "VitalikButerin", "maxResults": 20}'
+```
+
+**Search by hashtag:**
+```bash
+curl -s -X POST "https://ai.6551.io/open/twitter_search" \
+  -H "Authorization: Bearer $TWITTER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"hashtag": "crypto", "minLikes": 100, "maxResults": 20}'
+```
+
+### Twitter Search Parameters
+
+| Parameter         | Type    | Default | Description                         |
+|------------------|---------|---------|-------------------------------------|
+| `keywords`       | string  | -       | Search keywords                     |
+| `fromUser`       | string  | -       | Tweets from specific user           |
+| `toUser`         | string  | -       | Tweets to specific user             |
+| `mentionUser`    | string  | -       | Tweets mentioning user              |
+| `hashtag`        | string  | -       | Filter by hashtag (without #)       |
+| `excludeReplies` | boolean | false   | Exclude reply tweets                |
+| `excludeRetweets`| boolean | false   | Exclude retweets                    |
+| `minLikes`       | integer | 0       | Minimum likes threshold             |
+| `minRetweets`    | integer | 0       | Minimum retweets threshold          |
+| `minReplies`     | integer | 0       | Minimum replies threshold           |
+| `sinceDate`      | string  | -       | Start date (YYYY-MM-DD)             |
+| `untilDate`      | string  | -       | End date (YYYY-MM-DD)               |
+| `lang`           | string  | -       | Language code (e.g. "en", "zh")     |
+| `product`        | string  | "Top"   | "Top" or "Latest"                   |
+| `maxResults`     | integer | 20      | Max tweets (1-100)                  |
+
+### 5. Get Follower Events
+
+Get new followers or unfollowers for a user.
+
+```bash
+# Get new followers
+curl -s -X POST "https://ai.6551.io/open/twitter_follower_events" \
+  -H "Authorization: Bearer $TWITTER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "elonmusk", "isFollow": true, "maxResults": 20}'
+
+# Get unfollowers
+curl -s -X POST "https://ai.6551.io/open/twitter_follower_events" \
+  -H "Authorization: Bearer $TWITTER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "elonmusk", "isFollow": false, "maxResults": 20}'
+```
+
+| Parameter    | Type    | Default | Description                              |
+|-------------|---------|---------|------------------------------------------|
+| `username`  | string  | required| Twitter username (without @)             |
+| `isFollow`  | boolean | true    | true=new followers, false=unfollowers    |
+| `maxResults`| integer | 20      | Max events (1-100)                       |
+
+### 6. Get Deleted Tweets
+
+Get deleted tweets from a user.
+
+```bash
+curl -s -X POST "https://ai.6551.io/open/twitter_deleted_tweets" \
+  -H "Authorization: Bearer $TWITTER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "elonmusk", "maxResults": 20}'
+```
+
+| Parameter    | Type    | Default | Description                    |
+|-------------|---------|---------|--------------------------------|
+| `username`  | string  | required| Twitter username (without @)   |
+| `maxResults`| integer | 20      | Max tweets (1-100)             |
+
+### 7. Get KOL Followers
+
+Get which KOLs (Key Opinion Leaders) are following a user.
+
+```bash
+curl -s -X POST "https://ai.6551.io/open/twitter_kol_followers" \
+  -H "Authorization: Bearer $TWITTER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "elonmusk"}'
+```
+
+| Parameter   | Type   | Default | Description                    |
+|------------|--------|---------|--------------------------------|
+| `username` | string | required| Twitter username (without @)   |
+
+---
+
+## Data Structures
+
+### Twitter User
+
+```json
+{
+  "userId": "44196397",
+  "screenName": "elonmusk",
+  "name": "Elon Musk",
+  "description": "...",
+  "followersCount": 170000000,
+  "friendsCount": 500,
+  "statusesCount": 30000,
+  "verified": true
+}
+```
+
+### Tweet
+
+```json
+{
+  "id": "1234567890",
+  "text": "Tweet content...",
+  "createdAt": "2024-02-20T12:00:00Z",
+  "retweetCount": 1000,
+  "favoriteCount": 5000,
+  "replyCount": 200,
+  "userScreenName": "elonmusk",
+  "hashtags": ["crypto", "bitcoin"],
+  "urls": [{"url": "https://..."}]
+}
+```
+
+---
+
+## Common Workflows
+
+### Crypto Twitter KOL Tweets
+```bash
+curl -s -X POST "https://ai.6551.io/open/twitter_user_tweets" \
+  -H "Authorization: Bearer $TWITTER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "VitalikButerin", "maxResults": 10}'
+```
+
+### Trending Crypto Tweets
+```bash
+curl -s -X POST "https://ai.6551.io/open/twitter_search" \
+  -H "Authorization: Bearer $TWITTER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"keywords": "bitcoin", "minLikes": 1000, "product": "Top", "maxResults": 20}'
+```
+
+## Notes
+
+- Get your API token at https://6551.io/mcp
+- Rate limits apply; max 100 results per request
+- Twitter usernames should not include the @ symbol
