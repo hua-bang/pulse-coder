@@ -62,6 +62,24 @@ DISCORD_GUILD_REQUIRE_MENTION=false
 - DM message text is forwarded directly to the agent.
 - `/ask foo`, `/chat foo`, `/prompt foo` in DM are normalized to `foo` for compatibility.
 
+### 6) Discord gateway internal ops (local only)
+
+The server now exposes local-only, auth-protected internal endpoints to inspect/restart Discord gateway without restarting the whole process.
+
+```bash
+# status
+curl -sS \
+  -H "Authorization: Bearer $INTERNAL_API_SECRET" \
+  http://127.0.0.1:3000/internal/discord/gateway/status
+
+# restart only discord gateway
+curl -sS -X POST \
+  -H "Authorization: Bearer $INTERNAL_API_SECRET" \
+  http://127.0.0.1:3000/internal/discord/gateway/restart
+```
+
+For watchdog checks, poll every ~90s and trigger restart only after consecutive unhealthy checks.
+
 ## PM2 deployment (recommended)
 
 Use PM2 instead of `setsid ... &` for long-running server processes.
