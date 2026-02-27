@@ -67,13 +67,19 @@ coder
 ## 配置文件
 
 ### MCP 配置
-创建 `.coder/mcp.json`：
+创建 `.pulse-coder/mcp.json`（兼容 `.coder/mcp.json`）：
 ```json
 {
   "servers": {
     "eido_mind": {
       "transport": "http",
       "url": "http://localhost:3060/mcp/server"
+    },
+    "local_stdio": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "cwd": "."
     }
   }
 }
