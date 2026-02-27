@@ -83,9 +83,9 @@ CLI additionally injects:
 
 ---
 
-### L2 Team Orchestration (Built-in)
+### Agent Team Orchestration (Built-in)
 
-The engine now includes a built-in L2 team orchestration plugin.
+The engine now includes a built-in agent team orchestration plugin.
 
 - Tool: `team_run`
 - Team specs: `.pulse-coder/teams/*.team.json` (legacy fallback: `.coder/teams/*.team.json`)

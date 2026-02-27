@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { builtInL2TeamPlugin } from './index.js';
+import { builtInAgentTeamPlugin } from './index.js';
 import type { EnginePluginContext } from '../../plugin/EnginePlugin.js';
 import type { Tool } from '../../shared/types.js';
 
@@ -59,11 +59,11 @@ async function writeTeamSpec(baseDir: string, fileName: string, payload: unknown
   await writeFile(path.join(dir, fileName), JSON.stringify(payload, null, 2), 'utf8');
 }
 
-describe('builtInL2TeamPlugin', () => {
+describe('builtInAgentTeamPlugin', () => {
   let sandboxDir = '';
 
   beforeEach(async () => {
-    sandboxDir = await mkdtemp(path.join(tmpdir(), 'pulse-coder-l2-team-'));
+    sandboxDir = await mkdtemp(path.join(tmpdir(), 'pulse-coder-agent-team-'));
     vi.spyOn(process, 'cwd').mockReturnValue(sandboxDir);
   });
 
@@ -115,7 +115,7 @@ describe('builtInL2TeamPlugin', () => {
       execute: reviewAgent
     });
 
-    await builtInL2TeamPlugin.initialize(context);
+    await builtInAgentTeamPlugin.initialize(context);
 
     const teamRun = context.getTool('team_run') as Tool;
     expect(teamRun).toBeTruthy();
@@ -132,7 +132,7 @@ describe('builtInL2TeamPlugin', () => {
     expect(result.finalText).toContain('review:Review doc:Analyze Ship feature with auth');
     expect(result.trace).toHaveLength(2);
 
-    const registry = context.getService<any>('l2-team:registry');
+    const registry = context.getService<any>('agent-team:registry');
     expect(registry).toBeTruthy();
     expect(registry.list()).toEqual([
       expect.objectContaining({
@@ -144,7 +144,7 @@ describe('builtInL2TeamPlugin', () => {
 
   it('fails fast for missing team ids', async () => {
     const context = createContext();
-    await builtInL2TeamPlugin.initialize(context);
+    await builtInAgentTeamPlugin.initialize(context);
 
     const teamRun = context.getTool('team_run') as Tool;
 
@@ -154,3 +154,4 @@ describe('builtInL2TeamPlugin', () => {
     } as any)).rejects.toThrow('teamId "missing-team" not found');
   });
 });
+

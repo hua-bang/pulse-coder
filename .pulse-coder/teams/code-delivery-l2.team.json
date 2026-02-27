@@ -31,6 +31,6 @@
   ],
   "finalAggregator": {
     "mode": "template",
-    "template": "L2 Team Run: {{goal}}\\n\\nImplementation:\\n{{nodes.implement.output}}\\n\\nReview:\\n{{nodes.review.output}}\\n\\nTests:\\n{{nodes.tests.output}}"
+    "template": "Agent Team Run: {{goal}}\\n\\nImplementation:\\n{{nodes.implement.output}}\\n\\nReview:\\n{{nodes.review.output}}\\n\\nTests:\\n{{nodes.tests.output}}"
   }
 }
