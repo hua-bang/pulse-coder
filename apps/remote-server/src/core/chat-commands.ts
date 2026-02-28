@@ -22,7 +22,7 @@ export type CommandResult =
   | { type: 'handled_silent' }
   | { type: 'transformed'; text: string };
 
-const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping', 'memory', 'fork', 'wt']);
+const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping', 'memory', 'fork', 'messages', 'wt']);
 const COMMAND_ALIASES: Record<string, string> = {
   '?': 'help',
   h: 'help',
@@ -34,6 +34,8 @@ const COMMAND_ALIASES: Record<string, string> = {
   session: 'current',
   mem: 'memory',
   clone: 'fork',
+  msgs: 'messages',
+  history: 'messages',
 };
 /**
  * Parse and execute slash commands for remote chat channels.
@@ -48,7 +50,7 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
   if (tokens.length === 0) {
     return {
       type: 'handled',
-      message: '⚠️ 请输入命令，例如 `/new`、`/clear`、`/compact`、`/resume`、`/fork`、`/memory`、`/status`、`/stop`、`/skills`、`/wt`。',
+      message: '⚠️ 请输入命令，例如 `/new`、`/clear`、`/compact`、`/resume`、`/fork`、`/messages`、`/memory`、`/status`、`/stop`、`/skills`、`/wt`。',
     };
   }
 
@@ -110,6 +112,9 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
 
     case 'fork':
       return await handleForkCommand(incoming.platformKey, memoryKey, args);
+
+    case 'messages':
+      return await handleMessagesCommand(incoming.platformKey, memoryKey, args);
 
     case 'status':
       return await handleStatusCommand(incoming.platformKey);
@@ -207,17 +212,31 @@ async function handleForkCommand(platformKey: string, memoryKey: string, args: s
   if (!sourceSessionId) {
     return {
       type: 'handled',
-      message: '❌ 缺少 session-id\n用法：/fork <session-id>',
+      message: '❌ 缺少 session-id\n用法：/fork <session-id> [message-index]',
     };
   }
 
-  const result = await sessionStore.forkSession(platformKey, sourceSessionId, memoryKey);
+  const indexArg = args[1];
+  let messageIndex: number | undefined;
+  if (indexArg !== undefined) {
+    if (!/^\d+$/.test(indexArg)) {
+      return {
+        type: 'handled',
+        message: '❌ message-index 必须是非负整数\n用法：/fork <session-id> [message-index]',
+      };
+    }
+    messageIndex = Number.parseInt(indexArg, 10);
+  }
+
+  const result = await sessionStore.forkSession(platformKey, sourceSessionId, memoryKey, messageIndex);
   if (!result.ok || !result.sessionId) {
     return {
       type: 'handled',
-      message: `❌ 无法 fork 会话：${result.reason ?? '未知错误'}\n用法：/fork <session-id>`,
+      message: `❌ 无法 fork 会话：${result.reason ?? '未知错误'}\n用法：/fork <session-id> [message-index]`,
     };
   }
+
+  const fromIndex = result.forkedFromMessageIndex;
 
   return {
     type: 'handled',
@@ -226,7 +245,55 @@ async function handleForkCommand(platformKey: string, memoryKey: string, args: s
       `- Source Session ID: ${result.sourceSessionId ?? sourceSessionId}`,
       `- New Session ID: ${result.sessionId}`,
       `- 复制消息数：${result.messageCount ?? 0}`,
+      fromIndex !== undefined ? `- 分叉截止索引：${fromIndex}` : '- 分叉截止索引：全部消息',
       '- 当前已自动切换到新会话。',
+    ].join('\n'),
+  };
+}
+
+async function handleMessagesCommand(platformKey: string, memoryKey: string, args: string[]): Promise<CommandResult> {
+  const parsed = parseMessagesArgs(args);
+  if (!parsed.ok) {
+    return {
+      type: 'handled',
+      message: `❌ ${parsed.reason}\n用法：/messages [session-id] [N]\n说明：N 为 1-100，默认 20`,
+    };
+  }
+
+  const result = await sessionStore.listSessionMessages(platformKey, memoryKey, parsed.sessionId, parsed.limit);
+  if (!result.ok || !result.messages || !result.sessionId || result.totalMessages === undefined) {
+    return {
+      type: 'handled',
+      message: `❌ 无法读取消息列表：${result.reason ?? '未知错误'}\n用法：/messages [session-id] [N]`,
+    };
+  }
+
+  if (result.totalMessages === 0) {
+    return {
+      type: 'handled',
+      message: [
+        '🧾 会话消息索引',
+        `- Session ID: ${result.sessionId}`,
+        '- 消息总数：0',
+        '- 当前会话还没有消息。',
+      ].join('\n'),
+    };
+  }
+
+  const lines = result.messages.map((message) => `${message.index}. [${message.role}] ${message.preview}`);
+  const shown = result.messages.length;
+  const start = result.startIndex ?? 0;
+  const end = shown > 0 ? start + shown - 1 : start;
+
+  return {
+    type: 'handled',
+    message: [
+      '🧾 会话消息索引',
+      `- Session ID: ${result.sessionId}`,
+      `- 显示范围：${start}..${end}（共 ${shown}/${result.totalMessages} 条）`,
+      ...lines,
+      '',
+      '下一步：/fork <session-id> <message-index>',
     ].join('\n'),
   };
 }
@@ -621,7 +688,8 @@ function buildHelpMessage(): string {
     '/resume [list] [N] - 查看最近 N 条历史会话（N 范围 1-30）',
     '/sessions - /resume 的别名',
     '/resume <session-id> - 恢复指定会话',
-    '/fork <session-id> - 基于指定会话创建新分叉会话并自动切换',
+    '/messages [session-id] [N] - 查看会话消息索引（默认最近 20 条，N 范围 1-100）',
+    '/fork <session-id> [message-index] - 基于指定会话创建分叉会话并自动切换',
     '/status - 查看当前运行状态与会话信息',
     '/stop - 停止当前正在运行的任务',
     '/cancel - /stop 的别名',
@@ -633,6 +701,46 @@ function buildHelpMessage(): string {
 
 function normalizeCommand(command: string): string {
   return COMMAND_ALIASES[command] ?? command;
+}
+
+
+function parseMessagesArgs(args: string[]):
+  | { ok: true; sessionId?: string; limit: number }
+  | { ok: false; reason: string } {
+  if (args.length === 0) {
+    return { ok: true, limit: 20 };
+  }
+
+  const first = args[0]?.trim() ?? '';
+  const second = args[1]?.trim();
+
+  if (/^\d+$/.test(first)) {
+    if (args.length > 1) {
+      return { ok: false, reason: '参数过多' };
+    }
+
+    const parsedLimit = Number.parseInt(first, 10);
+    if (parsedLimit < 1 || parsedLimit > 100) {
+      return { ok: false, reason: 'N 必须是 1-100 的整数' };
+    }
+
+    return { ok: true, limit: parsedLimit };
+  }
+
+  if (second === undefined) {
+    return { ok: true, sessionId: first, limit: 20 };
+  }
+
+  if (!/^\d+$/.test(second)) {
+    return { ok: false, reason: 'N 必须是 1-100 的整数' };
+  }
+
+  const parsedLimit = Number.parseInt(second, 10);
+  if (parsedLimit < 1 || parsedLimit > 100) {
+    return { ok: false, reason: 'N 必须是 1-100 的整数' };
+  }
+
+  return { ok: true, sessionId: first, limit: parsedLimit };
 }
 
 function parseListLimit(raw: string | undefined, defaultValue: number, max: number): { ok: true; value: number } | { ok: false; reason: string } {
