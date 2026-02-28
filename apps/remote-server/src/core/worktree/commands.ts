@@ -3,6 +3,7 @@ import { mkdir } from 'fs/promises';
 import { join } from 'path';
 import { promisify } from 'util';
 import { worktreeService } from './integration.js';
+import { getRuntimeRepoRoot } from '../runtime-paths.js';
 
 const COMMAND_PREFIX = '/wt';
 const MAX_PATH_LENGTH = 400;
@@ -276,7 +277,7 @@ async function parseAutoUseArgs(args: string[]): Promise<
 
   let repoRoot = '';
   try {
-    repoRoot = await resolveGitRepoRoot();
+    repoRoot = await resolveGitRepoRoot(getRuntimeRepoRoot());
   } catch {
     return {
       ok: false,
@@ -346,9 +347,10 @@ async function parseAutoUseArgs(args: string[]): Promise<
   };
 }
 
-async function resolveGitRepoRoot(): Promise<string> {
+async function resolveGitRepoRoot(basePath?: string): Promise<string> {
+  const cwd = basePath && basePath.trim().length > 0 ? basePath : process.cwd();
   const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], {
-    cwd: process.cwd(),
+    cwd,
     timeout: 15000,
     maxBuffer: 1024 * 1024,
   });
