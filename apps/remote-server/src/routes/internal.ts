@@ -5,10 +5,7 @@ import { getConnInfo } from '@hono/node-server/conninfo';
 import { createLarkClient, sendImageMessage, sendTextMessage } from '../adapters/feishu/client.js';
 import { extractGeminiImageResult } from '../adapters/feishu/image-result.js';
 import { getDiscordGatewayStatus, restartDiscordGateway } from '../adapters/discord/gateway-manager.js';
-import { engine } from '../core/engine-singleton.js';
-import { sessionStore } from '../core/session-store.js';
-import { memoryIntegration, recordDailyLogFromSuccessPath } from '../core/memory-integration.js';
-import { buildRemoteWorktreeRunContext, worktreeIntegration } from '../core/worktree/integration.js';
+import { executeAgentTurn, formatCompactionEvents, type CompactionSnapshot } from '../core/agent-runner.js';
 import type { ClarificationRequest } from '../core/types.js';
 
 type ReceiveIdType = 'open_id' | 'chat_id' | 'user_id' | 'union_id' | 'email';
@@ -39,18 +36,6 @@ interface NotifyResult {
   ok: boolean;
   skipped: boolean;
   error?: string;
-}
-
-interface CompactionSnapshot {
-  attempt: number;
-  trigger: 'pre-loop' | 'length-retry';
-  reason?: string;
-  forced: boolean;
-  strategy: 'summary' | 'summary-too-large' | 'fallback';
-  beforeMessageCount: number;
-  afterMessageCount: number;
-  beforeEstimatedTokens: number;
-  afterEstimatedTokens: number;
 }
 
 interface ToolCallSnapshot {
@@ -133,94 +118,56 @@ internalRouter.post('/agent/run', async (c) => {
   const imageNotifyTasks: Promise<void>[] = [];
 
   try {
-    const session = await sessionStore.getOrCreate(platformKey, forceNewSession, platformKey);
-    sessionId = session.sessionId;
-    const context = session.context;
-
-    const worktreeRunContext = buildRemoteWorktreeRunContext(platformKey);
-    context.messages.push({ role: 'user', content: text });
-
-    const result = await worktreeIntegration.withRunContext(
-      worktreeRunContext,
-      async () => memoryIntegration.withRunContext(
-        {
-          platformKey,
-          sessionId,
-          userText: text,
-        },
-        async () => engine.run(context, {
-          onToolCall: (toolCall) => {
-            const name = toolCall.toolName ?? toolCall.name ?? 'unknown';
-            const input = toolCall.args ?? toolCall.input ?? {};
-            toolCalls.push({ name, input });
-          },
-          onToolResult: (toolResult) => {
-            if (!feishuTarget) {
-              return;
-            }
-
-            const imageResult = extractGeminiImageResult(toolResult);
-            if (!imageResult) {
-              return;
-            }
-
-            if (!existsSync(imageResult.outputPath) || sentImagePaths.has(imageResult.outputPath)) {
-              return;
-            }
-
-            sentImagePaths.add(imageResult.outputPath);
-            imageNotifyTasks.push(
-              sendImageMessage(
-                feishuTarget.receiveId,
-                feishuTarget.receiveIdType,
-                imageResult.outputPath,
-                imageResult.mimeType,
-              )
-                .then(() => undefined)
-                .catch((err) => {
-                  console.error('[internal] Failed to send generated image to Feishu:', err);
-                }),
-            );
-          },
-          onResponse: (messages) => {
-            for (const msg of messages) {
-              context.messages.push(msg);
-            }
-          },
-          onCompacted: (newMessages, event) => {
-            if (event) {
-              compactions.push({
-                attempt: event.attempt,
-                trigger: event.trigger,
-                reason: event.reason,
-                forced: event.forced,
-                strategy: event.strategy,
-                beforeMessageCount: event.beforeMessageCount,
-                afterMessageCount: event.afterMessageCount,
-                beforeEstimatedTokens: event.beforeEstimatedTokens,
-                afterEstimatedTokens: event.afterEstimatedTokens,
-              });
-            }
-
-            context.messages = newMessages;
-          },
-          onClarificationRequest: async (request: ClarificationRequest) => {
-            const answer = resolveClarificationAnswer(request, askPolicy);
-            clarifications.push({ id: request.id, usedDefault: request.defaultAnswer !== undefined });
-            return answer;
-          },
-        }),
-      ),
-    );
-
-    await sessionStore.save(sessionId, context);
-    await recordDailyLogFromSuccessPath({
+    const turn = await executeAgentTurn({
       platformKey,
-      sessionId,
+      memoryKey: platformKey,
+      forceNewSession,
       userText: text,
-      assistantText: result,
       source: 'internal',
+      callbacks: {
+        onToolCall: (toolCall) => {
+          const name = toolCall.toolName ?? toolCall.name ?? 'unknown';
+          const input = toolCall.args ?? toolCall.input ?? {};
+          toolCalls.push({ name, input });
+        },
+        onToolResult: (toolResult) => {
+          if (!feishuTarget) {
+            return;
+          }
+
+          const imageResult = extractGeminiImageResult(toolResult);
+          if (!imageResult) {
+            return;
+          }
+
+          if (!existsSync(imageResult.outputPath) || sentImagePaths.has(imageResult.outputPath)) {
+            return;
+          }
+
+          sentImagePaths.add(imageResult.outputPath);
+          imageNotifyTasks.push(
+            sendImageMessage(
+              feishuTarget.receiveId,
+              feishuTarget.receiveIdType,
+              imageResult.outputPath,
+              imageResult.mimeType,
+            )
+              .then(() => undefined)
+              .catch((err) => {
+                console.error('[internal] Failed to send generated image to Feishu:', err);
+              }),
+          );
+        },
+        onClarificationRequest: async (request: ClarificationRequest) => {
+          const answer = resolveClarificationAnswer(request, askPolicy);
+          clarifications.push({ id: request.id, usedDefault: request.defaultAnswer !== undefined });
+          return answer;
+        },
+      },
     });
+
+    sessionId = turn.sessionId;
+    compactions.push(...turn.compactions);
 
     await Promise.allSettled(imageNotifyTasks);
 
@@ -236,7 +183,7 @@ internalRouter.post('/agent/run', async (c) => {
       skill: body.skill,
       sessionId,
       ok: true,
-      result,
+      result: turn.resultText,
     });
 
     return c.json({
@@ -245,7 +192,7 @@ internalRouter.post('/agent/run', async (c) => {
       platformKey,
       sessionId,
       requestText: text,
-      result,
+      result: turn.resultText,
       toolCalls,
       compactionCount: compactions.length,
       compactions,
@@ -284,16 +231,6 @@ internalRouter.post('/agent/run', async (c) => {
     );
   }
 });
-
-
-function formatCompactionEvents(events: CompactionSnapshot[]): string {
-  return events
-    .map((event) => {
-      const reason = event.reason ?? event.strategy;
-      return `#${event.attempt} ${event.trigger} ${reason} msgs:${event.beforeMessageCount}->${event.afterMessageCount} tokens:${event.beforeEstimatedTokens}->${event.afterEstimatedTokens}`;
-    })
-    .join(' | ');
-}
 
 function isLocalInternalRequest(c: Context): boolean {
   const connInfo = getConnInfo(c);
