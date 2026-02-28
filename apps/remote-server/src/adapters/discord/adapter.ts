@@ -452,6 +452,7 @@ const PASSTHROUGH_SLASH_COMMANDS = new Set([
   'stop',
   'cancel',
   'skills',
+  'wt',
 ]);
 
 function extractInteractionText(interaction: DiscordInteraction): string {
