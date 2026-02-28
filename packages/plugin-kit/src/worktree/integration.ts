@@ -1,5 +1,4 @@
 import { AsyncLocalStorage } from 'async_hooks';
-import { isAbsolute, resolve } from 'path';
 import type { EnginePlugin, SystemPromptOption } from 'pulse-coder-engine';
 import type { FileWorktreeServiceOptions, UpsertWorktreeInput, WorktreeBindingView, WorktreeScope } from './types.js';
 import { FileWorktreePluginService } from './service.js';
@@ -11,9 +10,6 @@ const DEFAULT_PROMPT = [
   '- If a command result suggests another directory, treat that as unexpected and return to the bound worktree.',
   '- Before major operations, validate context with `pwd && git branch --show-current && git status -sb`.',
 ].join('\n');
-
-const TOOL_NAMES_WITH_FILE_PATH = new Set(['read', 'write', 'edit']);
-const TOOL_NAMES_WITH_PATH = new Set(['ls', 'grep']);
 
 export interface WorktreeRunContext {
   runtimeKey: string;
@@ -31,7 +27,6 @@ export interface CreateWorktreeIntegrationOptions extends FileWorktreeServiceOpt
   pluginName?: string;
   pluginVersion?: string;
   promptHeader?: string;
-  getDefaultToolBasePath?: () => string | undefined;
 }
 
 export interface CreateWorktreeEnginePluginOptions {
@@ -40,7 +35,6 @@ export interface CreateWorktreeEnginePluginOptions {
   name?: string;
   version?: string;
   promptHeader?: string;
-  getDefaultToolBasePath?: () => string | undefined;
 }
 
 export interface WorktreeIntegration {
@@ -63,7 +57,6 @@ export function createWorktreeIntegration(options: CreateWorktreeIntegrationOpti
     pluginName,
     pluginVersion,
     promptHeader,
-    getDefaultToolBasePath,
     ...serviceOptions
   } = options;
 
@@ -75,7 +68,6 @@ export function createWorktreeIntegration(options: CreateWorktreeIntegrationOpti
     name: pluginName,
     version: pluginVersion,
     promptHeader,
-    getDefaultToolBasePath,
   });
 
   return {
@@ -112,34 +104,6 @@ export function createWorktreeEnginePlugin(options: CreateWorktreeEnginePluginOp
         const append = buildBindingPrompt(promptHeader, binding);
         return {
           systemPrompt: appendSystemPrompt(systemPrompt, append),
-        };
-      });
-
-      context.registerHook('beforeToolCall', async ({ name, input }) => {
-        if (!isMutableObject(input)) {
-          return;
-        }
-
-        const runContext = options.getRunContext();
-        if (!runContext) {
-          return;
-        }
-
-        const binding = await options.service.getScopeBinding(toScope(runContext));
-        if (!binding) {
-          return;
-        }
-
-        const normalizedInput = normalizeToolInputForWorktree(name, input, {
-          worktreePath: binding.worktree.worktreePath,
-          defaultBasePath: options.getDefaultToolBasePath?.() ?? binding.worktree.worktreePath,
-        });
-        if (normalizedInput === input) {
-          return;
-        }
-
-        return {
-          input: normalizedInput,
         };
       });
     },
@@ -224,78 +188,4 @@ function appendSystemPrompt(base: SystemPromptOption | undefined, append: string
   return {
     append: currentAppend ? `${currentAppend}\n\n${normalizedAppend}` : normalizedAppend,
   };
-}
-
-function normalizeToolInputForWorktree(
-  toolName: string,
-  input: Record<string, unknown>,
-  options: {
-    worktreePath: string;
-    defaultBasePath: string;
-  },
-): Record<string, unknown> {
-  let changed = false;
-  const nextInput: Record<string, unknown> = { ...input };
-
-  if (toolName === 'bash') {
-    const cwdValue = toTrimmedString(input.cwd);
-    if (!cwdValue) {
-      nextInput.cwd = options.worktreePath;
-      changed = true;
-    } else {
-      const resolvedCwd = resolvePathAgainstBase(options.defaultBasePath, cwdValue);
-      if (resolvedCwd !== cwdValue) {
-        nextInput.cwd = resolvedCwd;
-        changed = true;
-      }
-    }
-  }
-
-  if (TOOL_NAMES_WITH_PATH.has(toolName)) {
-    const pathValue = toTrimmedString(input.path);
-    if (!pathValue) {
-      nextInput.path = options.worktreePath;
-      changed = true;
-    } else {
-      const resolvedPath = resolvePathAgainstBase(options.defaultBasePath, pathValue);
-      if (resolvedPath !== pathValue) {
-        nextInput.path = resolvedPath;
-        changed = true;
-      }
-    }
-  }
-
-  if (TOOL_NAMES_WITH_FILE_PATH.has(toolName)) {
-    const filePathValue = toTrimmedString(input.filePath);
-    if (filePathValue) {
-      const resolvedFilePath = resolvePathAgainstBase(options.defaultBasePath, filePathValue);
-      if (resolvedFilePath !== filePathValue) {
-        nextInput.filePath = resolvedFilePath;
-        changed = true;
-      }
-    }
-  }
-
-  return changed ? nextInput : input;
-}
-
-function resolvePathAgainstBase(basePath: string, value: string): string {
-  if (isAbsolute(value)) {
-    return value;
-  }
-
-  return resolve(basePath, value);
-}
-
-function toTrimmedString(value: unknown): string | undefined {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : undefined;
-}
-
-function isMutableObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
