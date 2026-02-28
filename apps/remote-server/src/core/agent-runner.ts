@@ -1,6 +1,6 @@
 import type { ClarificationRequest } from './types.js';
 import type { CompactionEvent } from 'pulse-coder-engine';
-import { getOrInitializeEngine } from './engine-singleton.js';
+import { engine } from './engine-singleton.js';
 import { sessionStore } from './session-store.js';
 import { memoryIntegration, recordDailyLogFromSuccessPath } from './memory-integration.js';
 import { buildRemoteWorktreeRunContext, worktreeIntegration } from './worktree/integration.js';
@@ -40,7 +40,6 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
 
   context.messages.push({ role: 'user', content: input.userText });
 
-  const engine = await getOrInitializeEngine();
   const resultText = await runWithAgentContexts(
     {
       platformKey: input.platformKey,

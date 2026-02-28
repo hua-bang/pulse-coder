@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { serve } from '@hono/node-server';
 import { createApp } from './server.js';
-import { initializeEngine } from './core/engine-singleton.js';
+import { engine } from './core/engine-singleton.js';
 import { sessionStore } from './core/session-store.js';
 import { memoryIntegration } from './core/memory-integration.js';
 import { worktreeIntegration } from './core/worktree/integration.js';
@@ -17,7 +17,7 @@ async function main() {
   // Initialize worktree binding state store
   await worktreeIntegration.initialize();
 
-  await initializeEngine();
+  await engine.initialize();
 
   startDiscordGateway();
 
