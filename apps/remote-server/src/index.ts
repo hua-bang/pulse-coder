@@ -4,6 +4,7 @@ import { createApp } from './server.js';
 import { engine } from './core/engine-singleton.js';
 import { sessionStore } from './core/session-store.js';
 import { memoryIntegration } from './core/memory-integration.js';
+import { worktreeIntegration } from './core/worktree/integration.js';
 import { startDiscordGateway } from './adapters/discord/gateway-manager.js';
 
 async function main() {
@@ -12,6 +13,9 @@ async function main() {
 
   // Initialize memory store
   await memoryIntegration.initialize();
+
+  // Initialize worktree binding state store
+  await worktreeIntegration.initialize();
 
   await engine.initialize();
 
