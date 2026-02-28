@@ -6,6 +6,7 @@ import { sessionStore } from './session-store.js';
 import { clarificationQueue } from './clarification-queue.js';
 import { processIncomingCommand, type CommandResult } from './chat-commands.js';
 import { memoryIntegration, recordDailyLogFromSuccessPath } from './memory-integration.js';
+import { buildRemoteWorktreeRunContext, worktreeIntegration } from './worktree/integration.js';
 import {
   hasActiveRun,
   setActiveRun,
@@ -145,67 +146,72 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
     sessionId = result.sessionId;
     const context = result.context;
 
+    const worktreeRunContext = buildRemoteWorktreeRunContext(platformKey);
     handle = await adapter.createStreamHandle(incoming, streamId);
 
     // Append the user's message to context
     context.messages.push({ role: 'user', content: text });
 
-    const finalText = await memoryIntegration.withRunContext(
-      {
-        platformKey: memoryKey,
-        sessionId,
-        userText: text,
-      },
-      async () => engine.run(context, {
-        abortSignal: ac.signal,
-        onText: (delta) => {
-          handle?.onText(delta).catch(console.error);
+    const finalText = await worktreeIntegration.withRunContext(
+      worktreeRunContext,
+      async () => memoryIntegration.withRunContext(
+        {
+          platformKey: memoryKey,
+          sessionId,
+          userText: text,
         },
-        onToolCall: (toolCall) => {
-          handle?.onToolCall(toolCall.toolName ?? toolCall.name ?? 'unknown', toolCall.args ?? toolCall.input ?? {}).catch(console.error);
-        },
-        onToolResult: (toolResult) => {
-          handle?.onToolResult?.(toolResult).catch(console.error);
-        },
-        onResponse: (messages) => {
-          for (const msg of messages) {
-            context.messages.push(msg);
-          }
-        },
-        onCompacted: (newMessages, event) => {
-          if (event) {
-            compactionEvents.push({
-              attempt: event.attempt,
-              trigger: event.trigger,
-              reason: event.reason,
-              forced: event.forced,
-              strategy: event.strategy,
-              beforeMessageCount: event.beforeMessageCount,
-              afterMessageCount: event.afterMessageCount,
-              beforeEstimatedTokens: event.beforeEstimatedTokens,
-              afterEstimatedTokens: event.afterEstimatedTokens,
-            });
-
-            handle
-              ?.onToolCall('compact_context', {
+        async () => engine.run(context, {
+          abortSignal: ac.signal,
+          onText: (delta) => {
+            handle?.onText(delta).catch(console.error);
+          },
+          onToolCall: (toolCall) => {
+            handle?.onToolCall(toolCall.toolName ?? toolCall.name ?? 'unknown', toolCall.args ?? toolCall.input ?? {}).catch(console.error);
+          },
+          onToolResult: (toolResult) => {
+            handle?.onToolResult?.(toolResult).catch(console.error);
+          },
+          onResponse: (messages) => {
+            for (const msg of messages) {
+              context.messages.push(msg);
+            }
+          },
+          onCompacted: (newMessages, event) => {
+            if (event) {
+              compactionEvents.push({
                 attempt: event.attempt,
                 trigger: event.trigger,
-                reason: event.reason ?? event.strategy,
+                reason: event.reason,
                 forced: event.forced,
-                tokens: `${event.beforeEstimatedTokens} -> ${event.afterEstimatedTokens}`,
-                messages: `${event.beforeMessageCount} -> ${event.afterMessageCount}`,
-              })
-              .catch(console.error);
-          }
+                strategy: event.strategy,
+                beforeMessageCount: event.beforeMessageCount,
+                afterMessageCount: event.afterMessageCount,
+                beforeEstimatedTokens: event.beforeEstimatedTokens,
+                afterEstimatedTokens: event.afterEstimatedTokens,
+              });
 
-          context.messages = newMessages;
-        },
-        onClarificationRequest: async (request) => {
-          await handle?.onClarification(request);
-          return clarificationQueue.waitForAnswer(streamId, request);
-        },
-      }),
+              handle
+                ?.onToolCall('compact_context', {
+                  attempt: event.attempt,
+                  trigger: event.trigger,
+                  reason: event.reason ?? event.strategy,
+                  forced: event.forced,
+                  tokens: `${event.beforeEstimatedTokens} -> ${event.afterEstimatedTokens}`,
+                  messages: `${event.beforeMessageCount} -> ${event.afterMessageCount}`,
+                })
+                .catch(console.error);
+            }
+
+            context.messages = newMessages;
+          },
+          onClarificationRequest: async (request) => {
+            await handle?.onClarification(request);
+            return clarificationQueue.waitForAnswer(streamId, request);
+          },
+        }),
+      ),
     );
+
 
     await sessionStore.save(sessionId, context);
     await recordDailyLogFromSuccessPath({

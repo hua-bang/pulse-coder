@@ -8,6 +8,7 @@ import { getDiscordGatewayStatus, restartDiscordGateway } from '../adapters/disc
 import { engine } from '../core/engine-singleton.js';
 import { sessionStore } from '../core/session-store.js';
 import { memoryIntegration, recordDailyLogFromSuccessPath } from '../core/memory-integration.js';
+import { buildRemoteWorktreeRunContext, worktreeIntegration } from '../core/worktree/integration.js';
 import type { ClarificationRequest } from '../core/types.js';
 
 type ReceiveIdType = 'open_id' | 'chat_id' | 'user_id' | 'union_id' | 'email';
@@ -136,76 +137,80 @@ internalRouter.post('/agent/run', async (c) => {
     sessionId = session.sessionId;
     const context = session.context;
 
+    const worktreeRunContext = buildRemoteWorktreeRunContext(platformKey);
     context.messages.push({ role: 'user', content: text });
 
-    const result = await memoryIntegration.withRunContext(
-      {
-        platformKey,
-        sessionId,
-        userText: text,
-      },
-      async () => engine.run(context, {
-        onToolCall: (toolCall) => {
-          const name = toolCall.toolName ?? toolCall.name ?? 'unknown';
-          const input = toolCall.args ?? toolCall.input ?? {};
-          toolCalls.push({ name, input });
+    const result = await worktreeIntegration.withRunContext(
+      worktreeRunContext,
+      async () => memoryIntegration.withRunContext(
+        {
+          platformKey,
+          sessionId,
+          userText: text,
         },
-        onToolResult: (toolResult) => {
-          if (!feishuTarget) {
-            return;
-          }
+        async () => engine.run(context, {
+          onToolCall: (toolCall) => {
+            const name = toolCall.toolName ?? toolCall.name ?? 'unknown';
+            const input = toolCall.args ?? toolCall.input ?? {};
+            toolCalls.push({ name, input });
+          },
+          onToolResult: (toolResult) => {
+            if (!feishuTarget) {
+              return;
+            }
 
-          const imageResult = extractGeminiImageResult(toolResult);
-          if (!imageResult) {
-            return;
-          }
+            const imageResult = extractGeminiImageResult(toolResult);
+            if (!imageResult) {
+              return;
+            }
 
-          if (!existsSync(imageResult.outputPath) || sentImagePaths.has(imageResult.outputPath)) {
-            return;
-          }
+            if (!existsSync(imageResult.outputPath) || sentImagePaths.has(imageResult.outputPath)) {
+              return;
+            }
 
-          sentImagePaths.add(imageResult.outputPath);
-          imageNotifyTasks.push(
-            sendImageMessage(
-              feishuTarget.receiveId,
-              feishuTarget.receiveIdType,
-              imageResult.outputPath,
-              imageResult.mimeType,
-            )
-              .then(() => undefined)
-              .catch((err) => {
-                console.error('[internal] Failed to send generated image to Feishu:', err);
-              }),
-          );
-        },
-        onResponse: (messages) => {
-          for (const msg of messages) {
-            context.messages.push(msg);
-          }
-        },
-        onCompacted: (newMessages, event) => {
-          if (event) {
-            compactions.push({
-              attempt: event.attempt,
-              trigger: event.trigger,
-              reason: event.reason,
-              forced: event.forced,
-              strategy: event.strategy,
-              beforeMessageCount: event.beforeMessageCount,
-              afterMessageCount: event.afterMessageCount,
-              beforeEstimatedTokens: event.beforeEstimatedTokens,
-              afterEstimatedTokens: event.afterEstimatedTokens,
-            });
-          }
+            sentImagePaths.add(imageResult.outputPath);
+            imageNotifyTasks.push(
+              sendImageMessage(
+                feishuTarget.receiveId,
+                feishuTarget.receiveIdType,
+                imageResult.outputPath,
+                imageResult.mimeType,
+              )
+                .then(() => undefined)
+                .catch((err) => {
+                  console.error('[internal] Failed to send generated image to Feishu:', err);
+                }),
+            );
+          },
+          onResponse: (messages) => {
+            for (const msg of messages) {
+              context.messages.push(msg);
+            }
+          },
+          onCompacted: (newMessages, event) => {
+            if (event) {
+              compactions.push({
+                attempt: event.attempt,
+                trigger: event.trigger,
+                reason: event.reason,
+                forced: event.forced,
+                strategy: event.strategy,
+                beforeMessageCount: event.beforeMessageCount,
+                afterMessageCount: event.afterMessageCount,
+                beforeEstimatedTokens: event.beforeEstimatedTokens,
+                afterEstimatedTokens: event.afterEstimatedTokens,
+              });
+            }
 
-          context.messages = newMessages;
-        },
-        onClarificationRequest: async (request: ClarificationRequest) => {
-          const answer = resolveClarificationAnswer(request, askPolicy);
-          clarifications.push({ id: request.id, usedDefault: request.defaultAnswer !== undefined });
-          return answer;
-        },
-      }),
+            context.messages = newMessages;
+          },
+          onClarificationRequest: async (request: ClarificationRequest) => {
+            const answer = resolveClarificationAnswer(request, askPolicy);
+            clarifications.push({ id: request.id, usedDefault: request.defaultAnswer !== undefined });
+            return answer;
+          },
+        }),
+      ),
     );
 
     await sessionStore.save(sessionId, context);

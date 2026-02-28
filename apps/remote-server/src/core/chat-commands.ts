@@ -3,6 +3,8 @@ import { sessionStore } from './session-store.js';
 import type { IncomingMessage } from './types.js';
 import { memoryService } from './memory-integration.js';
 import { abortActiveRun, getActiveRun } from './active-run-store.js';
+import { processWorktreeCommand } from './worktree/commands.js';
+import { buildRemoteWorktreeRunContext } from './worktree/integration.js';
 
 interface SkillSummary {
   name: string;
@@ -20,7 +22,7 @@ export type CommandResult =
   | { type: 'handled_silent' }
   | { type: 'transformed'; text: string };
 
-const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping', 'memory', 'fork']);
+const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping', 'memory', 'fork', 'wt']);
 const COMMAND_ALIASES: Record<string, string> = {
   '?': 'help',
   h: 'help',
@@ -46,15 +48,27 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
   if (tokens.length === 0) {
     return {
       type: 'handled',
-      message: '⚠️ 请输入命令，例如 `/new`、`/clear`、`/compact`、`/resume`、`/fork`、`/memory`、`/status`、`/stop`、`/skills`。',
+      message: '⚠️ 请输入命令，例如 `/new`、`/clear`、`/compact`、`/resume`、`/fork`、`/memory`、`/status`、`/stop`、`/skills`、`/wt`。',
     };
   }
 
   const command = normalizeCommand(tokens[0].toLowerCase());
   const args = tokens.slice(1);
   const memoryKey = incoming.memoryKey ?? incoming.platformKey;
-
   const activeRun = getActiveRun(incoming.platformKey);
+
+  const worktreeContext = buildRemoteWorktreeRunContext(incoming.platformKey);
+  const worktreeCommand = await processWorktreeCommand({
+    text: raw,
+    runtimeKey: worktreeContext.runtimeKey,
+    scopeKey: worktreeContext.scopeKey,
+  });
+  if (worktreeCommand.handled) {
+    return {
+      type: 'handled',
+      message: worktreeCommand.message ?? '✅ 已处理 worktree 命令。',
+    };
+  }
   if (activeRun && !COMMANDS_ALLOWED_WHILE_RUNNING.has(command)) {
     return {
       type: 'handled',
@@ -611,8 +625,9 @@ function buildHelpMessage(): string {
     '/status - 查看当前运行状态与会话信息',
     '/stop - 停止当前正在运行的任务',
     '/cancel - /stop 的别名',
-    '/skills list - 查看可用技能',
-    '/skills <name|index> <message> - 用指定技能执行一条消息',
+    '/wt status - 查看当前会话绑定的 worktree',
+    '/wt use <id> <repoRoot> <worktreePath> [branch] - 绑定/更新当前会话 worktree',
+    '/wt clear - 清除当前会话 worktree 绑定',
   ].join('\n');
 }
 
