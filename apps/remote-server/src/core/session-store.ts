@@ -47,22 +47,6 @@ export interface ForkSessionResult {
   sessionId?: string;
   sourceSessionId?: string;
   messageCount?: number;
-  forkedFromMessageIndex?: number;
-  reason?: string;
-}
-
-export interface SessionMessageSummary {
-  index: number;
-  role: string;
-  preview: string;
-}
-
-export interface SessionMessageListResult {
-  ok: boolean;
-  sessionId?: string;
-  totalMessages?: number;
-  startIndex?: number;
-  messages?: SessionMessageSummary[];
   reason?: string;
 }
 
@@ -303,12 +287,7 @@ class RemoteSessionStore {
    * Fork a session into a new session id and attach it as current.
    * Source session must belong to the same platformKey, or to the same ownerKey.
    */
-  async forkSession(
-    platformKey: string,
-    sourceSessionId: string,
-    ownerKey?: string,
-    forkFromMessageIndex?: number,
-  ): Promise<ForkSessionResult> {
+  async forkSession(platformKey: string, sourceSessionId: string, ownerKey?: string): Promise<ForkSessionResult> {
     const session = await this.readSession(sourceSessionId);
     if (!session) {
       return { ok: false, reason: `Session not found: ${sourceSessionId}` };
@@ -316,28 +295,6 @@ class RemoteSessionStore {
 
     if (!this.canAccessSession(session, platformKey, ownerKey)) {
       return { ok: false, reason: 'Session does not belong to current user' };
-    }
-
-    const sourceMessages = session.messages;
-    let targetMessages: unknown[];
-    let resolvedForkIndex: number | undefined;
-
-    if (forkFromMessageIndex !== undefined) {
-      if (!Number.isInteger(forkFromMessageIndex) || forkFromMessageIndex < 0) {
-        return { ok: false, reason: 'message-index must be a non-negative integer' };
-      }
-
-      if (forkFromMessageIndex >= sourceMessages.length) {
-        return {
-          ok: false,
-          reason: `message-index out of range: ${forkFromMessageIndex} (total: ${sourceMessages.length})`,
-        };
-      }
-
-      resolvedForkIndex = forkFromMessageIndex;
-      targetMessages = sourceMessages.slice(0, forkFromMessageIndex + 1);
-    } else {
-      targetMessages = sourceMessages;
     }
 
     const now = Date.now();
@@ -348,7 +305,7 @@ class RemoteSessionStore {
       ownerKey: ownerKey ?? this.resolveOwnerKey(session),
       createdAt: now,
       updatedAt: now,
-      messages: this.cloneMessages(targetMessages),
+      messages: this.cloneMessages(session.messages),
     };
 
     await this.writeSession(forkedSession);
@@ -360,43 +317,6 @@ class RemoteSessionStore {
       sessionId: forkedSessionId,
       sourceSessionId,
       messageCount: forkedSession.messages.length,
-      forkedFromMessageIndex: resolvedForkIndex,
-    };
-  }
-
-  async listSessionMessages(
-    platformKey: string,
-    ownerKey: string | undefined,
-    sessionId: string | undefined,
-    limit = 20,
-  ): Promise<SessionMessageListResult> {
-    const targetSessionId = sessionId?.trim() || this.index[platformKey];
-    if (!targetSessionId) {
-      return { ok: false, reason: 'No active session' };
-    }
-
-    const session = await this.readSession(targetSessionId);
-    if (!session) {
-      return { ok: false, reason: `Session not found: ${targetSessionId}` };
-    }
-
-    if (!this.canAccessSession(session, platformKey, ownerKey)) {
-      return { ok: false, reason: 'Session does not belong to current user' };
-    }
-
-    const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
-    const totalMessages = session.messages.length;
-    const startIndex = Math.max(0, totalMessages - safeLimit);
-    const summaries = session.messages
-      .slice(startIndex)
-      .map((message, idx) => this.summarizeMessage(message, startIndex + idx));
-
-    return {
-      ok: true,
-      sessionId: session.id,
-      totalMessages,
-      startIndex,
-      messages: summaries,
     };
   }
 
@@ -476,28 +396,6 @@ class RemoteSessionStore {
   private truncate(text: string, max = 120): string {
     if (!text) return '(no text)';
     return text.length > max ? `${text.slice(0, max)}...` : text;
-  }
-
-  private summarizeMessage(message: unknown, index: number): SessionMessageSummary {
-    let role = 'unknown';
-    let previewSource: unknown = message;
-
-    if (typeof message === 'string') {
-      role = 'text';
-      previewSource = message;
-    } else if (typeof message === 'object' && message !== null) {
-      const maybeRole = (message as { role?: unknown }).role;
-      if (typeof maybeRole === 'string' && maybeRole.trim().length > 0) {
-        role = maybeRole;
-      }
-
-      if ('content' in message) {
-        previewSource = (message as { content?: unknown }).content;
-      }
-    }
-
-    const preview = this.truncate(this.contentToText(previewSource), 90);
-    return { index, role, preview };
   }
 
   private cloneMessages(messages: unknown[]): unknown[] {
