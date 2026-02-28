@@ -1,5 +1,3 @@
-import { getActiveRun } from '../active-run-store.js';
-import { renewEngine } from '../engine-singleton.js';
 import { execFile } from 'child_process';
 import { mkdir } from 'fs/promises';
 import { join } from 'path';
@@ -41,14 +39,11 @@ interface ParsedUseArgsValue {
   baseRef?: string;
 }
 
-interface ProcessWorktreeCommandInput {
+export async function processWorktreeCommand(input: {
   text: string;
   runtimeKey: string;
   scopeKey: string;
-  platformKey: string;
-}
-
-export async function processWorktreeCommand(input: ProcessWorktreeCommandInput): Promise<WorktreeCommandResult> {
+}): Promise<WorktreeCommandResult> {
   const raw = input.text.trim();
   if (!raw.startsWith(COMMAND_PREFIX)) {
     return { handled: false };
@@ -59,13 +54,6 @@ export async function processWorktreeCommand(input: ProcessWorktreeCommandInput)
     return {
       handled: true,
       message: buildHelpMessage(),
-    };
-  }
-
-  if ((tokens.command === 'use' || tokens.command === 'clear') && getActiveRun(input.platformKey)) {
-    return {
-      handled: true,
-      message: '⏳ 当前正在运行任务，暂不支持切换 worktree。请先 /stop 或等待任务结束后重试。',
     };
   }
 
@@ -132,10 +120,6 @@ export async function processWorktreeCommand(input: ProcessWorktreeCommandInput)
         },
       );
 
-      const renewal = await renewEngine(
-        `worktree-use runtime=${input.runtimeKey} scope=${input.scopeKey} worktree=${binding.worktree.id}`,
-      );
-
       const lines = [
         '✅ 已更新 worktree 绑定。',
         `- id: ${binding.worktree.id}`,
@@ -153,8 +137,6 @@ export async function processWorktreeCommand(input: ProcessWorktreeCommandInput)
       if (parseResult.value.baseRef) {
         lines.push(`- baseRef: ${parseResult.value.baseRef}`);
       }
-
-      lines.push(`- engine: renewed (gen ${renewal.previousGeneration} -> ${renewal.generation})`);
 
       return {
         handled: true,
@@ -182,16 +164,9 @@ export async function processWorktreeCommand(input: ProcessWorktreeCommandInput)
         };
       }
 
-      const renewal = await renewEngine(
-        `worktree-clear runtime=${input.runtimeKey} scope=${input.scopeKey} worktree=${result.cleared.worktreeId}`,
-      );
-
       return {
         handled: true,
-        message: [
-          `🧹 已清除绑定：${result.cleared.worktreeId}`,
-          `- engine: renewed (gen ${renewal.previousGeneration} -> ${renewal.generation})`,
-        ].join('\n'),
+        message: `🧹 已清除绑定：${result.cleared.worktreeId}`,
       };
     }
 

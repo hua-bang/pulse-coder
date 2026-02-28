@@ -1,4 +1,4 @@
-import { tryGetEngine } from './engine-singleton.js';
+import { engine } from './engine-singleton.js';
 import { sessionStore } from './session-store.js';
 import type { IncomingMessage } from './types.js';
 import { memoryService } from './memory-integration.js';
@@ -62,7 +62,6 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
     text: raw,
     runtimeKey: worktreeContext.runtimeKey,
     scopeKey: worktreeContext.scopeKey,
-    platformKey: incoming.platformKey,
   });
   if (worktreeCommand.handled) {
     return {
@@ -335,14 +334,6 @@ async function handleCompactCommand(platformKey: string): Promise<CommandResult>
   const keepLastTurns = getKeepLastTurns();
 
   try {
-    const engine = tryGetEngine();
-    if (!engine) {
-      return {
-        type: 'handled',
-        message: '⚠️ 引擎尚未初始化，请稍后重试。',
-      };
-    }
-
     const compactResult = await engine.compactContext(current.context, { force: true });
 
     if (!compactResult.didCompact || !compactResult.newMessages) {
@@ -574,11 +565,6 @@ function handleSkillsCommand(args: string[]): CommandResult {
 }
 
 function getSkillRegistry(): SkillRegistryService | undefined {
-  const engine = tryGetEngine();
-  if (!engine) {
-    return undefined;
-  }
-
   return engine.getService<SkillRegistryService>('skillRegistry');
 }
 
