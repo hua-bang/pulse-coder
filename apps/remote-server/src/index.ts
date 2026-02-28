@@ -6,11 +6,8 @@ import { sessionStore } from './core/session-store.js';
 import { memoryIntegration } from './core/memory-integration.js';
 import { worktreeIntegration } from './core/worktree/integration.js';
 import { startDiscordGateway } from './adapters/discord/gateway-manager.js';
-import { alignProcessCwdToGitRepoRoot } from './core/runtime-paths.js';
 
 async function main() {
-  await alignProcessCwdToGitRepoRoot();
-
   // Initialize session store (creates directories if needed, loads index)
   await sessionStore.initialize();
 
