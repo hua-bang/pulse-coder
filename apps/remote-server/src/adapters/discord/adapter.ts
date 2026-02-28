@@ -65,6 +65,9 @@ type DiscordStreamIo = {
 const DISCORD_ACK_EPHEMERAL_FLAG = 1 << 6;
 const DISCORD_PROGRESS_UPDATE_INTERVAL_MS = 1200;
 const DISCORD_MESSAGE_LIMIT = 2000;
+const DISCORD_PROGRESS_FOOTER_BASE = 'Pulse Agent 努力生成中';
+const DISCORD_PROGRESS_DOT_MIN = 1;
+const DISCORD_PROGRESS_DOT_MAX = 5;
 
 export class DiscordAdapter implements PlatformAdapter {
   name = 'discord';
@@ -281,13 +284,19 @@ export class DiscordAdapter implements PlatformAdapter {
     let accumulatedText = '';
     let latestToolHint = '';
     let updateTimer: ReturnType<typeof setTimeout> | null = null;
+    let animationTimer: ReturnType<typeof setInterval> | null = null;
     let finalizing = false;
+    let progressFrame = 0;
 
     const renderProgress = (): string => {
-      if (!accumulatedText) {
-        return latestToolHint || 'Working on it...';
-      }
-      return latestToolHint ? `${latestToolHint}\n\n${accumulatedText}` : accumulatedText;
+      const body = !accumulatedText
+        ? (latestToolHint || 'Working on it...')
+        : (latestToolHint ? `${latestToolHint}\n\n${accumulatedText}` : accumulatedText);
+
+      const rendered = renderDiscordProgressWithFooter(body, progressFrame);
+      const frameCount = DISCORD_PROGRESS_DOT_MAX - DISCORD_PROGRESS_DOT_MIN + 1;
+      progressFrame = (progressFrame + 1) % frameCount;
+      return rendered;
     };
 
     const pushProgress = async () => {
@@ -310,10 +319,31 @@ export class DiscordAdapter implements PlatformAdapter {
       }, DISCORD_PROGRESS_UPDATE_INTERVAL_MS);
     };
 
-    const clearProgressTimer = () => {
+    const ensureProgressAnimation = () => {
+      if (animationTimer || finalizing) {
+        return;
+      }
+
+      animationTimer = setInterval(() => {
+        if (updateTimer || finalizing) {
+          return;
+        }
+
+        pushProgress().catch((err) => {
+          console.error('[discord] Failed to animate progress message:', err);
+        });
+      }, DISCORD_PROGRESS_UPDATE_INTERVAL_MS);
+    };
+
+    const clearProgressTimers = () => {
       if (updateTimer) {
         clearTimeout(updateTimer);
         updateTimer = null;
+      }
+
+      if (animationTimer) {
+        clearInterval(animationTimer);
+        animationTimer = null;
       }
     };
 
@@ -326,15 +356,20 @@ export class DiscordAdapter implements PlatformAdapter {
       }
     };
 
+    scheduleProgress();
+    ensureProgressAnimation();
+
     return {
       async onText(delta) {
         accumulatedText += delta;
         scheduleProgress();
+        ensureProgressAnimation();
       },
 
       async onToolCall(name, input) {
         latestToolHint = formatDiscordToolHint(name, input);
         scheduleProgress();
+        ensureProgressAnimation();
       },
 
       async onToolResult(toolResult) {
@@ -368,7 +403,7 @@ export class DiscordAdapter implements PlatformAdapter {
       },
 
       async onDone(result) {
-        clearProgressTimer();
+        clearProgressTimers();
         finalizing = true;
         await sendFinalText(result || 'Done.').catch(async (err) => {
           console.error('[discord] Failed to send final response:', err);
@@ -377,7 +412,7 @@ export class DiscordAdapter implements PlatformAdapter {
       },
 
       async onError(err) {
-        clearProgressTimer();
+        clearProgressTimers();
         finalizing = true;
         await sendFinalText(`Error: ${err.message}`).catch(async (followErr) => {
           console.error('[discord] Failed to send error response:', followErr);
@@ -532,6 +567,30 @@ function trimDiscordToolInput(value: string): string {
   }
 
   return `${singleLine.slice(0, maxLength - 3)}...`;
+}
+
+function renderDiscordProgressWithFooter(content: string, frame: number): string {
+  const footer = buildDiscordProgressFooter(frame);
+  const normalizedContent = content.trim() || 'Working on it...';
+  const separator = '\n\n';
+  const reservedLength = separator.length + footer.length;
+  const maxContentLength = DISCORD_MESSAGE_LIMIT - reservedLength;
+
+  if (maxContentLength <= 0) {
+    return footer.slice(0, DISCORD_MESSAGE_LIMIT);
+  }
+
+  const clippedContent = normalizedContent.length <= maxContentLength
+    ? normalizedContent
+    : `${normalizedContent.slice(0, maxContentLength - 3)}...`;
+
+  return `${clippedContent}${separator}${footer}`;
+}
+
+function buildDiscordProgressFooter(frame: number): string {
+  const dotRange = DISCORD_PROGRESS_DOT_MAX - DISCORD_PROGRESS_DOT_MIN + 1;
+  const dotCount = DISCORD_PROGRESS_DOT_MIN + (Math.abs(frame) % dotRange);
+  return `${DISCORD_PROGRESS_FOOTER_BASE}${'.'.repeat(dotCount)}`;
 }
 
 function splitDiscordText(text: string): string[] {
