@@ -1,30 +1,15 @@
 import { randomUUID } from 'crypto';
 import type { Context as HonoContext } from 'hono';
 import type { PlatformAdapter, IncomingMessage, StreamHandle } from './types.js';
-import { engine } from './engine-singleton.js';
-import { sessionStore } from './session-store.js';
 import { clarificationQueue } from './clarification-queue.js';
 import { processIncomingCommand, type CommandResult } from './chat-commands.js';
-import { memoryIntegration, recordDailyLogFromSuccessPath } from './memory-integration.js';
+import { executeAgentTurn, formatCompactionEvents } from './agent-runner.js';
 import {
   hasActiveRun,
   setActiveRun,
   clearActiveRun,
   getActiveStreamId as getActiveStreamIdFromStore,
 } from './active-run-store.js';
-
-interface CompactionSnapshot {
-  attempt: number;
-  trigger: 'pre-loop' | 'length-retry';
-  reason?: string;
-  forced: boolean;
-  strategy: 'summary' | 'summary-too-large' | 'fallback';
-  beforeMessageCount: number;
-  afterMessageCount: number;
-  beforeEstimatedTokens: number;
-  afterEstimatedTokens: number;
-}
-
 
 /**
  * Main entry point for all platform webhook routes.
@@ -136,93 +121,56 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
   const ac = new AbortController();
   setActiveRun(platformKey, { streamId, ac, startedAt: Date.now() });
 
-  let sessionId: string | undefined;
   let handle: StreamHandle | null = null;
-  const compactionEvents: CompactionSnapshot[] = [];
 
   try {
-    const result = await sessionStore.getOrCreate(platformKey, forceNewSession, memoryKey);
-    sessionId = result.sessionId;
-    const context = result.context;
-
     handle = await adapter.createStreamHandle(incoming, streamId);
 
-    // Append the user's message to context
-    context.messages.push({ role: 'user', content: text });
-
-    const finalText = await memoryIntegration.withRunContext(
-      {
-        platformKey: memoryKey,
-        sessionId,
-        userText: text,
-      },
-      async () => engine.run(context, {
-        abortSignal: ac.signal,
+    const turn = await executeAgentTurn({
+      platformKey,
+      memoryKey,
+      forceNewSession,
+      userText: text,
+      source: 'dispatcher',
+      abortSignal: ac.signal,
+      callbacks: {
         onText: (delta) => {
           handle?.onText(delta).catch(console.error);
         },
         onToolCall: (toolCall) => {
-          handle?.onToolCall(toolCall.toolName ?? toolCall.name ?? 'unknown', toolCall.args ?? toolCall.input ?? {}).catch(console.error);
+          handle
+            ?.onToolCall(toolCall.toolName ?? toolCall.name ?? 'unknown', toolCall.args ?? toolCall.input ?? {})
+            .catch(console.error);
         },
         onToolResult: (toolResult) => {
           handle?.onToolResult?.(toolResult).catch(console.error);
         },
-        onResponse: (messages) => {
-          for (const msg of messages) {
-            context.messages.push(msg);
-          }
-        },
-        onCompacted: (newMessages, event) => {
-          if (event) {
-            compactionEvents.push({
+        onCompactionEvent: (event) => {
+          handle
+            ?.onToolCall('compact_context', {
               attempt: event.attempt,
               trigger: event.trigger,
-              reason: event.reason,
+              reason: event.reason ?? event.strategy,
               forced: event.forced,
-              strategy: event.strategy,
-              beforeMessageCount: event.beforeMessageCount,
-              afterMessageCount: event.afterMessageCount,
-              beforeEstimatedTokens: event.beforeEstimatedTokens,
-              afterEstimatedTokens: event.afterEstimatedTokens,
-            });
-
-            handle
-              ?.onToolCall('compact_context', {
-                attempt: event.attempt,
-                trigger: event.trigger,
-                reason: event.reason ?? event.strategy,
-                forced: event.forced,
-                tokens: `${event.beforeEstimatedTokens} -> ${event.afterEstimatedTokens}`,
-                messages: `${event.beforeMessageCount} -> ${event.afterMessageCount}`,
-              })
-              .catch(console.error);
-          }
-
-          context.messages = newMessages;
+              tokens: `${event.beforeEstimatedTokens} -> ${event.afterEstimatedTokens}`,
+              messages: `${event.beforeMessageCount} -> ${event.afterMessageCount}`,
+            })
+            .catch(console.error);
         },
         onClarificationRequest: async (request) => {
           await handle?.onClarification(request);
           return clarificationQueue.waitForAnswer(streamId, request);
         },
-      }),
-    );
-
-    await sessionStore.save(sessionId, context);
-    await recordDailyLogFromSuccessPath({
-      platformKey: memoryKey,
-      sessionId,
-      userText: text,
-      assistantText: finalText,
-      source: 'dispatcher',
+      },
     });
-    await handle.onDone(finalText);
 
-    if (compactionEvents.length > 0) {
+    await handle.onDone(turn.resultText);
+
+    if (turn.compactions.length > 0) {
       console.info(
-        `[dispatcher] compacted ${platformKey} session=${sessionId ?? 'unknown'} details=${formatCompactionEvents(compactionEvents)}`,
+        `[dispatcher] compacted ${platformKey} session=${turn.sessionId} details=${formatCompactionEvents(turn.compactions)}`,
       );
     }
-
   } catch (err) {
     // Cancel any pending clarification for this stream
     clarificationQueue.cancel(streamId, 'Agent run failed');
@@ -247,16 +195,6 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
   } finally {
     clearActiveRun(platformKey);
   }
-}
-
-
-function formatCompactionEvents(events: CompactionSnapshot[]): string {
-  return events
-    .map((event) => {
-      const reason = event.reason ?? event.strategy;
-      return `#${event.attempt} ${event.trigger} ${reason} msgs:${event.beforeMessageCount}->${event.afterMessageCount} tokens:${event.beforeEstimatedTokens}->${event.afterEstimatedTokens}`;
-    })
-    .join(' | ');
 }
 
 function shouldStreamCommandProgress(text: string): boolean {
