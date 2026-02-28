@@ -5,7 +5,9 @@ import { getConnInfo } from '@hono/node-server/conninfo';
 import { createLarkClient, sendImageMessage, sendTextMessage } from '../adapters/feishu/client.js';
 import { extractGeminiImageResult } from '../adapters/feishu/image-result.js';
 import { getDiscordGatewayStatus, restartDiscordGateway } from '../adapters/discord/gateway-manager.js';
-import { executeAgentTurn, formatCompactionEvents, type CompactionSnapshot } from '../core/agent-runner.js';
+import { engine } from '../core/engine-singleton.js';
+import { sessionStore } from '../core/session-store.js';
+import { memoryIntegration, recordDailyLogFromSuccessPath } from '../core/memory-integration.js';
 import type { ClarificationRequest } from '../core/types.js';
 
 type ReceiveIdType = 'open_id' | 'chat_id' | 'user_id' | 'union_id' | 'email';
@@ -36,6 +38,18 @@ interface NotifyResult {
   ok: boolean;
   skipped: boolean;
   error?: string;
+}
+
+interface CompactionSnapshot {
+  attempt: number;
+  trigger: 'pre-loop' | 'length-retry';
+  reason?: string;
+  forced: boolean;
+  strategy: 'summary' | 'summary-too-large' | 'fallback';
+  beforeMessageCount: number;
+  afterMessageCount: number;
+  beforeEstimatedTokens: number;
+  afterEstimatedTokens: number;
 }
 
 interface ToolCallSnapshot {
@@ -118,13 +132,19 @@ internalRouter.post('/agent/run', async (c) => {
   const imageNotifyTasks: Promise<void>[] = [];
 
   try {
-    const turn = await executeAgentTurn({
-      platformKey,
-      memoryKey: platformKey,
-      forceNewSession,
-      userText: text,
-      source: 'internal',
-      callbacks: {
+    const session = await sessionStore.getOrCreate(platformKey, forceNewSession, platformKey);
+    sessionId = session.sessionId;
+    const context = session.context;
+
+    context.messages.push({ role: 'user', content: text });
+
+    const result = await memoryIntegration.withRunContext(
+      {
+        platformKey,
+        sessionId,
+        userText: text,
+      },
+      async () => engine.run(context, {
         onToolCall: (toolCall) => {
           const name = toolCall.toolName ?? toolCall.name ?? 'unknown';
           const input = toolCall.args ?? toolCall.input ?? {};
@@ -158,16 +178,44 @@ internalRouter.post('/agent/run', async (c) => {
               }),
           );
         },
+        onResponse: (messages) => {
+          for (const msg of messages) {
+            context.messages.push(msg);
+          }
+        },
+        onCompacted: (newMessages, event) => {
+          if (event) {
+            compactions.push({
+              attempt: event.attempt,
+              trigger: event.trigger,
+              reason: event.reason,
+              forced: event.forced,
+              strategy: event.strategy,
+              beforeMessageCount: event.beforeMessageCount,
+              afterMessageCount: event.afterMessageCount,
+              beforeEstimatedTokens: event.beforeEstimatedTokens,
+              afterEstimatedTokens: event.afterEstimatedTokens,
+            });
+          }
+
+          context.messages = newMessages;
+        },
         onClarificationRequest: async (request: ClarificationRequest) => {
           const answer = resolveClarificationAnswer(request, askPolicy);
           clarifications.push({ id: request.id, usedDefault: request.defaultAnswer !== undefined });
           return answer;
         },
-      },
-    });
+      }),
+    );
 
-    sessionId = turn.sessionId;
-    compactions.push(...turn.compactions);
+    await sessionStore.save(sessionId, context);
+    await recordDailyLogFromSuccessPath({
+      platformKey,
+      sessionId,
+      userText: text,
+      assistantText: result,
+      source: 'internal',
+    });
 
     await Promise.allSettled(imageNotifyTasks);
 
@@ -183,7 +231,7 @@ internalRouter.post('/agent/run', async (c) => {
       skill: body.skill,
       sessionId,
       ok: true,
-      result: turn.resultText,
+      result,
     });
 
     return c.json({
@@ -192,7 +240,7 @@ internalRouter.post('/agent/run', async (c) => {
       platformKey,
       sessionId,
       requestText: text,
-      result: turn.resultText,
+      result,
       toolCalls,
       compactionCount: compactions.length,
       compactions,
@@ -231,6 +279,16 @@ internalRouter.post('/agent/run', async (c) => {
     );
   }
 });
+
+
+function formatCompactionEvents(events: CompactionSnapshot[]): string {
+  return events
+    .map((event) => {
+      const reason = event.reason ?? event.strategy;
+      return `#${event.attempt} ${event.trigger} ${reason} msgs:${event.beforeMessageCount}->${event.afterMessageCount} tokens:${event.beforeEstimatedTokens}->${event.afterEstimatedTokens}`;
+    })
+    .join(' | ');
+}
 
 function isLocalInternalRequest(c: Context): boolean {
   const connInfo = getConnInfo(c);

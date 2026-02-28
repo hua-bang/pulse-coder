@@ -14,9 +14,7 @@
     "noEmit": true,
     "paths": {
       "pulse-coder-engine": ["./packages/engine/src/index.ts"],
-      "pulse-coder-engine/*": ["./packages/engine/src/*"],
-      "pulse-coder-plugin-kit": ["./packages/plugin-kit/src/index.ts"],
-      "pulse-coder-plugin-kit/*": ["./packages/plugin-kit/src/*"]
+      "pulse-coder-engine/*": ["./packages/engine/src/*"]
     }
   },
   "exclude": ["node_modules", "dist"]
