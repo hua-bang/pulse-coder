@@ -1,7 +1,7 @@
 {
-  "name": "pulse-coder-worktree-plugin",
+  "name": "pulse-coder-plugin-kit",
   "version": "0.0.1",
-  "description": "Host-side git worktree binding plugin for Pulse Coder runtimes",
+  "description": "Toolkit package for Pulse Coder runtime plugins",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -11,9 +11,18 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
+    "./worktree": {
+      "types": "./dist/worktree.d.ts",
+      "import": "./dist/worktree.js",
+      "require": "./dist/worktree.cjs"
+    },
     "./src": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
+    },
+    "./src/worktree": {
+      "types": "./src/worktree/index.ts",
+      "import": "./src/worktree/index.ts"
     }
   },
   "publishConfig": {

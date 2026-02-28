@@ -1,6 +1,6 @@
 import { homedir } from 'os';
 import { join } from 'path';
-import { createWorktreeIntegration } from 'pulse-coder-worktree-plugin';
+import { createWorktreeIntegration } from 'pulse-coder-plugin-kit/worktree';
 
 const DEFAULT_RUNTIME_KEY = 'remote-server';
 

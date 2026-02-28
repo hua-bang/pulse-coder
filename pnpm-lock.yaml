@@ -81,9 +81,9 @@ importers:
       pulse-coder-memory-plugin:
         specifier: workspace:*
         version: link:../../packages/memory-plugin
-      pulse-coder-worktree-plugin:
+      pulse-coder-plugin-kit:
         specifier: workspace:*
-        version: link:../../packages/worktree-plugin
+        version: link:../../packages/plugin-kit
       undici:
         specifier: ^6.23.0
         version: 6.23.0
@@ -112,9 +112,6 @@ importers:
       pulse-coder-memory-plugin:
         specifier: workspace:*
         version: link:../memory-plugin
-      pulse-coder-worktree-plugin:
-        specifier: workspace:*
-        version: link:../worktree-plugin
       pulse-sandbox:
         specifier: workspace:*
         version: link:../pulse-sandbox
@@ -209,11 +206,11 @@ importers:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@25.0.10)
 
-  packages/pulse-sandbox:
+  packages/plugin-kit:
     dependencies:
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+      pulse-coder-engine:
+        specifier: workspace:*
+        version: link:../engine
     devDependencies:
       '@types/node':
         specifier: ^25.0.10
@@ -228,11 +225,11 @@ importers:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@25.0.10)
 
-  packages/worktree-plugin:
+  packages/pulse-sandbox:
     dependencies:
-      pulse-coder-engine:
-        specifier: workspace:*
-        version: link:../engine
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^25.0.10

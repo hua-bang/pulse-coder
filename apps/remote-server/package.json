@@ -21,7 +21,7 @@
     "hono": "^4.6.0",
     "pulse-coder-engine": "workspace:*",
     "pulse-coder-memory-plugin": "workspace:*",
-    "pulse-coder-worktree-plugin": "workspace:*",
+    "pulse-coder-plugin-kit": "workspace:*",
     "undici": "^6.23.0",
     "zod": "^4.3.6"
   },
