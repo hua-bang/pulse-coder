@@ -1,6 +1,5 @@
 import { Engine } from 'pulse-coder-engine';
 import { memoryIntegration } from './memory-integration.js';
-import { worktreeIntegration } from './worktree/integration.js';
 
 /**
  * Single Engine instance shared across all platform adapters.
@@ -9,9 +8,6 @@ import { worktreeIntegration } from './worktree/integration.js';
  */
 export const engine = new Engine({
   enginePlugins: {
-    plugins: [
-      memoryIntegration.enginePlugin,
-      worktreeIntegration.enginePlugin,
-    ],
+    plugins: [memoryIntegration.enginePlugin],
   },
 });

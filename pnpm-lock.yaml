@@ -81,9 +81,6 @@ importers:
       pulse-coder-memory-plugin:
         specifier: workspace:*
         version: link:../../packages/memory-plugin
-      pulse-coder-plugin-kit:
-        specifier: workspace:*
-        version: link:../../packages/plugin-kit
       undici:
         specifier: ^6.23.0
         version: 6.23.0
@@ -193,25 +190,6 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.12
         version: 7.6.13
-      '@types/node':
-        specifier: ^25.0.10
-        version: 25.0.10
-      tsup:
-        specifier: ^8.0.0
-        version: 8.5.1(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)
-      typescript:
-        specifier: ^5.0.0
-        version: 5.9.3
-      vitest:
-        specifier: ^1.0.0
-        version: 1.6.1(@types/node@25.0.10)
-
-  packages/plugin-kit:
-    dependencies:
-      pulse-coder-engine:
-        specifier: workspace:*
-        version: link:../engine
-    devDependencies:
       '@types/node':
         specifier: ^25.0.10
         version: 25.0.10
