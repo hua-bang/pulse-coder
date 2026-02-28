@@ -30,6 +30,7 @@ export {
   builtInSkillsPlugin,
   builtInPlanModePlugin,
   builtInTaskTrackingPlugin,
+  builtInAgentTeamPlugin,
   BuiltInSkillRegistry,
   BuiltInPlanModeService,
   TaskListService,

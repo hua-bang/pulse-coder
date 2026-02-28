@@ -83,6 +83,30 @@ CLI additionally injects:
 
 ---
 
+### Agent Team Orchestration (Built-in)
+
+The engine now includes a built-in agent team orchestration plugin.
+
+- Tool: `team_run`
+- Team specs: `.pulse-coder/teams/*.team.json` (legacy fallback: `.coder/teams/*.team.json`)
+- Model: fixed-role, fixed-DAG, centralized scheduling
+
+Minimal `team_run` call:
+
+```json
+{
+  "teamId": "code-delivery-l2",
+  "goal": "Implement and validate feature X",
+  "input": {
+    "constraints": "No schema changes"
+  }
+}
+```
+
+A starter team spec is provided at `.pulse-coder/teams/code-delivery-l2.team.json`.
+
+---
+
 ## Quick start
 
 ### Prerequisites

@@ -1,0 +1,36 @@
+{
+  "teamId": "code-delivery-l2",
+  "version": "1.0.0",
+  "maxParallel": 3,
+  "nodes": [
+    {
+      "id": "analyze",
+      "agent": "doc-generator",
+      "goalTemplate": "Analyze this request and produce a concise implementation plan.\\nGoal: {{goal}}\\nInput: {{input}}",
+      "deps": []
+    },
+    {
+      "id": "implement",
+      "agent": "doc-generator",
+      "goalTemplate": "Based on the plan in analyze, produce implementation-ready steps and patch notes.\\nAnalyze output:\\n{{deps.analyze.output}}",
+      "deps": ["analyze"]
+    },
+    {
+      "id": "review",
+      "agent": "code-reviewer",
+      "goalTemplate": "Review the proposed implementation and list critical risks first.\\nPlan:\\n{{deps.analyze.output}}\\nImplementation:\\n{{deps.implement.output}}",
+      "deps": ["implement"]
+    },
+    {
+      "id": "tests",
+      "agent": "test-writer",
+      "goalTemplate": "Draft a focused test checklist for the implementation.\\nImplementation:\\n{{deps.implement.output}}",
+      "deps": ["implement"],
+      "optional": true
+    }
+  ],
+  "finalAggregator": {
+    "mode": "template",
+    "template": "Agent Team Run: {{goal}}\\n\\nImplementation:\\n{{nodes.implement.output}}\\n\\nReview:\\n{{nodes.review.output}}\\n\\nTests:\\n{{nodes.tests.output}}"
+  }
+}
