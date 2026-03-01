@@ -30,6 +30,7 @@ export {
   builtInSkillsPlugin,
   builtInPlanModePlugin,
   builtInTaskTrackingPlugin,
+  builtInAgentTeamsPlugin,
   BuiltInSkillRegistry,
   BuiltInPlanModeService,
   TaskListService,
@@ -47,7 +48,13 @@ export type {
   PlanModeService,
   TaskStatus,
   WorkTask,
-  WorkTaskListSnapshot
+  WorkTaskListSnapshot,
+  TeamRole,
+  TaskGraph,
+  TaskNode,
+  NodeResult,
+  TeamRunInput,
+  TeamRunOutput
 } from './built-in/index.js';
 
 // 原有导出保持不变
