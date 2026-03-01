@@ -8,6 +8,7 @@ import { builtInSkillsPlugin } from './skills-plugin';
 import { builtInPlanModePlugin } from './plan-mode-plugin';
 import { builtInTaskTrackingPlugin } from './task-tracking-plugin';
 import { SubAgentPlugin } from './sub-agent-plugin';
+import { builtInAgentTeamsPlugin } from './agent-teams-plugin';
 
 /**
  * 默认内置插件列表
@@ -18,7 +19,8 @@ export const builtInPlugins = [
   builtInSkillsPlugin,
   builtInPlanModePlugin,
   builtInTaskTrackingPlugin,
-  new SubAgentPlugin()
+  new SubAgentPlugin(),
+  builtInAgentTeamsPlugin
 ];
 
 /**
@@ -29,6 +31,8 @@ export { builtInSkillsPlugin, BuiltInSkillRegistry } from './skills-plugin';
 export { builtInPlanModePlugin, BuiltInPlanModeService } from './plan-mode-plugin';
 export { builtInTaskTrackingPlugin, TaskListService } from './task-tracking-plugin';
 export type { TaskStatus, WorkTask, WorkTaskListSnapshot } from './task-tracking-plugin';
+export { builtInAgentTeamsPlugin } from './agent-teams-plugin';
+export type { TeamRole, TaskGraph, TaskNode, NodeResult, TeamRunInput, TeamRunOutput } from './agent-teams-plugin/types';
 export type {
   PlanMode,
   PlanIntentLabel,
