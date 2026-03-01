@@ -8,6 +8,10 @@
       "transport": "http",
       "url": "https://mcp.deepwiki.com/mcp"
     },
+    "exa": {
+      "transport": "http",
+      "url": "https://mcp.exa.ai/mcp"
+    },
     "twitter": {
       "transport": "stdio",
       "command": "/root/.local/bin/uv",

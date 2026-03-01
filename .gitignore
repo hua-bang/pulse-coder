@@ -145,3 +145,7 @@ apps/remote-server/*.jpg
 apps/remote-server/*.jpeg
 apps/remote-server/*.webp
 apps/remote-server/*.svg
+
+# Local worktrees and vendor clones
+worktrees/
+.vendors/
