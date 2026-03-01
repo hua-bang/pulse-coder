@@ -4,6 +4,7 @@ import { engine } from './engine-singleton.js';
 import { sessionStore } from './session-store.js';
 import { memoryIntegration, recordDailyLogFromSuccessPath } from './memory-integration.js';
 import { buildRemoteWorktreeRunContext, worktreeIntegration } from './worktree/integration.js';
+import { resolveModelForRun } from './model-config.js';
 
 export type CompactionSnapshot = CompactionEvent;
 
@@ -37,6 +38,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
   const context = session.context;
   const callbacks = input.callbacks ?? {};
   const compactions: CompactionSnapshot[] = [];
+  const modelOverride = await resolveModelForRun(input.platformKey);
 
   context.messages.push({ role: 'user', content: input.userText });
 
@@ -48,6 +50,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
       userText: input.userText,
     },
     async () => engine.run(context, {
+      model: modelOverride,
       abortSignal: input.abortSignal,
       onText: callbacks.onText,
       onToolCall: callbacks.onToolCall,
