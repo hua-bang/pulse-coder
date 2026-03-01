@@ -1,0 +1,6 @@
+{
+  "current_model": "gpt-5.2-codex",
+  "models": [
+    { "name": "gpt-5.2-codex" }
+  ]
+}
