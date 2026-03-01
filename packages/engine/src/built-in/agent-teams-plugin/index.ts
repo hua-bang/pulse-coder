@@ -18,7 +18,7 @@ const TEAM_RUN_INPUT_SCHEMA = z.object({
   route: z.enum(['auto', 'all']).optional().describe('自动路由或全角色执行'),
   includeRoles: z.array(z.string()).optional().describe('强制包含的角色'),
   excludeRoles: z.array(z.string()).optional().describe('排除的角色'),
-  roleTools: z.record(z.string()).optional().describe('角色到工具名称映射'),
+  roleTools: z.record(z.string(), z.string()).optional().describe('角色到工具名称映射'),
   maxConcurrency: z.number().int().min(1).optional().describe('最大并发数'),
   nodeTimeoutMs: z.number().int().min(0).optional().describe('单节点超时'),
   retries: z.number().int().min(0).optional().describe('重试次数'),
