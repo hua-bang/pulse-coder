@@ -626,6 +626,7 @@ function buildHelpMessage(): string {
     '/stop - 停止当前正在运行的任务',
     '/cancel - /stop 的别名',
     '/wt status - 查看当前会话绑定的 worktree',
+    '/wt use <id> - 复用已有或创建新的 worktree 并绑定',
     '/wt use <id> <repoRoot> <worktreePath> [branch] - 绑定/更新当前会话 worktree',
     '/wt clear - 清除当前会话 worktree 绑定',
   ].join('\n');
