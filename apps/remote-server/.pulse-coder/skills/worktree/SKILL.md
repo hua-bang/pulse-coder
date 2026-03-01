@@ -19,7 +19,7 @@ Use `worktree` when the user wants to:
 
 ## Execution Contract
 
-- Only create a new worktree when explicitly triggered (for example: `/skill worktree new ...`).
+- Only create a new worktree when explicitly triggered (for example: `/skill worktree new ...` or `/wt use ...`).
 - If user did not ask for worktree operations, do not auto-create directories.
 - Keep one task per worktree, one branch per worktree.
 - Always resolve and use the git repository root before running worktree commands.
@@ -33,8 +33,7 @@ Use a single name for `new` (no required channel/thread arguments):
 /skill worktree new <work-name>
 ```
 
-Example:
-- `/skill worktree new feat-agent-team`
+- `/wt use feat-agent-team` (CLI alias)
 
 ## Thread Context Pin (Required)
 
