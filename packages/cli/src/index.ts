@@ -123,6 +123,7 @@ class CoderCLI {
           console.log('/clear - Clear current conversation');
           console.log('/compact - Force compact current conversation context');
           console.log('/skills [list|<name|index> <message>] - Run one message with a selected skill');
+          console.log('/wt use <work-name> - Create a worktree + branch via worktree skill');
           console.log('/status - Show current session status');
           console.log('/mode - Show current plan mode');
           console.log('/plan - Switch to planning mode');
@@ -437,6 +438,23 @@ class CoderCLI {
           }
 
           messageInput = transformedMessage;
+        } else if (command.toLowerCase() === 'wt') {
+          if (args.length < 2 || args[0].toLowerCase() !== 'use') {
+            console.log('\n❌ Usage: /wt use <work-name>');
+            rl.prompt();
+            return;
+          }
+
+          const workName = args.slice(1).join(' ').trim();
+          if (!workName) {
+            console.log('\n❌ Worktree name cannot be empty.');
+            console.log('Usage: /wt use <work-name>');
+            rl.prompt();
+            return;
+          }
+
+          messageInput = `[use skill](worktree) new ${workName}`;
+          console.log('\n✅ Worktree request prepared via skill: worktree');
         } else {
           await this.handleCommand(command, args);
           rl.prompt();
