@@ -5,6 +5,7 @@ import { getConnInfo } from '@hono/node-server/conninfo';
 import { createLarkClient, sendImageMessage, sendTextMessage } from '../adapters/feishu/client.js';
 import { extractGeminiImageResult } from '../adapters/feishu/image-result.js';
 import { getDiscordGatewayStatus, restartDiscordGateway } from '../adapters/discord/gateway-manager.js';
+import { DiscordClient } from '../adapters/discord/client.js';
 import { executeAgentTurn, formatCompactionEvents, type CompactionSnapshot } from '../core/agent-runner.js';
 import type { ClarificationRequest } from '../core/types.js';
 
@@ -17,8 +18,14 @@ interface FeishuNotifyConfig {
   receiveIdType?: ReceiveIdType;
 }
 
+interface DiscordNotifyConfig {
+  channelId?: string;
+  isThread?: boolean;
+}
+
 interface NotifyConfig {
   feishu?: FeishuNotifyConfig;
+  discord?: DiscordNotifyConfig;
 }
 
 interface AgentRunBody {
@@ -46,6 +53,11 @@ interface ToolCallSnapshot {
 interface FeishuTarget {
   receiveId: string;
   receiveIdType: ReceiveIdType;
+}
+
+interface DiscordTarget {
+  channelId: string;
+  isThread: boolean;
 }
 
 const DEFAULT_PLATFORM_KEY = 'internal:agent-run';
@@ -114,6 +126,7 @@ internalRouter.post('/agent/run', async (c) => {
   const compactions: CompactionSnapshot[] = [];
   const clarifications: Array<{ id: string; usedDefault: boolean }> = [];
   const feishuTarget = resolveFeishuTarget(body.notify?.feishu, platformKey);
+  const discordTarget = resolveDiscordTarget(body.notify?.discord, platformKey);
   const sentImagePaths = new Set<string>();
   const imageNotifyTasks: Promise<void>[] = [];
 
@@ -177,14 +190,14 @@ internalRouter.post('/agent/run', async (c) => {
       );
     }
 
-    const notifyResult = await sendOptionalFeishuNotification(body.notify, {
+    const notifyResult = await sendOptionalNotification(body.notify, {
       runId,
       platformKey,
       skill: body.skill,
       sessionId,
       ok: true,
       result: turn.resultText,
-    });
+    }, { feishuTarget, discordTarget });
 
     return c.json({
       ok: true,
@@ -204,14 +217,14 @@ internalRouter.post('/agent/run', async (c) => {
 
     await Promise.allSettled(imageNotifyTasks);
 
-    const notifyResult = await sendOptionalFeishuNotification(body.notify, {
+    const notifyResult = await sendOptionalNotification(body.notify, {
       runId,
       platformKey,
       skill: body.skill,
       sessionId,
       ok: false,
       result: error,
-    });
+    }, { feishuTarget, discordTarget });
 
     return c.json(
       {
@@ -334,7 +347,7 @@ function resolveClarificationAnswer(request: ClarificationRequest, askPolicy: As
   throw new Error(`Clarification required but no default answer provided: ${request.question}`);
 }
 
-async function sendOptionalFeishuNotification(
+async function sendOptionalNotification(
   notify: NotifyConfig | undefined,
   payload: {
     runId: string;
@@ -344,15 +357,61 @@ async function sendOptionalFeishuNotification(
     ok: boolean;
     result: string;
   },
+  targets: {
+    feishuTarget: FeishuTarget | null;
+    discordTarget: DiscordTarget | null;
+  },
 ): Promise<NotifyResult> {
-  const target = resolveFeishuTarget(notify?.feishu, payload.platformKey);
-  if (!target) {
+  const baseMessage = buildNotifyMessage(payload);
+  let hasTarget = false;
+  let error: string | undefined;
+
+  if (targets.feishuTarget) {
+    hasTarget = true;
+    const feishuResult = await sendFeishuNotification(targets.feishuTarget, baseMessage).catch((err) => {
+      error = err instanceof Error ? err.message : String(err);
+      return false;
+    });
+
+    if (!feishuResult && !error) {
+      error = 'Feishu notify failed';
+    }
+  }
+
+  if (targets.discordTarget) {
+    hasTarget = true;
+    const discordResult = await sendDiscordNotification(targets.discordTarget, baseMessage).catch((err) => {
+      error = err instanceof Error ? err.message : String(err);
+      return false;
+    });
+
+    if (!discordResult && !error) {
+      error = 'Discord notify failed';
+    }
+  }
+
+  if (!hasTarget) {
     return { ok: true, skipped: true };
   }
 
+  if (error) {
+    return { ok: false, skipped: false, error };
+  }
+
+  return { ok: true, skipped: false };
+}
+
+function buildNotifyMessage(payload: {
+  runId: string;
+  platformKey: string;
+  sessionId: string;
+  skill?: string;
+  ok: boolean;
+  result: string;
+}): string {
   const title = payload.ok ? '[agent-run] done' : '[agent-run] failed';
   const skillLine = payload.skill ? `skill: ${payload.skill}\n` : '';
-  const message = [
+  return [
     `${title}`,
     `runId: ${payload.runId}`,
     `platformKey: ${payload.platformKey}`,
@@ -360,20 +419,46 @@ async function sendOptionalFeishuNotification(
     `${skillLine}result:`,
     truncateForFeishu(payload.result),
   ].join('\n');
-
-  try {
-    const client = createLarkClient();
-    await sendTextMessage(client, target.receiveId, target.receiveIdType, message);
-    return { ok: true, skipped: false };
-  } catch (err) {
-    return {
-      ok: false,
-      skipped: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
 }
 
+async function sendFeishuNotification(target: FeishuTarget, message: string): Promise<boolean> {
+  const client = createLarkClient();
+  await sendTextMessage(client, target.receiveId, target.receiveIdType, message);
+  return true;
+}
+
+async function sendDiscordNotification(target: DiscordTarget, message: string): Promise<boolean> {
+  const client = new DiscordClient();
+  await client.sendChannelMessage(target.channelId, message, { assumeThread: target.isThread });
+  return true;
+}
+
+function resolveDiscordTarget(discord: DiscordNotifyConfig | undefined, platformKey: string): DiscordTarget | null {
+  if (discord?.channelId) {
+    return {
+      channelId: discord.channelId,
+      isThread: discord.isThread ?? false,
+    };
+  }
+
+  const threadMatch = /^discord:thread:([^:]+)$/.exec(platformKey);
+  if (threadMatch) {
+    return {
+      channelId: threadMatch[1],
+      isThread: true,
+    };
+  }
+
+  const channelMatch = /^discord:channel:([^:]+):[^:]+$/.exec(platformKey);
+  if (channelMatch) {
+    return {
+      channelId: channelMatch[1],
+      isThread: false,
+    };
+  }
+
+  return null;
+}
 
 function resolveFeishuTarget(feishu: FeishuNotifyConfig | undefined, platformKey: string): FeishuTarget | null {
   if (!feishu) {
