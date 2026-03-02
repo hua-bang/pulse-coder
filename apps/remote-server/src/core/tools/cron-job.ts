@@ -3,7 +3,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import z from 'zod';
-import type { Tool } from 'pulse-coder-engine';
+import type { Tool, ToolExecutionContext } from 'pulse-coder-engine';
 import { createLarkClient, sendTextMessage } from '../../adapters/feishu/client.js';
 import { DiscordClient } from '../../adapters/discord/client.js';
 
@@ -94,8 +94,8 @@ export const cronJobTool: Tool<CronJobInput, CronJobResult> = {
   name: 'cron_job',
   description: 'Create or update a cron runner that calls /internal/agent/run with optional notify targets.',
   inputSchema: toolSchema,
-  execute: async (input) => {
-    const normalized = normalizeInput(input);
+  execute: async (input, context?: ToolExecutionContext) => {
+    const normalized = normalizeInput(input, context?.runContext);
 
     const schedule = normalized.schedule;
     const jobSlug = normalized.jobSlug;
@@ -213,11 +213,15 @@ interface NormalizedInput {
   dryRun: boolean;
 }
 
-function normalizeInput(input: CronJobInput): NormalizedInput {
+interface RunContextInput {
+  platformKey?: string;
+}
+
+function normalizeInput(input: CronJobInput, runContext?: RunContextInput): NormalizedInput {
   const schedule = input.schedule?.trim() || DEFAULT_SCHEDULE;
   const baseName = input.name?.trim() || input.intent?.trim() || 'agent-task';
   const jobSlug = slugify(baseName);
-  const platformKey = input.platformKey?.trim() || `internal:cron:${jobSlug}`;
+  const platformKey = input.platformKey?.trim() || runContext?.platformKey || `internal:cron:${jobSlug}`;
   const askPolicy = input.askPolicy ?? DEFAULT_ASK_POLICY;
   const forceNewSession = input.forceNewSession ?? DEFAULT_FORCE_NEW_SESSION;
   const prompt = (input.prompt && input.prompt.trim()) || DEFAULT_SKILL_PROMPT;

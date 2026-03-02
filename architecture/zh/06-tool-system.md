@@ -72,6 +72,7 @@ sequenceDiagram
 由 `loop -> streamTextAI -> wrapToolsWithContext` 注入，包含：
 - `onClarificationRequest`
 - `abortSignal`
+- `runContext`（可选运行时元数据，例如 platformKey、sessionId、memoryKey、userText、source）
 
 `clarify` 工具依赖此上下文：
 - 若缺失回调直接报错

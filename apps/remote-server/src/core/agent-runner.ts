@@ -48,9 +48,17 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
       memoryKey: input.memoryKey,
       sessionId,
       userText: input.userText,
+      source: input.source,
     },
     async () => engine.run(context, {
       model: modelOverride,
+      runContext: {
+        platformKey: input.platformKey,
+        memoryKey: input.memoryKey,
+        sessionId,
+        userText: input.userText,
+        source: input.source,
+      },
       abortSignal: input.abortSignal,
       onText: callbacks.onText,
       onToolCall: callbacks.onToolCall,
@@ -93,6 +101,7 @@ export async function runWithAgentContexts<T>(
     memoryKey: string;
     sessionId: string;
     userText: string;
+    source: string;
   },
   run: () => Promise<T>,
 ): Promise<T> {

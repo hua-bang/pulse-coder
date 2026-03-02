@@ -74,6 +74,7 @@ This provides a zero-code project-level customization path.
 `wrapToolsWithContext` injects `context` into each tool:
 - Typical use: `clarify` tool asks user for clarification
 - Can carry future trace id / permission context
+- Can carry runtime metadata via `runContext` (for example: platformKey, sessionId, memoryKey, userText, source)
 
 ## 7. `providerOptions`
 

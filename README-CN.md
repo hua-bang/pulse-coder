@@ -1,4 +1,4 @@
-# Pulse Coder
+# Pulse Agent
 
 一个以插件为核心的 Coding Agent Monorepo，包含可复用引擎、交互式 CLI，以及可选的服务端/运行时集成。
 

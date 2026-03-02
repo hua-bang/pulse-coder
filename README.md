@@ -1,4 +1,4 @@
-# Pulse Coder
+# Pulse Agent
 
 Plugin-first coding agent monorepo with a reusable engine, an interactive CLI, and optional server/runtime integrations.
 
