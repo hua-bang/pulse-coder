@@ -1,5 +1,5 @@
 import { ToolSet, type StepResult, type ModelMessage } from "ai";
-import type { Context, ClarificationRequest, Tool, LLMProviderFactory, SystemPromptOption, RunContext } from "../shared/types";
+import type { Context, ClarificationRequest, Tool, LLMProviderFactory, SystemPromptOption } from "../shared/types";
 import type { EngineHookMap, OnCompactedEvent } from "../plugin/EnginePlugin.js";
 import { streamTextAI } from "../ai";
 import { maybeCompactContext, type CompactStats } from "../context";
@@ -36,7 +36,7 @@ export interface LoopOptions {
   onCompacted?: (newMessages: ModelMessage[], event?: CompactionEvent) => void;
   onResponse?: (messages: StepResult<ToolSet>['response']['messages']) => void;
   abortSignal?: AbortSignal;
-  runContext?: RunContext | Record<string, any>;
+  runContext?: Record<string, any>;
 
   tools?: Record<string, Tool>;
 

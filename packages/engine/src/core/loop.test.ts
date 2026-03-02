@@ -65,11 +65,8 @@ describe('loop', () => {
     });
 
     const runContext = {
-      platformKey: 'platform:demo',
-      memoryKey: 'memory:demo',
       sessionId: 'session-123',
       userText: 'run tool',
-      source: 'dispatcher',
     };
 
     const result = await loop(context, {

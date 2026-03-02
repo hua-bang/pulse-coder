@@ -61,18 +61,10 @@ export interface ClarificationRequest {
   timeout: number;
 }
 
-export interface RunContext {
-  platformKey: string;
-  memoryKey: string;
-  sessionId: string;
-  userText: string;
-  source: string;
-}
-
 export interface ToolExecutionContext {
   onClarificationRequest?: (request: ClarificationRequest) => Promise<string>;
   abortSignal?: AbortSignal;
-  runContext?: RunContext | Record<string, any>;
+  runContext?: Record<string, any>;
 }
 
 export interface Tool<Input = any, Output = any> {

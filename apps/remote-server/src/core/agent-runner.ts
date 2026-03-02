@@ -53,11 +53,8 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
     async () => engine.run(context, {
       model: modelOverride,
       runContext: {
-        platformKey: input.platformKey,
-        memoryKey: input.memoryKey,
         sessionId,
         userText: input.userText,
-        source: input.source,
       },
       abortSignal: input.abortSignal,
       onText: callbacks.onText,

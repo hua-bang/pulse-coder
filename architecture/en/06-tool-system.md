@@ -72,7 +72,7 @@ Purpose:
 Injected through `loop -> streamTextAI -> wrapToolsWithContext`, including:
 - `onClarificationRequest`
 - `abortSignal`
-- `runContext` (optional runtime metadata like platformKey, sessionId, memoryKey, userText, source)
+- `runContext` (optional runtime metadata like sessionId, userText)
 
 `clarify` tool depends on this context:
 - Throws if callback is missing
