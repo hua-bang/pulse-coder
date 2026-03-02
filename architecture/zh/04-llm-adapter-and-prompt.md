@@ -74,6 +74,7 @@ flowchart LR
 `wrapToolsWithContext` 会将 `context` 注入每个工具：
 - 典型用途：`clarify` 工具触发用户澄清
 - 也可承载未来的 trace id、权限上下文
+- 可通过 `runContext` 传入运行时元数据（例如 platformKey、sessionId、memoryKey、userText、source）
 
 ## 7. ProviderOptions
 

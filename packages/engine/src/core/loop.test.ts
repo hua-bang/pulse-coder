@@ -64,11 +64,20 @@ describe('loop', () => {
       };
     });
 
+    const runContext = {
+      platformKey: 'platform:demo',
+      memoryKey: 'memory:demo',
+      sessionId: 'session-123',
+      userText: 'run tool',
+      source: 'dispatcher',
+    };
+
     const result = await loop(context, {
       tools: {
         echo: echoTool,
       },
       systemPrompt: 'base-prompt',
+      runContext,
       hooks: {
         beforeLLMCall: [beforeLLMCall],
         beforeToolCall: [async ({ input }) => ({ input: { value: `${input.value}-before` } })],
@@ -86,7 +95,7 @@ describe('loop', () => {
     );
     expect(echoExecute).toHaveBeenCalledWith(
       expect.objectContaining({ value: 'seed-before' }),
-      expect.anything(),
+      expect.objectContaining({ runContext }),
     );
     expect(onResponse).toHaveBeenCalledWith([{ role: 'assistant', content: 'step response' }]);
   });
