@@ -1,6 +1,7 @@
 import { Engine } from 'pulse-coder-engine';
 import { memoryIntegration } from './memory-integration.js';
 import { worktreeIntegration } from './worktree/integration.js';
+import { cronJobTool } from './tools/cron-job.js';
 
 /**
  * Single Engine instance shared across all platform adapters.
@@ -13,5 +14,8 @@ export const engine = new Engine({
       memoryIntegration.enginePlugin,
       worktreeIntegration.enginePlugin,
     ],
+  },
+  tools: {
+    cron_job: cronJobTool,
   },
 });
