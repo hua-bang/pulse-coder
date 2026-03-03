@@ -22,8 +22,6 @@ export interface ExecuteAgentTurnInput {
   forceNewSession?: boolean;
   userText: string;
   source: 'dispatcher' | 'internal';
-  systemPromptAppend?: string;
-  runtimeContext?: Record<string, unknown>;
   abortSignal?: AbortSignal;
   callbacks?: AgentTurnCallbacks;
 }
@@ -54,56 +52,6 @@ function buildRunContext(input: {
     platformKey: input.platformKey,
     channel: channel ?? undefined,
   };
-}
-
-function mergeRunContext(base: Record<string, any>, runtimeContext?: Record<string, unknown>): Record<string, any> {
-  if (!runtimeContext || typeof runtimeContext !== 'object') {
-    return base;
-  }
-
-  const entries = Object.entries(runtimeContext).filter(([key, value]) => value !== undefined && !(key in base));
-  if (entries.length === 0) {
-    return base;
-  }
-
-  return { ...base, ...Object.fromEntries(entries) };
-}
-
-function formatChannelForSystemPrompt(channel?: RunChannelInfo): string {
-  if (!channel) {
-    return 'channel=unknown';
-  }
-
-  const parts = [`platform=${channel.platform}`];
-  if (channel.kind) {
-    parts.push(`kind=${channel.kind}`);
-  }
-  if (channel.channelId) {
-    parts.push(`channelId=${channel.channelId}`);
-  }
-  if (channel.userId) {
-    parts.push(`userId=${channel.userId}`);
-  }
-  if (channel.isThread !== undefined) {
-    parts.push(`isThread=${channel.isThread}`);
-  }
-
-  return parts.join(', ');
-}
-
-function buildSystemPromptAppend(input: {
-  platformKey: string;
-  systemPromptAppend?: string;
-}): string {
-  const channel = parseChannelInfo(input.platformKey);
-  const runtimeLine = `Runtime context (trusted): platformKey=${input.platformKey}; ${formatChannelForSystemPrompt(channel)}`;
-  const userAppend = input.systemPromptAppend?.trim();
-
-  if (userAppend) {
-    return `${userAppend}\n${runtimeLine}`;
-  }
-
-  return runtimeLine;
 }
 
 function parseChannelInfo(platformKey: string): RunChannelInfo | undefined {
@@ -202,17 +150,11 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
 
   context.messages.push({ role: 'user', content: input.userText });
 
-  const baseRunContext = buildRunContext({
+  const runContext = buildRunContext({
     sessionId,
     userText: input.userText,
     platformKey: input.platformKey,
   });
-  const runContext = mergeRunContext(baseRunContext, input.runtimeContext);
-  const systemPromptAppend = buildSystemPromptAppend({
-    platformKey: input.platformKey,
-    systemPromptAppend: input.systemPromptAppend,
-  });
-  const systemPrompt = { append: systemPromptAppend };
 
   const resultText = await runWithAgentContexts(
     {
@@ -225,7 +167,6 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
     async () => engine.run(context, {
       model: modelOverride,
       runContext,
-      systemPrompt,
       abortSignal: input.abortSignal,
       onText: callbacks.onText,
       onToolCall: callbacks.onToolCall,

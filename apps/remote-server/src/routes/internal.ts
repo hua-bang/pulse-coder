@@ -37,8 +37,6 @@ interface AgentRunBody {
   forceNewSession?: boolean;
   askPolicy?: AskPolicy;
   notify?: NotifyConfig;
-  systemPromptAppend?: string;
-  runtimeContext?: Record<string, unknown>;
 }
 
 interface NotifyResult {
@@ -112,8 +110,6 @@ internalRouter.post('/agent/run', async (c) => {
   const askPolicy = normalizeAskPolicy(body.askPolicy);
   const forceNewSession = body.forceNewSession ?? true;
   const text = buildPromptText(body);
-  const systemPromptAppend = normalizeSystemPromptAppend(body.systemPromptAppend);
-  const runtimeContext = normalizeRuntimeContext(body.runtimeContext);
 
   if (!text) {
     return c.json(
@@ -141,8 +137,6 @@ internalRouter.post('/agent/run', async (c) => {
       forceNewSession,
       userText: text,
       source: 'internal',
-      systemPromptAppend,
-      runtimeContext,
       callbacks: {
         onToolCall: (toolCall) => {
           const name = toolCall.toolName ?? toolCall.name ?? 'unknown';
@@ -339,38 +333,6 @@ function normalizeSkillDirective(text: string): string {
     }
     return `[use skill](${trimmedName})`;
   });
-}
-
-function normalizeSystemPromptAppend(value?: string): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-
-  const maxChars = 2000;
-  if (trimmed.length <= maxChars) {
-    return trimmed;
-  }
-
-  return trimmed.slice(0, maxChars);
-}
-
-function normalizeRuntimeContext(value?: Record<string, unknown>): Record<string, unknown> | undefined {
-  if (!value || typeof value !== 'object') {
-    return undefined;
-  }
-
-  const entries = Object.entries(value).filter(([_, entry]) => entry !== undefined);
-  if (entries.length === 0) {
-    return undefined;
-  }
-
-  const limit = 20;
-  return Object.fromEntries(entries.slice(0, limit));
 }
 
 function resolveClarificationAnswer(request: ClarificationRequest, askPolicy: AskPolicy): string {
