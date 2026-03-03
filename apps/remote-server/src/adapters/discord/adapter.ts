@@ -287,6 +287,18 @@ export class DiscordAdapter implements PlatformAdapter {
     let animationTimer: ReturnType<typeof setInterval> | null = null;
     let finalizing = false;
     let progressFrame = 0;
+    let primaryWriteChain: Promise<void> = Promise.resolve();
+
+    const enqueuePrimaryWrite = (
+      write: () => Promise<void>,
+      options: { onError?: (err: unknown) => void; propagate?: boolean } = {},
+    ): Promise<void> => {
+      const run = primaryWriteChain.then(write);
+      primaryWriteChain = run.catch((err) => {
+        options.onError?.(err);
+      });
+      return options.propagate ? run : primaryWriteChain;
+    };
 
     const renderProgress = (): string => {
       const body = !accumulatedText
@@ -303,7 +315,14 @@ export class DiscordAdapter implements PlatformAdapter {
       if (finalizing) {
         return;
       }
-      await io.updatePrimary(renderProgress());
+      await enqueuePrimaryWrite(
+        () => io.updatePrimary(renderProgress()),
+        {
+          onError: (err) => {
+            console.error('[discord] Failed to update progress message:', err);
+          },
+        },
+      );
     };
 
     const scheduleProgress = () => {
@@ -349,7 +368,10 @@ export class DiscordAdapter implements PlatformAdapter {
 
     const sendFinalText = async (text: string) => {
       const chunks = splitDiscordText(text);
-      await io.updatePrimary(chunks[0]);
+      await enqueuePrimaryWrite(
+        () => io.updatePrimary(chunks[0]),
+        { propagate: true },
+      );
 
       for (const chunk of chunks.slice(1)) {
         await io.sendExtraText(chunk);
