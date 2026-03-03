@@ -22,7 +22,7 @@ export type CommandResult =
   | { type: 'handled_silent' }
   | { type: 'transformed'; text: string };
 
-const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping', 'memory', 'fork', 'wt']);
+const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping', 'memory', 'mode', 'fork', 'wt']);
 const COMMAND_ALIASES: Record<string, string> = {
   '?': 'help',
   h: 'help',
@@ -137,6 +137,9 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
 
     case 'memory':
       return await handleMemoryCommand(incoming.platformKey, memoryKey, args);
+
+    case 'mode':
+      return handleModeCommand(args);
 
     default:
       return {
@@ -568,6 +571,38 @@ function getSkillRegistry(): SkillRegistryService | undefined {
   return engine.getService<SkillRegistryService>('skillRegistry');
 }
 
+function handleModeCommand(args: string[]): CommandResult {
+  const sub = args[0]?.toLowerCase();
+  const mode = engine.getMode();
+
+  if (!mode) {
+    return {
+      type: 'handled',
+      message: '⚠️ 当前引擎未启用 plan mode 服务。',
+    };
+  }
+
+  if (!sub || sub === 'status') {
+    return {
+      type: 'handled',
+      message: `🧭 当前模式：${mode}`,
+    };
+  }
+
+  if (sub !== 'planning' && sub !== 'executing') {
+    return {
+      type: 'handled',
+      message: '❌ 用法：/mode [status|planning|executing]',
+    };
+  }
+
+  const changed = engine.setMode(sub, 'command');
+  return {
+    type: 'handled',
+    message: changed ? `✅ 已切换为 ${sub} 模式` : '⚠️ 无法切换模式（plan mode 服务不可用）',
+  };
+}
+
 function resolveSkillSelection(target: string, skills: SkillSummary[]): SkillSummary | null {
   const trimmed = target.trim();
   if (!trimmed) {
@@ -611,6 +646,9 @@ function buildHelpMessage(): string {
     '/clear - 清空当前会话上下文',
     '/reset - /clear 的别名',
     '/compact - 强制压缩当前会话上下文',
+    '/mode - 查看当前模式',
+    '/mode planning - 切换到 planning 模式',
+    '/mode executing - 切换到 executing 模式',
     '/memory - 查看 memory 列表',
     '/memory on|off - 开关当前会话 memory',
     '/memory pin <id> - 置顶一条 memory',
