@@ -140,6 +140,26 @@ function parseChannelInfo(platformKey: string): RunChannelInfo | undefined {
   return { platform: 'unknown' };
 }
 
+function buildChannelSystemPrompt(platformKey: string): string | null {
+  const channel = parseChannelInfo(platformKey);
+  if (!channel || (channel.platform !== 'discord' && channel.platform !== 'feishu')) {
+    return null;
+  }
+
+  const lines = [
+    'Channel context:',
+    `platform=${channel.platform}`,
+    channel.kind ? `kind=${channel.kind}` : '',
+    channel.channelId ? `channelId=${channel.channelId}` : '',
+  ].filter(Boolean);
+
+  if (lines.length <= 1) {
+    return null;
+  }
+
+  return lines.join('\n');
+}
+
 export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<ExecuteAgentTurnResult> {
   const session = await sessionStore.getOrCreate(input.platformKey, input.forceNewSession, input.memoryKey);
   const sessionId = session.sessionId;
@@ -167,6 +187,10 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
     async () => engine.run(context, {
       model: modelOverride,
       runContext,
+      systemPrompt: (() => {
+        const channelPrompt = buildChannelSystemPrompt(input.platformKey);
+        return channelPrompt ? { append: `\n${channelPrompt}` } : undefined;
+      })(),
       abortSignal: input.abortSignal,
       onText: callbacks.onText,
       onToolCall: callbacks.onToolCall,
