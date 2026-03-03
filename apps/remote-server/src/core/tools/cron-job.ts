@@ -26,6 +26,8 @@ const toolSchema = z.object({
   skill: z.string().optional().describe('Skill name to invoke on run.'),
   prompt: z.string().optional().describe('Prompt message to send.'),
   platformKey: z.string().optional().describe('Platform key for the agent run session and notify inference.'),
+  systemPromptAppend: z.string().optional().describe('Optional system prompt append for the agent run.'),
+  runtimeContext: z.record(z.any()).optional().describe('Optional runtime context metadata for the agent run.'),
   askPolicy: z.enum(['never', 'default']).optional().describe('Clarification policy for agent run.'),
   forceNewSession: z.boolean().optional().describe('Whether to force a new session per run.'),
   timezone: z.string().optional().describe('Optional CRON_TZ value, for example "Asia/Shanghai".'),
@@ -135,6 +137,8 @@ export const cronJobTool: Tool<CronJobInput, CronJobResult> = {
       platformKey: normalized.platformKey,
       askPolicy: normalized.askPolicy,
       forceNewSession: normalized.forceNewSession,
+      systemPromptAppend: normalized.systemPromptAppend,
+      runtimeContext: normalized.runtimeContext,
       notify: normalized.notify,
     });
 
@@ -207,6 +211,8 @@ interface NormalizedInput {
   platformKey: string;
   askPolicy: AskPolicy;
   forceNewSession: boolean;
+  systemPromptAppend?: string;
+  runtimeContext?: Record<string, unknown>;
   timezone?: string;
   notify?: NotifyTarget;
   notifyRequested: boolean;
@@ -226,6 +232,10 @@ function normalizeInput(input: CronJobInput, runContext?: RunContextInput): Norm
   const forceNewSession = input.forceNewSession ?? DEFAULT_FORCE_NEW_SESSION;
   const prompt = (input.prompt && input.prompt.trim()) || DEFAULT_SKILL_PROMPT;
   const skill = input.skill?.trim() || undefined;
+  const systemPromptAppend = input.systemPromptAppend?.trim() || undefined;
+  const runtimeContext = input.runtimeContext && typeof input.runtimeContext === 'object'
+    ? Object.fromEntries(Object.entries(input.runtimeContext).filter(([_, value]) => value !== undefined))
+    : undefined;
   const timezone = input.timezone?.trim() || undefined;
   const notifyRequested = Boolean(input.notify) || isNotifyRequested(prompt);
   const notify = normalizeNotify(input.notify, platformKey, notifyRequested ? prompt : undefined);
@@ -239,6 +249,8 @@ function normalizeInput(input: CronJobInput, runContext?: RunContextInput): Norm
     platformKey,
     askPolicy,
     forceNewSession,
+    systemPromptAppend,
+    runtimeContext,
     timezone,
     notify,
     notifyRequested,
@@ -404,6 +416,8 @@ function buildRunnerScript(input: {
   platformKey: string;
   askPolicy: AskPolicy;
   forceNewSession: boolean;
+  systemPromptAppend?: string;
+  runtimeContext?: Record<string, unknown>;
   notify?: NotifyTarget;
 }): string {
   const prompt = oneLine(input.prompt);
@@ -413,6 +427,8 @@ function buildRunnerScript(input: {
     skill: input.skill,
     askPolicy: input.askPolicy,
     forceNewSession: input.forceNewSession,
+    systemPromptAppend: input.systemPromptAppend,
+    runtimeContext: input.runtimeContext,
     notify: input.notify,
   };
 
