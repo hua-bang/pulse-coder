@@ -510,6 +510,10 @@ export class FileMemoryPluginService {
       return false;
     }
 
+    if (item.sourceType === 'daily-log') {
+      return true;
+    }
+
     if (item.scope === 'session') {
       return Boolean(sessionId) && item.sessionId === sessionId;
     }

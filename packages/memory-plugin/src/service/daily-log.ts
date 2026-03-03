@@ -6,9 +6,9 @@ import { normalizeContent, normalizeWhitespace, summarize, tokenize, uniqueWords
 const DEFAULT_DAILY_LOG_POLICY: MemoryDailyLogPolicy = {
   enabled: true,
   mode: 'write',
-  minConfidence: 0.65,
-  maxPerTurn: 3,
-  maxPerDay: 30,
+  minConfidence: 0.4,
+  maxPerTurn: 8,
+  maxPerDay: 200,
 };
 
 export interface DailyLogContext {
@@ -68,7 +68,6 @@ export function processDailyLogCandidates(
       }
 
       return item.sourceType === 'daily-log'
-        && item.sessionId === context.sessionId
         && item.dayKey === dayKey
         && item.dedupeKey === dedupeKey;
     });
@@ -195,7 +194,7 @@ function evaluateDailyLogQualityGate(candidate: ExtractedMemory, minConfidence: 
   }
 
   const compact = normalizeWhitespace(candidate.content);
-  if (compact.length < 18) {
+  if (compact.length < 8) {
     return 'too_short';
   }
 
@@ -204,7 +203,7 @@ function evaluateDailyLogQualityGate(candidate: ExtractedMemory, minConfidence: 
   }
 
   const tokenCount = tokenize(compact).length;
-  if (tokenCount < 3) {
+  if (tokenCount < 1) {
     return 'low_density';
   }
 
