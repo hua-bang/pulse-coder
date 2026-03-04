@@ -16,7 +16,7 @@ import {
   upsertEmbedding,
   type VectorStore,
 } from './embedding/vector-store.js';
-import { formatDailyLogLogLine, normalizeDailyLogPolicy, processDailyLogCandidates } from './service/daily-log.js';
+import { formatDailyLogLogLine, normalizeDailyLogPolicy, processDailyLogCandidates, resolveDailyLogPolicy } from './service/daily-log.js';
 import { extractMemoryCandidates } from './service/extraction.js';
 import type { ExtractedMemory } from './service/models.js';
 import { buildMemoryPrompt } from './service/recall.js';
@@ -318,12 +318,12 @@ export class FileMemoryPluginService {
       platformKey: input.platformKey,
       sessionId: input.sessionId,
       now,
-    }).slice(0, 6);
+    }).slice(0, sourceType === 'daily-log-compact' ? 1 : 6);
     if (extracted.length === 0) {
       return;
     }
 
-    if (sourceType === 'daily-log') {
+    if (sourceType === 'daily-log' || sourceType === 'daily-log-compact') {
       await this.recordDailyLogTurn(input, extracted, now);
       return;
     }
@@ -387,16 +387,22 @@ export class FileMemoryPluginService {
       return;
     }
 
+    const policy = resolveDailyLogPolicy(input.sourceType);
+    if (!policy.enabled) {
+      return;
+    }
+
     const result = processDailyLogCandidates({
       platformKey: input.platformKey,
       sessionId: input.sessionId,
       stateItems: this.state.items,
-      policy: this.dailyLogPolicy,
+      policy,
       now,
+      sourceType: input.sourceType ?? 'daily-log',
     }, extracted);
 
     if (result.stats.attempted > 0) {
-      console.info(formatDailyLogLogLine(input.platformKey, input.sessionId, result.mode, result.stats));
+      console.info(formatDailyLogLogLine(input.platformKey, input.sessionId, result.mode, result.stats, input.sourceType ?? 'daily-log'));
     }
 
     if (result.mode === 'shadow' || result.touchedItems.length === 0) {

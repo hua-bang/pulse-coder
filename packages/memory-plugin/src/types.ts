@@ -2,7 +2,7 @@ export type MemoryScope = 'session' | 'user';
 
 export type MemoryType = 'preference' | 'rule' | 'decision' | 'fix' | 'fact';
 
-export type MemorySourceType = 'explicit' | 'daily-log';
+export type MemorySourceType = 'explicit' | 'daily-log' | 'daily-log-compact';
 
 export type MemoryDailyLogMode = 'write' | 'shadow';
 

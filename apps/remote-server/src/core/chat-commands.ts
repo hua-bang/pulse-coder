@@ -5,6 +5,7 @@ import { memoryService } from './memory-integration.js';
 import { abortActiveRun, getActiveRun } from './active-run-store.js';
 import { processWorktreeCommand } from './worktree/commands.js';
 import { buildRemoteWorktreeRunContext } from './worktree/integration.js';
+import { memoryIntegration, recordCompactSummaryDailyLog } from './memory-integration.js';
 
 interface SkillSummary {
   name: string;
@@ -133,7 +134,7 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
       return handleSkillsCommand(args);
 
     case 'compact':
-      return await handleCompactCommand(incoming.platformKey);
+      return await handleCompactCommand(incoming.platformKey, memoryKey);
 
     case 'memory':
       return await handleMemoryCommand(incoming.platformKey, memoryKey, args);
@@ -314,7 +315,7 @@ async function handleDetachCommand(platformKey: string): Promise<CommandResult> 
   };
 }
 
-async function handleCompactCommand(platformKey: string): Promise<CommandResult> {
+async function handleCompactCommand(platformKey: string, memoryKey: string): Promise<CommandResult> {
   const current = await sessionStore.getCurrent(platformKey);
   if (!current) {
     return {
@@ -360,6 +361,26 @@ async function handleCompactCommand(platformKey: string): Promise<CommandResult>
     const afterTokens = estimateMessageTokens(current.context.messages);
     const messageDelta = beforeCount - afterCount;
     const tokenDelta = beforeTokens - afterTokens;
+
+    const summary = compactResult.newMessages[0]?.role === 'assistant'
+      ? String(compactResult.newMessages[0]?.content ?? '').trim()
+      : '';
+
+    if (summary.startsWith('[COMPACTED_CONTEXT]')) {
+      await memoryIntegration.withRunContext(
+        {
+          platformKey: memoryKey,
+          sessionId: current.sessionId,
+          userText: summary,
+        },
+        () => recordCompactSummaryDailyLog({
+          platformKey: memoryKey,
+          sessionId: current.sessionId,
+          summary,
+          source: 'internal',
+        }),
+      );
+    }
 
     return {
       type: 'handled',
