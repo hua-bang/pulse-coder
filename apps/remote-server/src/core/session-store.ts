@@ -352,7 +352,7 @@ class RemoteSessionStore {
   /**
    * List sessions owned by the platform user.
    */
-  async listSessions(platformKey: string, limit = 20): Promise<RemoteSessionSummary[]> {
+  async listSessions(platformKey: string, limit = 20, ownerKey?: string): Promise<RemoteSessionSummary[]> {
     const files = await fs.readdir(this.sessionsDir, { withFileTypes: true });
     const sessions: RemoteSessionSummary[] = [];
 
@@ -361,7 +361,8 @@ class RemoteSessionStore {
 
       const sessionId = file.name.replace(/\.json$/, '');
       const session = await this.readSession(sessionId);
-      if (!session || session.platformKey !== platformKey) continue;
+      if (!session) continue;
+      if (!this.canAccessSession(session, platformKey, ownerKey)) continue;
 
       sessions.push({
         id: session.id,

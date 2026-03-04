@@ -8,6 +8,7 @@ const toolSchema = z.object({
   includeUserMessages: z.boolean().optional().describe('Include user messages in the output. Defaults to true.'),
   includeAssistantMessages: z.boolean().optional().describe('Include assistant messages in the output. Defaults to true.'),
   maxMessagesPerSession: z.number().int().min(5).max(500).optional().describe('Cap message count per session (newest first). Defaults to 200.'),
+  scope: z.enum(['platform', 'owner']).optional().describe('Select session scope: platform (current channel) or owner (all channels for the user). Defaults to owner.'),
 });
 
 type ToolInput = z.infer<typeof toolSchema>;
@@ -51,6 +52,9 @@ export const sessionSummaryTool: Tool<ToolInput, ToolResult> = {
     }
 
     const ownerKey = typeof runContext.ownerKey === 'string' ? runContext.ownerKey : undefined;
+    const scope = input.scope ?? 'owner';
+    const scopePlatformKey = scope === 'owner' && ownerKey ? ownerKey : platformKey;
+    const scopeOwnerKey = scope === 'owner' ? ownerKey : undefined;
     const days = input.days ?? 3;
     const includeUser = input.includeUserMessages !== false;
     const includeAssistant = input.includeAssistantMessages !== false;
@@ -65,15 +69,15 @@ export const sessionSummaryTool: Tool<ToolInput, ToolResult> = {
     let summaries: SessionSummary[] = [];
 
     if (input.sessionId) {
-      const detail = await sessionStore.getSessionDetail(platformKey, input.sessionId, ownerKey);
+      const detail = await sessionStore.getSessionDetail(scopePlatformKey, input.sessionId, scopeOwnerKey);
       if (detail) {
         summaries = [buildSessionSummary(detail, includeUser, includeAssistant, maxMessages)];
       }
     } else {
-      const sessions = await sessionStore.listSessions(platformKey, 50);
+      const sessions = await sessionStore.listSessions(scopePlatformKey, 50, scopeOwnerKey);
       const candidates = sessions.filter((session) => session.updatedAt >= sinceMs && session.updatedAt <= untilMs);
       const details = await Promise.all(
-        candidates.map((session) => sessionStore.getSessionDetail(platformKey, session.id, ownerKey)),
+        candidates.map((session) => sessionStore.getSessionDetail(scopePlatformKey, session.id, scopeOwnerKey)),
       );
       summaries = details
         .filter((detail): detail is NonNullable<typeof detail> => Boolean(detail))

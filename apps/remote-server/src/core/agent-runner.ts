@@ -44,12 +44,14 @@ function buildRunContext(input: {
   sessionId: string;
   userText: string;
   platformKey: string;
+  ownerKey?: string;
 }): Record<string, any> {
   const channel = parseChannelInfo(input.platformKey);
   return {
     sessionId: input.sessionId,
     userText: input.userText,
     platformKey: input.platformKey,
+    ownerKey: input.ownerKey,
     channel: channel ?? undefined,
   };
 }
@@ -174,6 +176,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
     sessionId,
     userText: input.userText,
     platformKey: input.platformKey,
+    ownerKey: input.memoryKey,
   });
 
   const resultText = await runWithAgentContexts(
