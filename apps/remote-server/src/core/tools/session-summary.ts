@@ -4,6 +4,13 @@ import { sessionStore } from '../session-store.js';
 
 const toolSchema = z.object({
   days: z.number().int().min(1).max(30).default(3).describe('Number of days to summarize, counting back from today (UTC).'),
+  offsetDays: z
+    .number()
+    .int()
+    .min(0)
+    .max(365)
+    .optional()
+    .describe('Offset the time window by N days from today (UTC). 0 means up to today.'),
   sessionId: z.string().optional().describe('Optional explicit session id. Defaults to current session.'),
   includeUserMessages: z.boolean().optional().describe('Include user messages in the output. Defaults to true.'),
   includeAssistantMessages: z.boolean().optional().describe('Include assistant messages in the output. Defaults to true.'),
@@ -56,13 +63,19 @@ export const sessionSummaryTool: Tool<ToolInput, ToolResult> = {
     const scopePlatformKey = scope === 'owner' && ownerKey ? ownerKey : platformKey;
     const scopeOwnerKey = scope === 'owner' ? ownerKey : undefined;
     const days = input.days ?? 3;
+    const offsetDays = input.offsetDays ?? 0;
     const includeUser = input.includeUserMessages !== false;
     const includeAssistant = input.includeAssistantMessages !== false;
     const maxMessages = input.maxMessagesPerSession ?? DEFAULT_MAX_MESSAGES;
 
     const now = new Date();
-    const sinceDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (days - 1)));
-    const untilDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+    const baseDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const endDate = new Date(baseDate);
+    endDate.setUTCDate(endDate.getUTCDate() - offsetDays);
+    const startDate = new Date(endDate);
+    startDate.setUTCDate(startDate.getUTCDate() - (days - 1));
+    const sinceDate = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate()));
+    const untilDate = new Date(Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate(), 23, 59, 59, 999));
     const sinceMs = sinceDate.getTime();
     const untilMs = untilDate.getTime();
 
