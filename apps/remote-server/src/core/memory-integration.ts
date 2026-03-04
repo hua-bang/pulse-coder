@@ -39,3 +39,30 @@ export async function recordDailyLogFromSuccessPath(input: {
     );
   }
 }
+
+export async function recordCompactSummaryDailyLog(input: {
+  platformKey: string;
+  sessionId: string;
+  summary: string;
+  source: 'dispatcher' | 'internal';
+}): Promise<void> {
+  const summary = input.summary.trim();
+  if (!summary) {
+    return;
+  }
+
+  try {
+    await memoryService.recordTurn({
+      platformKey: input.platformKey,
+      sessionId: input.sessionId,
+      userText: summary,
+      assistantText: '',
+      sourceType: 'daily-log-compact',
+    });
+  } catch (error) {
+    console.warn(
+      `[memory-plugin] ${input.source} daily-log compact write failed platform=${input.platformKey} session=${input.sessionId}`,
+      error,
+    );
+  }
+}

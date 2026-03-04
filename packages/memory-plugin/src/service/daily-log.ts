@@ -1,14 +1,22 @@
 import { randomUUID } from 'crypto';
 import type { DailyLogWriteStats, ExtractedMemory } from './models.js';
-import type { MemoryDailyLogPolicy, MemoryItem, MemoryType } from '../types.js';
+import type { MemoryDailyLogPolicy, MemoryItem, MemoryType, MemorySourceType } from '../types.js';
 import { normalizeContent, normalizeWhitespace, summarize, tokenize, uniqueWords } from '../utils/text.js';
 
 const DEFAULT_DAILY_LOG_POLICY: MemoryDailyLogPolicy = {
   enabled: true,
   mode: 'write',
-  minConfidence: 0.4,
-  maxPerTurn: 8,
-  maxPerDay: 200,
+  minConfidence: 0.2,
+  maxPerTurn: 12,
+  maxPerDay: 300,
+};
+
+const COMPACT_DAILY_LOG_POLICY: MemoryDailyLogPolicy = {
+  enabled: true,
+  mode: 'write',
+  minConfidence: 0,
+  maxPerTurn: 1,
+  maxPerDay: 24,
 };
 
 export interface DailyLogContext {
@@ -17,6 +25,7 @@ export interface DailyLogContext {
   stateItems: MemoryItem[];
   policy: MemoryDailyLogPolicy;
   now: number;
+  sourceType: MemorySourceType;
 }
 
 export interface DailyLogProcessResult {
@@ -37,12 +46,19 @@ export function normalizeDailyLogPolicy(input?: Partial<MemoryDailyLogPolicy>): 
   };
 }
 
+export function resolveDailyLogPolicy(sourceType?: MemorySourceType): MemoryDailyLogPolicy {
+  if (sourceType === 'daily-log-compact') {
+    return COMPACT_DAILY_LOG_POLICY;
+  }
+  return DEFAULT_DAILY_LOG_POLICY;
+}
+
 export function processDailyLogCandidates(
   context: DailyLogContext,
   extracted: ExtractedMemory[],
 ): DailyLogProcessResult {
   const dayKey = toDayKey(context.now);
-  let remainingForDay = Math.max(0, context.policy.maxPerDay - countDailyLogEntries(context.stateItems, context.platformKey, dayKey));
+  let remainingForDay = Math.max(0, context.policy.maxPerDay - countDailyLogEntries(context.stateItems, context.platformKey, dayKey, context.sourceType));
   let insertedThisTurn = 0;
   const touchedItems: MemoryItem[] = [];
   const stats = createDailyLogWriteStats();
@@ -55,7 +71,7 @@ export function processDailyLogCandidates(
       continue;
     }
 
-    const rejection = evaluateDailyLogQualityGate(candidate, context.policy.minConfidence);
+    const rejection = evaluateDailyLogQualityGate(candidate, context.policy.minConfidence, context.sourceType);
     if (rejection) {
       recordDailyLogRejection(stats, rejection);
       continue;
@@ -67,7 +83,7 @@ export function processDailyLogCandidates(
         return false;
       }
 
-      return item.sourceType === 'daily-log'
+      return item.sourceType === context.sourceType
         && item.dayKey === dayKey
         && item.dedupeKey === dedupeKey;
     });
@@ -86,7 +102,7 @@ export function processDailyLogCandidates(
       duplicate.importance = Math.max(duplicate.importance, candidate.importance);
       duplicate.keywords = uniqueWords([...duplicate.keywords, ...candidate.keywords]);
       duplicate.summary = summarize(`${duplicate.summary} ${candidate.summary}`, 120);
-      duplicate.sourceType = 'daily-log';
+      duplicate.sourceType = context.sourceType;
       duplicate.dayKey = dayKey;
       duplicate.dedupeKey = dedupeKey;
       duplicate.firstSeenAt = duplicate.firstSeenAt ?? duplicate.createdAt;
@@ -134,7 +150,7 @@ export function processDailyLogCandidates(
       createdAt: context.now,
       updatedAt: context.now,
       lastAccessedAt: context.now,
-      sourceType: 'daily-log',
+      sourceType: context.sourceType,
       dayKey,
       dedupeKey,
       hitCount: 1,
@@ -159,19 +175,20 @@ export function formatDailyLogLogLine(
   sessionId: string,
   mode: MemoryDailyLogPolicy['mode'],
   stats: DailyLogWriteStats,
+  sourceType: MemorySourceType,
 ): string {
   const rejectSummary = formatDailyLogRejectReasons(stats.rejectedByReason);
   const extra = rejectSummary ? ` rejectReasons=${rejectSummary}` : '';
-  return `[memory-plugin] daily-log mode=${mode} platform=${platformKey} session=${sessionId} attempted=${stats.attempted} accepted=${stats.accepted} deduped=${stats.deduped} rejected=${stats.rejected} skippedQuota=${stats.skippedQuota}${extra}`;
+  return `[memory-plugin] daily-log mode=${mode} source=${sourceType} platform=${platformKey} session=${sessionId} attempted=${stats.attempted} accepted=${stats.accepted} deduped=${stats.deduped} rejected=${stats.rejected} skippedQuota=${stats.skippedQuota}${extra}`;
 }
 
-function countDailyLogEntries(items: MemoryItem[], platformKey: string, dayKey: string): number {
+function countDailyLogEntries(items: MemoryItem[], platformKey: string, dayKey: string, sourceType: MemorySourceType): number {
   return items.filter((item) => {
     if (item.platformKey !== platformKey || item.deleted) {
       return false;
     }
 
-    return item.sourceType === 'daily-log' && item.dayKey === dayKey;
+    return item.sourceType === sourceType && item.dayKey === dayKey;
   }).length;
 }
 
@@ -188,29 +205,32 @@ function isAllowedDailyLogType(type: MemoryType): boolean {
   return type === 'rule' || type === 'decision' || type === 'fix' || type === 'fact';
 }
 
-function evaluateDailyLogQualityGate(candidate: ExtractedMemory, minConfidence: number): string | undefined {
+function evaluateDailyLogQualityGate(candidate: ExtractedMemory, minConfidence: number, sourceType: MemorySourceType): string | undefined {
   if (candidate.confidence < minConfidence) {
     return 'low_confidence';
   }
 
   const compact = normalizeWhitespace(candidate.content);
-  if (compact.length < 8) {
-    return 'too_short';
+  if (compact.length < 4) {
+    return sourceType === 'daily-log-compact' ? undefined : 'too_short';
   }
 
-  if (looksLikeSmallTalk(compact)) {
-    return 'small_talk';
+  if (looksLikeSmallTalk(compact, sourceType)) {
+    return sourceType === 'daily-log-compact' ? undefined : 'small_talk';
   }
 
   const tokenCount = tokenize(compact).length;
   if (tokenCount < 1) {
-    return 'low_density';
+    return sourceType === 'daily-log-compact' ? undefined : 'low_density';
   }
 
   return undefined;
 }
 
-function looksLikeSmallTalk(content: string): boolean {
+function looksLikeSmallTalk(content: string, sourceType: MemorySourceType): boolean {
+  if (sourceType === 'daily-log-compact') {
+    return false;
+  }
   return /^(ok|okay|thanks|thank you|got it|sure|nice|yes|no|\u597d\u7684|\u6536\u5230|\u660e\u767d\u4e86|\u884c|\u55ef+|\u554a+|\u54c8+)[!. ]*$/i.test(content);
 }
 

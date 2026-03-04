@@ -25,12 +25,43 @@ export function extractMemoryCandidates(
   assistantText: string,
   options?: Omit<BuildChunksInput, 'userText' | 'assistantText'>,
 ): ExtractedMemory[] {
+  const sourceType = options?.sourceType ?? 'explicit';
+  if (sourceType === 'daily-log-compact') {
+    const compactSource = normalizeWhitespace(userText || assistantText);
+    if (!compactSource) {
+      return [];
+    }
+
+    return [{
+      scope: 'session',
+      type: 'fact',
+      content: compactSource,
+      summary: summarize(compactSource, 120),
+      keywords: tokenize(compactSource),
+      confidence: 0.6,
+      importance: 0.55,
+      chunkId: buildChunkId({
+        platformKey: options?.platformKey ?? 'default',
+        sessionId: options?.sessionId ?? 'default',
+        sourceType,
+        now: options?.now ?? Date.now(),
+        role: 'user',
+        index: 0,
+      }),
+      sourceRef: {
+        path: buildSourcePath(options?.platformKey ?? 'default', options?.sessionId ?? 'default', sourceType, options?.now ?? Date.now()),
+        offset: 0,
+        line: 1,
+      },
+    }];
+  }
+
   const results: ExtractedMemory[] = [];
 
   const userChunks = buildChunks({
     userText,
     assistantText,
-    sourceType: options?.sourceType ?? 'explicit',
+    sourceType,
     platformKey: options?.platformKey ?? 'default',
     sessionId: options?.sessionId ?? 'default',
     now: options?.now ?? Date.now(),
