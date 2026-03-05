@@ -71,6 +71,8 @@ export interface Tool<Input = any, Output = any> {
   name: string;
   description: string;
   inputSchema: FlexibleSchema<Input>;
+  defer_loading?: boolean;
+  deferLoading?: boolean;
   execute: (input: Input, context?: ToolExecutionContext) => Promise<Output>;
 }
 
