@@ -247,8 +247,8 @@ function extractToolReferences(messages: ModelMessage[]): string[] {
       continue;
     }
 
-    const output = (part as { output?: unknown }).output as { tool_references?: Array<{ tool_name?: string }> } | undefined;
-    const toolReferences = output?.tool_references;
+    const result = (part as { output?: any }).output?.value as { tool_references?: Array<{ tool_name?: string }> } | undefined;
+    const toolReferences = result?.tool_references;
     if (!Array.isArray(toolReferences)) {
       continue;
     }
