@@ -197,6 +197,10 @@ class ToolSearchService {
     }
     return added;
   }
+
+  resetLoadedTools(): void {
+    this.loadedToolNames.clear();
+  }
 }
 
 function appendSystemPrompt(base: SystemPromptOption | undefined, append: string): SystemPromptOption {
@@ -283,6 +287,10 @@ export const builtInToolSearchPlugin: EnginePlugin = {
 
     const service = new ToolSearchService(config, context.logger);
     context.registerService(TOOL_SEARCH_SERVICE_NAME, service);
+
+    context.registerHook('beforeRun', () => {
+      service.resetLoadedTools();
+    });
 
     context.registerHook('beforeLLMCall', ({ tools, systemPrompt }) => {
       const toolSearchService = context.getService<ToolSearchService>(TOOL_SEARCH_SERVICE_NAME) ?? service;
