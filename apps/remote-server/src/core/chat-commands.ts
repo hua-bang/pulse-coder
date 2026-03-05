@@ -23,7 +23,7 @@ export type CommandResult =
   | { type: 'handled_silent' }
   | { type: 'transformed'; text: string };
 
-const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping', 'memory', 'mode', 'fork', 'wt']);
+const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping', 'memory', 'mode', 'fork', 'wt', 'insight']);
 const COMMAND_ALIASES: Record<string, string> = {
   '?': 'help',
   h: 'help',
@@ -141,6 +141,9 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
 
     case 'mode':
       return handleModeCommand(args);
+
+    case 'insight':
+      return handleInsightCommand(args);
 
     default:
       return {
@@ -521,6 +524,45 @@ async function handleMemoryCommand(platformKey: string, memoryKey: string, args:
     ].join('\n'),
   };
 }
+async function handleInsightCommand(args: string[]): Promise<CommandResult> {
+  const raw = args[0]?.trim();
+  const days = parseInsightDays(raw);
+  if (raw && !days.ok) {
+    return {
+      type: 'handled',
+      message: '❌ 用法：/insight [days]\n示例：/insight 7\n说明：days 取值 1-365，默认 7。',
+    };
+  }
+
+  const value = days.ok ? days.value : 7;
+  const text = [
+    `[use skill](session-digest) Summarize and extract insights from my sessions in the last ${value} days.`,
+    'Focus on recurring themes, key decisions, and actionable next steps.',
+  ].join(' ');
+
+  return {
+    type: 'transformed',
+    text,
+  };
+}
+
+function parseInsightDays(raw: string | undefined): { ok: true; value: number } | { ok: false } {
+  if (!raw) {
+    return { ok: false };
+  }
+
+  if (!/^\d+$/.test(raw)) {
+    return { ok: false };
+  }
+
+  const value = Number.parseInt(raw, 10);
+  if (value < 1 || value > 365) {
+    return { ok: false };
+  }
+
+  return { ok: true, value };
+}
+
 function handleSkillsCommand(args: string[]): CommandResult {
   const registry = getSkillRegistry();
   if (!registry) {
@@ -684,6 +726,9 @@ function buildHelpMessage(): string {
     '/status - 查看当前运行状态与会话信息',
     '/stop - 停止当前正在运行的任务',
     '/cancel - /stop 的别名',
+    '/insight [days] - 汇总近 N 天会话洞见（默认 7 天，N 范围 1-365）',
+    '/skills - 查看可用技能',
+    '/skills <name|index> <message> - 使用技能',
     '/wt status - 查看当前会话绑定的 worktree',
     '/wt use <id> - 复用已有或创建新的 worktree 并绑定',
     '/wt use <id> <repoRoot> <worktreePath> [branch] - 绑定/更新当前会话 worktree',
