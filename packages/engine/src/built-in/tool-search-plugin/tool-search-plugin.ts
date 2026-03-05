@@ -118,7 +118,7 @@ function createRegexTool(context: EnginePluginContext, config: ToolSearchConfig)
     description: 'Search available tools using a Python-style regex query.',
     inputSchema: searchToolSchema,
     execute: async (input: SearchToolInput) => {
-      const tools = context.getTools();
+      const tools = context.getEngineInstance().tools;
       return buildSearchResult(tools, input, 'regex', config);
     },
   };
@@ -130,7 +130,7 @@ function createBm25Tool(context: EnginePluginContext, config: ToolSearchConfig):
     description: 'Search available tools using natural language queries.',
     inputSchema: searchToolSchema,
     execute: async (input: SearchToolInput) => {
-      const tools = context.getTools();
+      const tools = context.getEngineInstance().tools;
       return buildSearchResult(tools, input, 'bm25', config);
     },
   };
@@ -228,7 +228,7 @@ function extractToolReferences(messages: ModelMessage[]): string[] {
   }
 
   const latest = messages[messages.length - 1];
-  if (!latest || latest.role !== 'assistant') {
+  if (!latest || latest.role !== 'tool') {
     return [];
   }
 
@@ -247,8 +247,8 @@ function extractToolReferences(messages: ModelMessage[]): string[] {
       continue;
     }
 
-    const output = (part as { output?: unknown }).output as { tool_references?: Array<{ tool_name?: string }> } | undefined;
-    const toolReferences = output?.tool_references;
+    const result = (part as { output?: any }).output?.value as { tool_references?: Array<{ tool_name?: string }> } | undefined;
+    const toolReferences = result?.tool_references;
     if (!Array.isArray(toolReferences)) {
       continue;
     }

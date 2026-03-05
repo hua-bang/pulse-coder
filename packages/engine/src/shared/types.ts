@@ -86,3 +86,8 @@ export interface ILogger {
   warn(message: string, meta?: Record<string, unknown>): void;
   error(message: string, error?: Error, meta?: Record<string, unknown>): void;
 }
+
+// Engine instance, 不能直接暴露实际例子，只能通过插件上下文获取
+export interface PulseEngineInstance {
+  tools: Record<string, Tool>;
+}

@@ -5,7 +5,7 @@ import { EventEmitter } from 'events';
 
 import type { EnginePlugin, EnginePluginContext, EnginePluginLoadOptions, EngineHookMap, EngineHookName } from './EnginePlugin.js';
 import type { UserConfigPlugin, UserConfigPluginLoadOptions } from './UserConfigPlugin.js';
-import type { ILogger } from '../shared/types.js';
+import type { ILogger, PulseEngineInstance } from '../shared/types.js';
 import { ConfigVariableResolver } from './UserConfigPlugin.js';
 
 // Internal storage: each hook name maps to an array of handlers
@@ -35,13 +35,17 @@ export class PluginManager {
   private events = new EventEmitter();
   private logger: ILogger;
 
-  constructor(logger?: ILogger) {
+  private getEngineInstance: () => PulseEngineInstance;
+
+  constructor(getEngineInstance: () => PulseEngineInstance, logger?: ILogger,) {
     this.logger = logger ?? {
       debug: (msg: string, meta?: any) => console.debug(`[PluginManager] ${msg}`, meta),
       info: (msg: string, meta?: any) => console.info(`[PluginManager] ${msg}`, meta),
       warn: (msg: string, meta?: any) => console.warn(`[PluginManager] ${msg}`, meta),
       error: (msg: string, error?: Error, meta?: any) => console.error(`[PluginManager] ${msg}`, error, meta),
     };
+
+    this.getEngineInstance = getEngineInstance;
   }
 
   /**
@@ -173,6 +177,10 @@ export class PluginManager {
         },
         getTool: (name) => this.tools.get(name),
         getTools: () => Object.fromEntries(this.tools),
+
+        getEngineInstance: () => {
+          return this.getEngineInstance();
+        },
 
         registerHook: (hookName, handler) => {
           this.hooks[hookName].push(handler as any);

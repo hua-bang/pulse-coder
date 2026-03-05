@@ -1,4 +1,4 @@
-import type { Context, Tool, LLMProviderFactory, SystemPromptOption, ToolHooks, ILogger } from './shared/types';
+import type { Context, Tool, LLMProviderFactory, SystemPromptOption, ToolHooks, ILogger, PulseEngineInstance } from './shared/types';
 import type { LoopOptions, LoopHooks } from './core/loop';
 import type { EnginePluginLoadOptions } from './plugin/EnginePlugin.js';
 import type { UserConfigPluginLoadOptions } from './plugin/UserConfigPlugin.js';
@@ -123,13 +123,21 @@ export class Engine {
   private options: EngineOptions = {};
   private config: Record<string, any> = {};
 
+  get instance(): PulseEngineInstance {
+    return {
+      tools: this.tools,
+    };
+  }
+
   constructor(options?: EngineOptions) {
-    this.pluginManager = new PluginManager(options?.logger);
+    this.pluginManager = new PluginManager(() => this.instance, options?.logger);
 
     // 初始化全局配置
     this.config = options?.config || {};
     this.options = options || {};
   }
+
+
 
   /**
    * 初始化引擎和插件系统

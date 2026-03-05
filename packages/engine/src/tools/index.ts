@@ -8,6 +8,7 @@ import { TavilyTool, TavilyExtractTool, TavilyCrawlTool, TavilyMapTool } from '.
 import { GeminiProImageTool } from './gemini-pro-image';
 import { ClarifyTool } from './clarify';
 import { Tool } from 'ai';
+import { deferDemoTool } from './defer-demo';
 // import { SkillTool } from './skill;
 
 export const BuiltinTools = [
@@ -23,6 +24,7 @@ export const BuiltinTools = [
   TavilyMapTool,
   GeminiProImageTool,
   ClarifyTool,
+  deferDemoTool
 ] as const;
 
 export const BuiltinToolsMap = BuiltinTools.reduce((acc, toolInstance) => {
