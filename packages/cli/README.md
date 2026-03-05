@@ -73,13 +73,15 @@ coder
   "servers": {
     "eido_mind": {
       "transport": "http",
-      "url": "http://localhost:3060/mcp/server"
+      "url": "http://localhost:3060/mcp/server",
+      "deferTools": true
     },
     "local_stdio": {
       "transport": "stdio",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
-      "cwd": "."
+      "cwd": ".",
+      "deferTools": true
     }
   }
 }
