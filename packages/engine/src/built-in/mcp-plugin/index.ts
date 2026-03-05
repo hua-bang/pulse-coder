@@ -15,6 +15,7 @@ interface HTTPOrSSEServerConfig {
   transport: 'http' | 'sse';
   url: string;
   headers?: Record<string, string>;
+  deferTools?: boolean;
 }
 
 interface StdioServerConfig {
@@ -23,9 +24,14 @@ interface StdioServerConfig {
   args?: string[];
   env?: Record<string, string>;
   cwd?: string;
+  deferTools?: boolean;
 }
 
-type NormalizedMCPServerConfig = HTTPOrSSEServerConfig | StdioServerConfig;
+interface NormalizedServerConfigBase {
+  deferTools?: boolean;
+}
+
+type NormalizedMCPServerConfig = (HTTPOrSSEServerConfig | StdioServerConfig) & NormalizedServerConfigBase;
 
 export interface MCPPluginConfig {
   servers: Record<string, RawMCPServerConfig>;
@@ -65,6 +71,19 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   return Object.values(value).every(item => typeof item === 'string');
 }
 
+function readDeferTools(raw: RawMCPServerConfig, serverName: string): boolean | undefined {
+  const value = raw.deferTools;
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  console.warn(`[MCP] Server "${serverName}" has invalid deferTools; expected boolean, ignoring`);
+  return undefined;
+}
+
+
 function normalizeServerConfig(serverName: string, raw: RawMCPServerConfig): NormalizedMCPServerConfig | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     console.warn(`[MCP] Server "${serverName}" config must be an object, skipping`);
@@ -72,6 +91,7 @@ function normalizeServerConfig(serverName: string, raw: RawMCPServerConfig): Nor
   }
 
   const transport = typeof raw.transport === 'string' ? raw.transport.toLowerCase() : 'http';
+  const deferTools = readDeferTools(raw, serverName);
 
   if (transport === 'http' || transport === 'sse') {
     if (typeof raw.url !== 'string' || !raw.url.trim()) {
@@ -81,7 +101,8 @@ function normalizeServerConfig(serverName: string, raw: RawMCPServerConfig): Nor
 
     const normalized: HTTPOrSSEServerConfig = {
       transport,
-      url: raw.url
+      url: raw.url,
+      deferTools
     };
 
     if (raw.headers !== undefined) {
@@ -103,7 +124,8 @@ function normalizeServerConfig(serverName: string, raw: RawMCPServerConfig): Nor
 
     const normalized: StdioServerConfig = {
       transport: 'stdio',
-      command: raw.command
+      command: raw.command,
+      deferTools
     };
 
     if (raw.args !== undefined) {
@@ -136,6 +158,7 @@ function normalizeServerConfig(serverName: string, raw: RawMCPServerConfig): Nor
   console.warn(`[MCP] Server "${serverName}" has unsupported transport "${transport}", skipping`);
   return null;
 }
+
 
 function createTransport(config: NormalizedMCPServerConfig): MCPClientConfig['transport'] {
   if (config.transport === 'stdio') {
@@ -180,12 +203,13 @@ export const builtInMCPPlugin: EnginePlugin = {
         const client = await createMCPClient({ transport });
 
         const tools = await client.tools();
+        const shouldDeferTools = normalizedConfig.deferTools === true;
 
         // 注册工具到引擎，使用命名空间前缀
         const namespacedTools = Object.fromEntries(
           Object.entries(tools).map(([toolName, tool]) => [
             `mcp_${serverName}_${toolName}`,
-            tool as any
+            shouldDeferTools ? { ...(tool as any), defer_loading: true } : (tool as any)
           ])
         );
 
