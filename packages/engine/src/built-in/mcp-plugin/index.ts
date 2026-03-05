@@ -185,7 +185,7 @@ export const builtInMCPPlugin: EnginePlugin = {
         const namespacedTools = Object.fromEntries(
           Object.entries(tools).map(([toolName, tool]) => [
             `mcp_${serverName}_${toolName}`,
-            tool as any
+            { ...(tool as any), defer_loading: true }
           ])
         );
 
