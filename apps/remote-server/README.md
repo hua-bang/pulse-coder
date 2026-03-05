@@ -1,5 +1,24 @@
 # remote-server
 
+## Deferred tool demo
+
+A demo tool named `deferred_demo` is registered with `defer_loading: true`.
+It will not be sent to the AI SDK until it is discovered via tool search.
+
+Quick test (local-only internal endpoint):
+
+```bash
+curl -sS -X POST \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $INTERNAL_API_SECRET" \
+  http://127.0.0.1:3000/internal/agent/run \
+  -d '{"text":"Use tool_search_tool_bm25 to find the deferred_demo tool, then call it with message=hello."}'
+```
+
+Expected behavior:
+- First run: model uses tool search and discovers `deferred_demo`.
+- Second run: `deferred_demo` is now loaded and can be called directly.
+
 ## Enabled webhook endpoints
 
 - `POST /webhooks/feishu`
