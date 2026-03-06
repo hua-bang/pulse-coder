@@ -6,6 +6,7 @@ import { abortActiveRun, getActiveRun } from './active-run-store.js';
 import { processWorktreeCommand } from './worktree/commands.js';
 import { buildRemoteWorktreeRunContext } from './worktree/integration.js';
 import { memoryIntegration, recordCompactSummaryDailyLog } from './memory-integration.js';
+import { writeModelConfig } from './model-config.js';
 
 interface SkillSummary {
   name: string;
@@ -23,7 +24,7 @@ export type CommandResult =
   | { type: 'handled_silent' }
   | { type: 'transformed'; text: string };
 
-const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping', 'memory', 'mode', 'fork', 'wt', 'insight']);
+const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping', 'memory', 'mode', 'fork', 'wt', 'insight', 'model']);
 const COMMAND_ALIASES: Record<string, string> = {
   '?': 'help',
   h: 'help',
@@ -141,6 +142,9 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
 
     case 'mode':
       return handleModeCommand(args);
+
+    case 'model':
+      return await handleModelCommand(args);
 
     case 'insight':
       return handleInsightCommand(args);
@@ -524,6 +528,32 @@ async function handleMemoryCommand(platformKey: string, memoryKey: string, args:
     ].join('\n'),
   };
 }
+
+async function handleModelCommand(args: string[]): Promise<CommandResult> {
+  const raw = args.join(' ').trim();
+  if (!raw || raw.toLowerCase() === 'status') {
+    return {
+      type: 'handled',
+      message: 'ℹ️ 用法：/model <name>\n示例：/model gpt-5',
+    };
+  }
+
+  const model = raw;
+  try {
+    const result = await writeModelConfig({ current_model: model });
+    return {
+      type: 'handled',
+      message: `✅ 已更新模型为 ${model}\nConfig: ${result.path}`,
+    };
+  } catch (error) {
+    console.error('[model-config] failed to update model config:', error);
+    return {
+      type: 'handled',
+      message: '❌ 更新模型失败，请检查服务日志。',
+    };
+  }
+}
+
 async function handleInsightCommand(args: string[]): Promise<CommandResult> {
   const raw = args[0]?.trim();
   const days = parseInsightDays(raw);
@@ -712,6 +742,7 @@ function buildHelpMessage(): string {
     '/mode - 查看当前模式',
     '/mode planning - 切换到 planning 模式',
     '/mode executing - 切换到 executing 模式',
+    '/model <name> - 切换模型（写入 config.json）',
     '/memory - 查看 memory 列表',
     '/memory on|off - 开关当前会话 memory',
     '/memory pin <id> - 置顶一条 memory',
