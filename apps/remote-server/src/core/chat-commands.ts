@@ -6,7 +6,7 @@ import { abortActiveRun, getActiveRun } from './active-run-store.js';
 import { processWorktreeCommand } from './worktree/commands.js';
 import { buildRemoteWorktreeRunContext } from './worktree/integration.js';
 import { memoryIntegration, recordCompactSummaryDailyLog } from './memory-integration.js';
-import { writeModelConfig } from './model-config.js';
+import { clearModelOverride, getModelStatus, writeModelConfig } from './model-config.js';
 
 interface SkillSummary {
   name: string;
@@ -531,11 +531,25 @@ async function handleMemoryCommand(platformKey: string, memoryKey: string, args:
 
 async function handleModelCommand(args: string[]): Promise<CommandResult> {
   const raw = args.join(' ').trim();
-  if (!raw || raw.toLowerCase() === 'status') {
-    return {
-      type: 'handled',
-      message: 'ℹ️ 用法：/model <name>\n示例：/model gpt-5',
-    };
+  const lowered = raw.toLowerCase();
+  if (!raw || lowered === 'status') {
+    return await renderModelStatus();
+  }
+
+  if (lowered === 'reset' || lowered === 'default') {
+    try {
+      const result = await clearModelOverride();
+      return {
+        type: 'handled',
+        message: `✅ 已恢复默认模型\nConfig: ${result.path}`,
+      };
+    } catch (error) {
+      console.error('[model-config] failed to reset model config:', error);
+      return {
+        type: 'handled',
+        message: '❌ 恢复默认模型失败，请检查服务日志。',
+      };
+    }
   }
 
   const model = raw;
@@ -550,6 +564,43 @@ async function handleModelCommand(args: string[]): Promise<CommandResult> {
     return {
       type: 'handled',
       message: '❌ 更新模型失败，请检查服务日志。',
+    };
+  }
+}
+
+async function renderModelStatus(): Promise<CommandResult> {
+  try {
+    const status = await getModelStatus();
+    if (!status.path) {
+      return {
+        type: 'handled',
+        message: 'ℹ️ 当前未找到模型配置文件。',
+      };
+    }
+
+    const lines = ['🧠 当前模型信息：', `- Config: ${status.path}`];
+    if (status.currentModel) {
+      lines.push(`- current_model: ${status.currentModel}`);
+    } else {
+      lines.push('- current_model: (未设置)');
+    }
+    if (status.resolvedModel) {
+      lines.push(`- resolved_model: ${status.resolvedModel}`);
+    } else {
+      lines.push('- resolved_model: (未解析到)');
+    }
+    if (status.models && status.models.length > 0) {
+      lines.push(`- models: ${status.models.join(', ')}`);
+    }
+    return {
+      type: 'handled',
+      message: lines.join('\n'),
+    };
+  } catch (error) {
+    console.error('[model-config] failed to read model status:', error);
+    return {
+      type: 'handled',
+      message: '❌ 查询模型状态失败，请检查服务日志。',
     };
   }
 }
@@ -742,6 +793,8 @@ function buildHelpMessage(): string {
     '/mode - 查看当前模式',
     '/mode planning - 切换到 planning 模式',
     '/mode executing - 切换到 executing 模式',
+    '/model - 查看当前模型',
+    '/model reset - 恢复默认模型',
     '/model <name> - 切换模型（写入 config.json）',
     '/memory - 查看 memory 列表',
     '/memory on|off - 开关当前会话 memory',
