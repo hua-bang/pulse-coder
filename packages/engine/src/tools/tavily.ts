@@ -146,6 +146,7 @@ export const TavilyExtractTool: Tool<
   name: 'tavily_extract',
   description:
     'Extract cleaned content from one or more URLs via Tavily Extract API. Useful after search to fetch full page text.',
+  defer_loading: true,
   inputSchema: z.object({
     urls: z
       .union([z.string(), z.array(z.string()).min(1)])
@@ -254,6 +255,7 @@ export const TavilyCrawlTool: Tool<
   name: 'tavily_crawl',
   description:
     'Crawl a site from a starting URL and extract page content. Best for collecting docs or multi-page website context.',
+  defer_loading: true,
   inputSchema: z.object({
     url: z.string().describe('Starting URL to crawl.'),
     maxDepth: z.number().optional().describe('Maximum crawl depth from the starting URL.'),
@@ -369,6 +371,7 @@ export const TavilyMapTool: Tool<
   name: 'tavily_map',
   description:
     'Discover site URLs from a base page without full content extraction. Best for URL discovery before targeted crawl/extract.',
+  defer_loading: true,
   inputSchema: z.object({
     url: z.string().describe('Base URL to map.'),
     maxDepth: z.number().optional().describe('Maximum traversal depth from the base URL.'),

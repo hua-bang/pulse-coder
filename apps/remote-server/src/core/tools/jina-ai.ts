@@ -46,6 +46,7 @@ function buildTargetUrl(rawUrl: string): { sourceUrl: string; targetUrl: string 
 export const jinaAiReadTool: Tool<JinaAiReadInput, JinaAiReadResult> = {
   name: 'jina_ai_read',
   description: 'Fetch readable page text via r.jina.ai, including pages behind login walls (e.g., X).',
+  defer_loading: true,
   inputSchema: toolSchema,
   execute: async (input): Promise<JinaAiReadResult> => {
     const { sourceUrl, targetUrl } = buildTargetUrl(input.url);

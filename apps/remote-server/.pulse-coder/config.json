@@ -1,6 +1,8 @@
 {
-  "current_model": "gpt-5.2-codex",
   "models": [
-    { "name": "gpt-5.2-codex" }
-  ]
+    {
+      "name": "gpt-5.2-codex"
+    }
+  ],
+  "current_model": "gpt-5.3-codex"
 }

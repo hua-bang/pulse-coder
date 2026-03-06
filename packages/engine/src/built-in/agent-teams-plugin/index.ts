@@ -40,6 +40,7 @@ export const builtInAgentTeamsPlugin: EnginePlugin = {
     const tool: Tool<TeamRunInput, TeamRunOutput> = {
       name: 'agent_teams_run',
       description: 'Run a fixed DAG agent team with role routing and aggregation.',
+      defer_loading: true,
       inputSchema: TEAM_RUN_INPUT_SCHEMA,
       execute: async (input) => {
         const roleTools = registry.resolveRoleTools(input.roleTools);

@@ -93,6 +93,7 @@ interface NotifyTarget {
 export const cronJobTool: Tool<CronJobInput, CronJobResult> = {
   name: 'cron_job',
   description: 'Create or update a cron runner that calls /internal/agent/run with optional notify targets.',
+  defer_loading: true,
   inputSchema: toolSchema,
   execute: async (input, context?: ToolExecutionContext) => {
     const normalized = normalizeInput(input, context?.runContext);
