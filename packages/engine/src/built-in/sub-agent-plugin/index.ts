@@ -5,13 +5,14 @@ import type { EnginePlugin, EnginePluginContext } from '../../plugin/EnginePlugi
 import type { Context } from '../../shared/types.js';
 import { loop } from '../../core/loop';
 import { BuiltinToolsMap } from '../../tools';
-import { Tool } from 'ai';
+import type { Tool } from '../../shared/types';
 
 interface AgentConfig {
   name: string;
   description: string;
   systemPrompt: string;
   filePath: string;
+  deferLoading?: boolean;
 }
 
 class ConfigLoader {
@@ -64,6 +65,7 @@ class ConfigLoader {
       let name = '';
       let description = '';
       let systemPrompt = '';
+      let deferLoading: boolean | undefined;
       let inFrontmatter = false;
       let frontmatterEnd = false;
 
@@ -82,8 +84,13 @@ class ConfigLoader {
           const match = line.match(/^\s*(\w+)\s*:\s*(.+)$/);
           if (match) {
             const [, key, value] = match;
-            if (key === 'name') name = value.trim();
-            if (key === 'description') description = value.trim();
+            const normalizedValue = value.trim();
+            if (key === 'name') name = normalizedValue;
+            if (key === 'description') description = normalizedValue;
+            if (key === 'defer_loading' || key === 'deferLoading') {
+              if (normalizedValue === 'true') deferLoading = true;
+              if (normalizedValue === 'false') deferLoading = false;
+            }
           }
         } else if (frontmatterEnd) {
           systemPrompt += line + '\n';
@@ -98,7 +105,8 @@ class ConfigLoader {
         name: name.trim(),
         description: description.trim(),
         systemPrompt: systemPrompt.trim(),
-        filePath
+        filePath,
+        deferLoading,
       };
     } catch (error) {
       console.warn(`Failed to parse agent config ${filePath}: ${error}`);
@@ -159,7 +167,9 @@ export class SubAgentPlugin implements EnginePlugin {
     const toolName = `${config.name}_agent`;
 
     const tool: Tool = {
+      name: toolName,
       description: config.description,
+      ...(config.deferLoading === true ? { defer_loading: true } : {}),
       inputSchema: z.object({
         task: z.string().describe('要执行的任务描述'),
         context: z.any().optional().describe('任务上下文信息')

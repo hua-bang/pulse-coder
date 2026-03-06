@@ -57,6 +57,7 @@ export const GeminiProImageTool: Tool<
   name: 'gemini_pro_image',
   description:
     'Generate an image with Gemini and save it to local disk. Requires GEMINI_API_KEY. Model defaults to GEMINI_PRO_IMAGE_MODEL or gemini-pro-image.',
+  defer_loading: true,
   inputSchema: z.object({
     prompt: z.string().describe('The prompts for image generation need to describe in detail the content, style, and composition of the image you want to generate.'),
     model: z.string().optional().describe('Gemini model name. Defaults to GEMINI_PRO_IMAGE_MODEL or google/gemini-3-pro-image-preview.'),
