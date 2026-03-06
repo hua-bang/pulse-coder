@@ -2,11 +2,13 @@
   "servers": {
     "eido_mind": {
       "transport": "http",
-      "url": "http://localhost:3060/mcp/server"
+      "url": "http://localhost:3060/mcp/server",
+      "deferTools": true
     },
     "deepwiki": {
       "transport": "http",
-      "url": "https://mcp.deepwiki.com/mcp"
+      "url": "https://mcp.deepwiki.com/mcp",
+      "deferTools": true
     },
     "twitter": {
       "transport": "stdio",
@@ -16,7 +18,8 @@
         "/root/pulse-coder/.vendors/opentwitter-mcp",
         "run",
         "opentwitter-mcp"
-      ]
+      ],
+      "deferTools": true
     }
   }
 }

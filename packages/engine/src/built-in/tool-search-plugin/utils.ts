@@ -22,11 +22,14 @@ type SearchableField = {
   weight: number;
 };
 
-function extractToolFields(tool: Tool): SearchableField[] {
+function extractToolFields(tool: Tool, registeredName?: string): SearchableField[] {
   const fields: SearchableField[] = [];
   const weights = DEFAULT_WEIGHTS;
 
-  fields.push({ text: tool.name, weight: weights.name });
+  const effectiveName = tool.name || registeredName;
+  if (effectiveName) {
+    fields.push({ text: effectiveName, weight: weights.name });
+  }
   if (tool.description) {
     fields.push({ text: tool.description, weight: weights.description });
   }
@@ -83,8 +86,8 @@ export function searchToolsRegex(
   }
 
   const results: ToolSearchResult[] = [];
-  for (const tool of Object.values(tools)) {
-    const fields = extractToolFields(tool);
+  for (const [registeredName, tool] of Object.entries(tools)) {
+    const fields = extractToolFields(tool, registeredName);
     let score = 0;
     for (const field of fields) {
       if (regex.test(field.text)) {
@@ -92,7 +95,7 @@ export function searchToolsRegex(
       }
     }
     if (score > 0) {
-      results.push({ toolName: tool.name, score });
+      results.push({ toolName: registeredName, score });
     }
   }
 
@@ -114,12 +117,13 @@ export function searchToolsBm25(
     return [];
   }
 
-  const docs = Object.values(tools).map((tool) => {
-    const fields = extractToolFields(tool);
+  const docs = Object.entries(tools).map(([toolName, tool]) => {
+    const fields = extractToolFields(tool, toolName);
     const docText = fields.map((field) => field.text).join(' ');
     const docTokens = tokenize(docText);
     return {
       tool,
+      toolName,
       fields,
       docTokens,
       length: docTokens.length || 1,
@@ -159,7 +163,7 @@ export function searchToolsBm25(
     }
 
     if (score > 0) {
-      results.push({ toolName: doc.tool.name, score });
+      results.push({ toolName: doc.toolName, score });
     }
   }
 
@@ -207,8 +211,8 @@ export function getSearchableToolCatalog(tools: Record<string, Tool>): Record<st
 }
 
 export function buildToolSearchSummary(tools: Record<string, Tool>, limit: number = 40): string {
-  const deferred = Object.values(filterDeferredTools(tools));
-  const names = deferred.map((tool) => tool.name).sort();
+  const deferred = filterDeferredTools(tools);
+  const names = Object.keys(deferred).sort();
   const shown = names.slice(0, Math.max(0, limit));
   const omitted = names.length - shown.length;
 
