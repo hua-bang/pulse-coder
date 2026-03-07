@@ -13,6 +13,22 @@ interface SkillSummary {
   description: string;
 }
 
+interface SoulSummary {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+interface SoulService {
+  listSouls: () => SoulSummary[];
+  getState: (sessionId: string) => Promise<{ activeSoulIds: string[] } | undefined>;
+  useSoul: (sessionId: string, soulId: string) => Promise<{ ok: boolean; reason?: string }>;
+  addSoul: (sessionId: string, soulId: string) => Promise<{ ok: boolean; reason?: string }>;
+  removeSoul: (sessionId: string, soulId: string) => Promise<{ ok: boolean; reason?: string }>;
+  clearSession: (sessionId: string) => Promise<{ ok: boolean; reason?: string }>;
+  cloneState: (fromSessionId: string, toSessionId: string) => Promise<{ ok: boolean; reason?: string }>;
+}
+
 interface SkillRegistryService {
   getAll: () => SkillSummary[];
   get: (name: string) => SkillSummary | undefined;
@@ -24,7 +40,7 @@ export type CommandResult =
   | { type: 'handled_silent' }
   | { type: 'transformed'; text: string };
 
-const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping', 'memory', 'mode', 'fork', 'wt', 'insight', 'model']);
+const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping', 'memory', 'mode', 'fork', 'wt', 'insight', 'model', 'soul']);
 const COMMAND_ALIASES: Record<string, string> = {
   '?': 'help',
   h: 'help',
@@ -36,6 +52,7 @@ const COMMAND_ALIASES: Record<string, string> = {
   session: 'current',
   mem: 'memory',
   clone: 'fork',
+  role: 'soul',
 };
 /**
  * Parse and execute slash commands for remote chat channels.
@@ -100,6 +117,11 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
         };
       }
 
+      const soulService = getSoulService();
+      if (soulService) {
+        await soulService.clearSession(result.sessionId);
+      }
+
       return {
         type: 'handled',
         message: `🧹 已清空当前会话上下文\nSession ID: ${result.sessionId}`,
@@ -148,6 +170,9 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
 
     case 'insight':
       return handleInsightCommand(args);
+
+    case 'soul':
+      return await handleSoulCommand(incoming.platformKey, args);
 
     default:
       return {
@@ -207,9 +232,14 @@ async function handleResumeCommand(platformKey: string, args: string[]): Promise
     };
   }
 
+  const soulService = getSoulService();
+  const soulState = soulService ? await soulService.getState(sessionId) : undefined;
+
   return {
     type: 'handled',
-    message: `✅ 已恢复会话：${sessionId}`,
+    message: soulState?.activeSoulIds?.length
+      ? `✅ 已恢复会话：${sessionId}\n🎭 已加载 soul：${soulState.activeSoulIds.join(', ')}`
+      : `✅ 已恢复会话：${sessionId}`,
   };
 }
 
@@ -228,6 +258,11 @@ async function handleForkCommand(platformKey: string, memoryKey: string, args: s
       type: 'handled',
       message: `❌ 无法 fork 会话：${result.reason ?? '未知错误'}\n用法：/fork <session-id>`,
     };
+  }
+
+  const soulService = getSoulService();
+  if (soulService) {
+    await soulService.cloneState(sourceSessionId, result.sessionId);
   }
 
   return {
@@ -259,6 +294,14 @@ async function handleStatusCommand(platformKey: string): Promise<CommandResult> 
     lines.push(`- 当前会话：${sessionStatus.sessionId}`);
     lines.push(`- 消息数：${sessionStatus.messageCount}`);
     lines.push(`- 最后更新：${formatTime(sessionStatus.updatedAt)}`);
+
+    const soulService = getSoulService();
+    const soulState = soulService ? await soulService.getState(sessionStatus.sessionId) : undefined;
+    if (soulState?.activeSoulIds?.length) {
+      lines.push(`- 当前 soul：${soulState.activeSoulIds.join(', ')}`);
+    } else {
+      lines.push('- 当前 soul：无');
+    }
   } else {
     lines.push('- 当前会话：无（发送普通消息会自动创建）');
   }
@@ -715,6 +758,140 @@ function getSkillRegistry(): SkillRegistryService | undefined {
   return engine.getService<SkillRegistryService>('skillRegistry');
 }
 
+function getSoulService(): SoulService | undefined {
+  return engine.getService<SoulService>('soulService');
+}
+
+function buildSoulListMessage(souls: SoulSummary[], state?: { activeSoulIds: string[] } | null): string {
+  if (souls.length === 0) {
+    return '📭 当前没有可用的 soul。';
+  }
+
+  const active = state?.activeSoulIds?.length ? new Set(state.activeSoulIds.map((id) => id.toLowerCase())) : new Set<string>();
+  const lines = souls.map((soul, index) => {
+    const isActive = active.has(soul.id.toLowerCase());
+    const marker = isActive ? '🎭' : '  ';
+    const desc = soul.description ? ` - ${soul.description}` : '';
+    return `${String(index + 1).padStart(2, ' ')}. ${marker} ${soul.id}${desc}`;
+  });
+
+  const header = state?.activeSoulIds?.length
+    ? `🎭 已启用 soul：${state.activeSoulIds.join(', ')}`
+    : '🎭 当前未启用 soul';
+
+  return [
+    header,
+    '🧩 可用 soul：',
+    ...lines,
+    '',
+    '用法：/soul list | /soul use <id> | /soul add <id> | /soul remove <id> | /soul clear',
+  ].join('\n');
+}
+
+async function handleSoulCommand(platformKey: string, args: string[]): Promise<CommandResult> {
+  const service = getSoulService();
+  if (!service) {
+    return {
+      type: 'handled',
+      message: '⚠️ 当前引擎未启用 soul 服务。',
+    };
+  }
+
+  const sub = args[0]?.toLowerCase() ?? 'list';
+  const sessionId = sessionStore.getCurrentSessionId(platformKey);
+
+  if (!sessionId) {
+    return {
+      type: 'handled',
+      message: 'ℹ️ 当前没有会话，先发送一条普通消息创建会话后再使用 soul 命令。',
+    };
+  }
+
+  if (sub === 'list' || sub === 'ls') {
+    const state = await service.getState(sessionId);
+    return {
+      type: 'handled',
+      message: buildSoulListMessage(service.listSouls(), state),
+    };
+  }
+
+  if (sub === 'status') {
+    const state = await service.getState(sessionId);
+    return {
+      type: 'handled',
+      message: state?.activeSoulIds?.length
+        ? `🎭 当前 soul：${state.activeSoulIds.join(', ')}`
+        : '🎭 当前未启用 soul。',
+    };
+  }
+
+  if (sub === 'clear') {
+    await service.clearSession(sessionId);
+    return {
+      type: 'handled',
+      message: `🧹 已清除当前会话 soul\nSession ID: ${sessionId}`,
+    };
+  }
+
+  const soulId = args[1];
+  if (!soulId) {
+    return {
+      type: 'handled',
+      message: '❌ 缺少 soul id\n用法：/soul use|add|remove <id>',
+    };
+  }
+
+  if (sub === 'use') {
+    const result = await service.useSoul(sessionId, soulId);
+    if (!result.ok) {
+      return {
+        type: 'handled',
+        message: `❌ soul 设置失败：${result.reason ?? 'unknown error'}`,
+      };
+    }
+
+    return {
+      type: 'handled',
+      message: `✅ 已启用 soul：${soulId}`,
+    };
+  }
+
+  if (sub === 'add') {
+    const result = await service.addSoul(sessionId, soulId);
+    if (!result.ok) {
+      return {
+        type: 'handled',
+        message: `❌ soul 追加失败：${result.reason ?? 'unknown error'}`,
+      };
+    }
+
+    return {
+      type: 'handled',
+      message: `✅ 已追加 soul：${soulId}`,
+    };
+  }
+
+  if (sub === 'remove' || sub === 'rm') {
+    const result = await service.removeSoul(sessionId, soulId);
+    if (!result.ok) {
+      return {
+        type: 'handled',
+        message: `❌ soul 移除失败：${result.reason ?? 'unknown error'}`,
+      };
+    }
+
+    return {
+      type: 'handled',
+      message: `✅ 已移除 soul：${soulId}`,
+    };
+  }
+
+  return {
+    type: 'handled',
+    message: '❌ 用法：/soul list | /soul status | /soul use <id> | /soul add <id> | /soul remove <id> | /soul clear',
+  };
+}
+
 function handleModeCommand(args: string[]): CommandResult {
   const sub = args[0]?.toLowerCase();
   const mode = engine.getMode();
@@ -813,6 +990,13 @@ function buildHelpMessage(): string {
     '/insight [days] - 汇总近 N 天会话洞见（默认 7 天，N 范围 1-365）',
     '/skills - 查看可用技能',
     '/skills <name|index> <message> - 使用技能',
+    '/soul - 查看可用 soul',
+    '/soul list - 列出可用 soul',
+    '/soul status - 查看当前会话 soul 状态',
+    '/soul use <id> - 切换到指定 soul',
+    '/soul add <id> - 追加一个 soul',
+    '/soul remove <id> - 移除一个 soul',
+    '/soul clear - 清除当前会话 soul',
     '/wt status - 查看当前会话绑定的 worktree',
     '/wt use <id> - 复用已有或创建新的 worktree 并绑定',
     '/wt use <id> <repoRoot> <worktreePath> [branch] - 绑定/更新当前会话 worktree',
