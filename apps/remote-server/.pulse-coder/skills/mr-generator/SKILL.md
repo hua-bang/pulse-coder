@@ -1,14 +1,14 @@
 ---
 name: mr-generator
 description: Automatically generate concise MR titles and descriptions based on current branch diff
-description_zh: Automatically generate concise MR titles and descriptions from the current branch diff, then create MR via gh after user confirmation.
-version: 1.2.0
+description_zh: Automatically generate concise MR titles and descriptions from the current branch diff, then create MR via gh by default.
+version: 1.3.0
 author: Pulse Coder Team
 ---
 
 # MR Generator Skill
 
-This skill generates concise English MR titles and descriptions based on the diff between the current branch and the target branch (default: `origin/master`), and creates the MR via `gh` only after explicit user confirmation.
+This skill generates concise English MR titles and descriptions based on the diff between the current branch and the target branch (default: `origin/master`). It creates the MR via `gh` by default, unless preview mode is enabled or `--no-create` is passed.
 
 ## Core Capabilities
 
@@ -18,7 +18,7 @@ This skill generates concise English MR titles and descriptions based on the dif
 - Extract key change points
 
 ### 2. Automatic title generation
-- Select suitable verbs by change type
+- Prefix title with a change type (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`)
 - Include the main module/feature
 - Keep title within 50 characters when possible
 
@@ -27,30 +27,27 @@ This skill generates concise English MR titles and descriptions based on the dif
 - Use bullet-point format
 - Keep wording short and clear in English
 
-### 4. Create MR after user confirmation
-- Show generated title and description first
-- Ask for explicit confirmation before creating MR
-- Run `gh` create command only when confirmed
+### 4. Create MR by default
+- Print generated title and description
+- Create MR via `gh` unless `--preview` or `--no-create` is set
+- Skip creation when an open PR already exists for the branch
 
 ## Required Execution Flow
 
 1. Read diff between current branch and target branch (default: `origin/master`).
 2. Generate an English MR title and description.
-3. Present the proposed title and description to the user and ask for one explicit confirmation.
-4. If user confirms (for example: `y`, `yes`, `confirm`):
-   - Run `gh` to create the MR:
+3. Print the proposed title and description.
+4. If `--preview` or `--no-create` is set, stop after printing.
+5. Otherwise, create the MR via `gh`:
    ```bash
    gh pr create --title "<generated_title>" --body "<generated_body>"
    ```
-5. If user does not confirm (for example: `n`, `no`, `cancel`):
-   - Do not run `gh`.
-   - Tell the user they can edit title/description and retry.
 
 ## Usage
 
 ### Basic usage
 ```bash
-# Generate title/description, then create MR after confirmation
+# Generate title/description, then create MR by default
 ./mr-generate.sh
 
 # Set target branch (default: origin/master)
@@ -58,11 +55,14 @@ This skill generates concise English MR titles and descriptions based on the dif
 
 # Preview only (generate, do not create MR)
 ./mr-generate.sh --preview
+
+# Print only (no MR creation)
+./mr-generate.sh --no-create
 ```
 
 ### Workflow integration
 ```bash
-# Run before MR creation
+# Run after push
 git push origin HEAD
 ./mr-generate.sh
 ```
@@ -70,12 +70,12 @@ git push origin HEAD
 ## Title Generation Rules
 
 ### Change type mapping
-- **Feature**: Add / Implement / Introduce
-- **Fix**: Fix / Resolve / Correct
-- **Refactor**: Refactor / Improve / Optimize
-- **Docs**: Update / Add docs
-- **Tests**: Add tests / Improve coverage
-- **Config**: Update config / Setup
+- **Feature**: feat
+- **Fix**: fix
+- **Refactor**: refactor
+- **Docs**: docs
+- **Tests**: test
+- **Config/Chore**: chore
 
 ### Module extraction
 - Identify the main module based on file paths
@@ -95,7 +95,7 @@ Brief description of changes
 ## Example Output
 
 ### Feature
-**Title**: `Add user authentication with JWT`
+**Title**: `feat: add user authentication with JWT`
 
 **Description**:
 ```text
@@ -108,7 +108,7 @@ Implement secure user authentication using JWT tokens
 ```
 
 ### Bug Fix
-**Title**: `Fix login validation error`
+**Title**: `fix: resolve login validation error`
 
 **Description**:
 ```text
@@ -120,7 +120,7 @@ Resolve email validation issue in user login
 ```
 
 ### Refactor
-**Title**: `Refactor API response handling`
+**Title**: `refactor: simplify API response handling`
 
 **Description**:
 ```text

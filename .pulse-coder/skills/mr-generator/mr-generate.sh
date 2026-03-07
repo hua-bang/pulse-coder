@@ -8,6 +8,7 @@ set -e
 # 配置
 TARGET_BRANCH="origin/master"
 PREVIEW_MODE=false
+CREATE_MODE=true
 
 # 颜色定义
 GREEN='\033[0;32m'
@@ -25,15 +26,26 @@ while [[ $# -gt 0 ]]; do
             ;;
         --preview)
             PREVIEW_MODE=true
+            CREATE_MODE=false
+            shift
+            ;;
+        --no-create)
+            CREATE_MODE=false
+            shift
+            ;;
+        --create)
+            CREATE_MODE=true
             shift
             ;;
         -h|--help)
-            echo "Usage: $0 [--target branch] [--preview]"
+            echo "Usage: $0 [--target branch] [--preview] [--create|--no-create]"
             echo "Generate MR title and description based on branch diff"
             echo ""
             echo "Options:"
             echo "  --target branch    Target branch to compare against (default: origin/master)"
-            echo "  --preview         Show preview mode with additional info"
+            echo "  --preview         Show preview mode with additional info (no MR creation)"
+            echo "  --create          Create MR via gh (default)"
+            echo "  --no-create       Only print title/description"
             echo "  -h, --help        Show this help message"
             exit 0
             ;;
@@ -88,6 +100,7 @@ analyze_change_type() {
     local has_config=$(echo "$files" | grep -c "\.json\|\.yml\|\.yaml\|\.config" || echo 0)
     local has_fix=$(git log --oneline "$TARGET_BRANCH"...HEAD | grep -ic "fix\|bug\|repair\|resolve" || echo 0)
     local has_feature=$(git log --oneline "$TARGET_BRANCH"...HEAD | grep -ic "feat\|feature\|add\|implement" || echo 0)
+    local has_refactor=$(git log --oneline "$TARGET_BRANCH"...HEAD | grep -ic "refactor\|cleanup\|simplify\|restructure\|rework" || echo 0)
     
     # 基于文件状态判断
     if [[ $added_files -gt 0 && $modified_files -eq 0 && $deleted_files -eq 0 ]]; then
@@ -98,6 +111,8 @@ analyze_change_type() {
         echo "fix"
     elif [[ $has_feature -gt 0 ]]; then
         echo "feature"
+    elif [[ $has_refactor -gt 0 ]]; then
+        echo "refactor"
     elif [[ $has_test -gt $(($file_count / 2)) ]]; then
         echo "test"
     elif [[ $has_docs -gt $(($file_count / 2)) ]]; then
@@ -130,34 +145,68 @@ extract_main_module() {
 generate_title() {
     local change_type="$1"
     local module="$2"
+    local prefix=""
     
     case "$change_type" in
-        "add")
-            echo "Add ${module}"
-            ;;
-        "remove")
-            echo "Remove ${module}"
+        "add"|"feature")
+            prefix="feat"
             ;;
         "fix")
-            echo "Fix ${module} issue"
+            prefix="fix"
             ;;
         "test")
-            echo "Add tests for ${module}"
+            prefix="test"
             ;;
         "docs")
-            echo "Update ${module} documentation"
+            prefix="docs"
             ;;
         "config")
-            echo "Update ${module} configuration"
+            prefix="chore"
             ;;
-        "feature")
-            echo "Add ${module} functionality"
+        "remove")
+            prefix="chore"
+            ;;
+        "refactor")
+            prefix="refactor"
             ;;
         "update")
-            echo "Update ${module}"
+            prefix="refactor"
             ;;
         *)
-            echo "Update ${module}"
+            prefix="chore"
+            ;;
+    esac
+
+    case "$change_type" in
+        "add")
+            echo "${prefix}: add ${module}"
+            ;;
+        "remove")
+            echo "${prefix}: remove ${module}"
+            ;;
+        "fix")
+            echo "${prefix}: fix ${module} issue"
+            ;;
+        "test")
+            echo "${prefix}: add tests for ${module}"
+            ;;
+        "docs")
+            echo "${prefix}: update ${module} documentation"
+            ;;
+        "config")
+            echo "${prefix}: update ${module} configuration"
+            ;;
+        "feature")
+            echo "${prefix}: add ${module} functionality"
+            ;;
+        "refactor")
+            echo "${prefix}: refactor ${module}"
+            ;;
+        "update")
+            echo "${prefix}: update ${module}"
+            ;;
+        *)
+            echo "${prefix}: update ${module}"
             ;;
     esac
 }
@@ -266,6 +315,9 @@ generate_description() {
         "feature")
             summary="Implement ${module} functionality"
             ;;
+        "refactor")
+            summary="Refactor ${module} implementation"
+            ;;
         "update")
             summary="Update ${module} implementation"
             ;;
@@ -285,6 +337,16 @@ generate_description() {
 get_jira_ticket() {
     local ticket=$(git log --oneline "$TARGET_BRANCH"...HEAD | grep -o "[A-Z][A-Z0-9]*-[0-9]*" | head -1 || echo "")
     echo "$ticket"
+}
+
+# 检查远端是否已有对应 PR
+has_open_pr() {
+    local branch="$1"
+    if ! command -v gh >/dev/null 2>&1; then
+        return 1
+    fi
+
+    gh pr list --head "$branch" --state open --json number --jq 'length' 2>/dev/null | grep -q '^[1-9]'
 }
 
 # 生成详细统计信息
@@ -336,6 +398,23 @@ main() {
     echo "$title"
     echo ""
     echo "$description"
+
+    if [[ "$CREATE_MODE" == true ]]; then
+        if has_open_pr "$current_branch"; then
+            echo ""
+            echo "${YELLOW}Open PR already exists for ${current_branch}. Skipping creation.${NC}"
+            return 0
+        fi
+
+        if ! command -v gh >/dev/null 2>&1; then
+            echo "${RED}gh is required to create PRs but was not found.${NC}" >&2
+            exit 1
+        fi
+
+        echo ""
+        echo -e "${BLUE}Creating MR via gh...${NC}"
+        gh pr create --title "$title" --body "$description"
+    fi
 }
 
 # 运行主程序
