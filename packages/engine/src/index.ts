@@ -32,6 +32,7 @@ export {
   builtInTaskTrackingPlugin,
   builtInAgentTeamsPlugin,
   builtInRoleSoulPlugin,
+  builtInPtcPlugin,
   BuiltInSkillRegistry,
   BuiltInPlanModeService,
   TaskListService,

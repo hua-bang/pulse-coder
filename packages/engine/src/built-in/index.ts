@@ -38,6 +38,7 @@ export { builtInTaskTrackingPlugin, TaskListService } from './task-tracking-plug
 export type { TaskStatus, WorkTask, WorkTaskListSnapshot } from './task-tracking-plugin';
 export { builtInAgentTeamsPlugin } from './agent-teams-plugin';
 export { builtInRoleSoulPlugin } from './role-soul-plugin';
+export { builtInPtcPlugin } from './ptc-plugin';
 export type { TeamRole, TaskGraph, TaskNode, NodeResult, TeamRunInput, TeamRunOutput } from './agent-teams-plugin/types';
 export type {
   PlanMode,

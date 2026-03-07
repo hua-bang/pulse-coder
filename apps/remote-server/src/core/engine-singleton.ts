@@ -1,4 +1,4 @@
-import { Engine } from 'pulse-coder-engine';
+import { Engine, builtInPtcPlugin } from 'pulse-coder-engine';
 import { memoryIntegration } from './memory-integration.js';
 import { worktreeIntegration } from './worktree/integration.js';
 import { cronJobTool } from './tools/cron-job.js';
@@ -14,6 +14,7 @@ import { sessionSummaryTool } from './tools/session-summary.js';
 export const engine = new Engine({
   enginePlugins: {
     plugins: [
+      builtInPtcPlugin,
       memoryIntegration.enginePlugin,
       worktreeIntegration.enginePlugin,
     ],
