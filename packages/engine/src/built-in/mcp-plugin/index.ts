@@ -7,6 +7,7 @@ import { EnginePlugin, EnginePluginContext } from '../../plugin/EnginePlugin';
 import { createMCPClient, type MCPClientConfig } from '@ai-sdk/mcp';
 import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio';
 import { existsSync, readFileSync } from 'fs';
+import { homedir } from 'os';
 import * as path from 'path';
 
 type RawMCPServerConfig = Record<string, unknown>;
@@ -37,12 +38,7 @@ export interface MCPPluginConfig {
   servers: Record<string, RawMCPServerConfig>;
 }
 
-export async function loadMCPConfig(cwd: string): Promise<MCPPluginConfig> {
-  // 优先读取 .pulse-coder/mcp.json，兼容旧版 .coder/mcp.json
-  const newConfigPath = path.join(cwd, '.pulse-coder', 'mcp.json');
-  const legacyConfigPath = path.join(cwd, '.coder', 'mcp.json');
-  const configPath = existsSync(newConfigPath) ? newConfigPath : legacyConfigPath;
-
+function readMCPConfigFile(configPath: string): MCPPluginConfig {
   if (!existsSync(configPath)) {
     return { servers: {} };
   }
@@ -61,6 +57,30 @@ export async function loadMCPConfig(cwd: string): Promise<MCPPluginConfig> {
     console.warn(`[MCP] Failed to load config: ${error instanceof Error ? error.message : 'Unknown error'}`);
     return { servers: {} };
   }
+}
+
+export async function loadMCPConfig(cwd: string): Promise<MCPPluginConfig> {
+  // 合并用户级与项目级配置，后者覆盖前者
+  const projectConfigPath = path.join(cwd, '.pulse-coder', 'mcp.json');
+  const legacyProjectConfigPath = path.join(cwd, '.coder', 'mcp.json');
+  const homeConfigPath = path.join(homedir(), '.pulse-coder', 'mcp.json');
+  const legacyHomeConfigPath = path.join(homedir(), '.coder', 'mcp.json');
+
+  const configsInOrder = [
+    legacyHomeConfigPath,
+    homeConfigPath,
+    legacyProjectConfigPath,
+    projectConfigPath
+  ];
+
+  const mergedServers: Record<string, RawMCPServerConfig> = {};
+
+  for (const configPath of configsInOrder) {
+    const { servers } = readMCPConfigFile(configPath);
+    Object.assign(mergedServers, servers);
+  }
+
+  return { servers: mergedServers };
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
