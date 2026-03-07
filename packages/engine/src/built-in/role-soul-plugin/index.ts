@@ -42,6 +42,7 @@ export interface SoulService {
   addSoul(sessionId: string, soulId: string): Promise<SoulActionResult>;
   removeSoul(sessionId: string, soulId: string): Promise<SoulActionResult>;
   clearSession(sessionId: string): Promise<{ ok: boolean; reason?: string }>;
+  cloneState(fromSessionId: string, toSessionId: string): Promise<{ ok: boolean; reason?: string }>;
   buildPromptAppend(sessionId: string): Promise<string | null>;
 }
 
@@ -410,6 +411,27 @@ class BuiltInSoulService implements SoulService {
     this.states.delete(sessionId);
     this.loadedSessions.add(sessionId);
     await this.store.remove(sessionId);
+    return { ok: true };
+  }
+
+  async cloneState(fromSessionId: string, toSessionId: string): Promise<{ ok: boolean; reason?: string }> {
+    await this.ensureLoaded(fromSessionId);
+    const state = this.states.get(fromSessionId);
+    if (!state || state.activeSoulIds.length === 0) {
+      await this.clearSession(toSessionId);
+      return { ok: true };
+    }
+
+    const nextState: SoulState = {
+      sessionId: toSessionId,
+      activeSoulIds: [...state.activeSoulIds],
+      primarySoulId: state.primarySoulId,
+      updatedAt: now(),
+    };
+
+    this.states.set(toSessionId, nextState);
+    this.loadedSessions.add(toSessionId);
+    this.store.scheduleSave(nextState);
     return { ok: true };
   }
 

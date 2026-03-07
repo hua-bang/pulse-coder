@@ -19,20 +19,14 @@ interface SoulSummary {
   description?: string;
 }
 
-interface SoulStateSnapshot {
-  sessionId: string;
-  activeSoulIds: string[];
-  primarySoulId?: string;
-  updatedAt: number;
-}
-
 interface SoulService {
   listSouls: () => SoulSummary[];
-  getState: (sessionId: string) => Promise<SoulStateSnapshot | undefined>;
+  getState: (sessionId: string) => Promise<{ activeSoulIds: string[] } | undefined>;
   useSoul: (sessionId: string, soulId: string) => Promise<{ ok: boolean; reason?: string }>;
   addSoul: (sessionId: string, soulId: string) => Promise<{ ok: boolean; reason?: string }>;
   removeSoul: (sessionId: string, soulId: string) => Promise<{ ok: boolean; reason?: string }>;
   clearSession: (sessionId: string) => Promise<{ ok: boolean; reason?: string }>;
+  cloneState: (fromSessionId: string, toSessionId: string) => Promise<{ ok: boolean; reason?: string }>;
 }
 
 interface SkillRegistryService {
@@ -123,7 +117,10 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
         };
       }
 
-      await sessionStore.clearSoulState(result.sessionId);
+      const soulService = getSoulService();
+      if (soulService) {
+        await soulService.clearSession(result.sessionId);
+      }
 
       return {
         type: 'handled',
@@ -235,7 +232,8 @@ async function handleResumeCommand(platformKey: string, args: string[]): Promise
     };
   }
 
-  const soulState = await sessionStore.getSoulState(sessionId);
+  const soulService = getSoulService();
+  const soulState = soulService ? await soulService.getState(sessionId) : undefined;
 
   return {
     type: 'handled',
@@ -260,6 +258,11 @@ async function handleForkCommand(platformKey: string, memoryKey: string, args: s
       type: 'handled',
       message: `❌ 无法 fork 会话：${result.reason ?? '未知错误'}\n用法：/fork <session-id>`,
     };
+  }
+
+  const soulService = getSoulService();
+  if (soulService) {
+    await soulService.cloneState(sourceSessionId, result.sessionId);
   }
 
   return {
@@ -292,7 +295,8 @@ async function handleStatusCommand(platformKey: string): Promise<CommandResult> 
     lines.push(`- 消息数：${sessionStatus.messageCount}`);
     lines.push(`- 最后更新：${formatTime(sessionStatus.updatedAt)}`);
 
-    const soulState = await sessionStore.getSoulState(sessionStatus.sessionId);
+    const soulService = getSoulService();
+    const soulState = soulService ? await soulService.getState(sessionStatus.sessionId) : undefined;
     if (soulState?.activeSoulIds?.length) {
       lines.push(`- 当前 soul：${soulState.activeSoulIds.join(', ')}`);
     } else {
@@ -758,7 +762,7 @@ function getSoulService(): SoulService | undefined {
   return engine.getService<SoulService>('soulService');
 }
 
-function buildSoulListMessage(souls: SoulSummary[], state?: SoulStateSnapshot | null): string {
+function buildSoulListMessage(souls: SoulSummary[], state?: { activeSoulIds: string[] } | null): string {
   if (souls.length === 0) {
     return '📭 当前没有可用的 soul。';
   }
@@ -804,7 +808,7 @@ async function handleSoulCommand(platformKey: string, args: string[]): Promise<C
   }
 
   if (sub === 'list' || sub === 'ls') {
-    const state = await sessionStore.getSoulState(sessionId);
+    const state = await service.getState(sessionId);
     return {
       type: 'handled',
       message: buildSoulListMessage(service.listSouls(), state),
@@ -812,7 +816,7 @@ async function handleSoulCommand(platformKey: string, args: string[]): Promise<C
   }
 
   if (sub === 'status') {
-    const state = await sessionStore.getSoulState(sessionId);
+    const state = await service.getState(sessionId);
     return {
       type: 'handled',
       message: state?.activeSoulIds?.length
@@ -823,7 +827,6 @@ async function handleSoulCommand(platformKey: string, args: string[]): Promise<C
 
   if (sub === 'clear') {
     await service.clearSession(sessionId);
-    await sessionStore.clearSoulState(sessionId);
     return {
       type: 'handled',
       message: `🧹 已清除当前会话 soul\nSession ID: ${sessionId}`,
@@ -847,11 +850,6 @@ async function handleSoulCommand(platformKey: string, args: string[]): Promise<C
       };
     }
 
-    const state = await service.getState(sessionId);
-    if (state) {
-      sessionStore.scheduleSoulStateSave(state);
-    }
-
     return {
       type: 'handled',
       message: `✅ 已启用 soul：${soulId}`,
@@ -867,11 +865,6 @@ async function handleSoulCommand(platformKey: string, args: string[]): Promise<C
       };
     }
 
-    const state = await service.getState(sessionId);
-    if (state) {
-      sessionStore.scheduleSoulStateSave(state);
-    }
-
     return {
       type: 'handled',
       message: `✅ 已追加 soul：${soulId}`,
@@ -885,11 +878,6 @@ async function handleSoulCommand(platformKey: string, args: string[]): Promise<C
         type: 'handled',
         message: `❌ soul 移除失败：${result.reason ?? 'unknown error'}`,
       };
-    }
-
-    const state = await service.getState(sessionId);
-    if (state) {
-      sessionStore.scheduleSoulStateSave(state);
     }
 
     return {
