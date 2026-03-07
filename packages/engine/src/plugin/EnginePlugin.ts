@@ -16,6 +16,7 @@ export interface BeforeRunInput {
   context: Context;
   systemPrompt?: SystemPromptOption;
   tools: Record<string, any>;
+  runContext?: Record<string, any>;
 }
 
 export interface BeforeRunResult {

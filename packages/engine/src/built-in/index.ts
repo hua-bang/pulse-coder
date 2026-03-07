@@ -8,6 +8,7 @@ import { builtInSkillsPlugin } from './skills-plugin';
 import { builtInPlanModePlugin } from './plan-mode-plugin';
 import { builtInToolSearchPlugin } from './tool-search-plugin';
 import { builtInTaskTrackingPlugin } from './task-tracking-plugin';
+import { builtInRoleSoulPlugin } from './role-soul-plugin';
 import { SubAgentPlugin } from './sub-agent-plugin';
 import { builtInAgentTeamsPlugin } from './agent-teams-plugin';
 
@@ -22,7 +23,8 @@ export const builtInPlugins = [
   builtInPlanModePlugin,
   builtInTaskTrackingPlugin,
   new SubAgentPlugin(),
-  builtInAgentTeamsPlugin
+  builtInAgentTeamsPlugin,
+  builtInRoleSoulPlugin,
 ];
 
 /**
@@ -35,6 +37,7 @@ export { builtInToolSearchPlugin } from './tool-search-plugin';
 export { builtInTaskTrackingPlugin, TaskListService } from './task-tracking-plugin';
 export type { TaskStatus, WorkTask, WorkTaskListSnapshot } from './task-tracking-plugin';
 export { builtInAgentTeamsPlugin } from './agent-teams-plugin';
+export { builtInRoleSoulPlugin } from './role-soul-plugin';
 export type { TeamRole, TaskGraph, TaskNode, NodeResult, TeamRunInput, TeamRunOutput } from './agent-teams-plugin/types';
 export type {
   PlanMode,

@@ -50,6 +50,13 @@ export interface ForkSessionResult {
   reason?: string;
 }
 
+export interface SoulStateSnapshot {
+  sessionId: string;
+  activeSoulIds: string[];
+  primarySoulId?: string;
+  updatedAt: number;
+}
+
 export interface SessionDetail {
   id: string;
   platformKey: string;
@@ -77,15 +84,27 @@ class RemoteSessionStore {
   private sessionsDir: string;
   private indexPath: string;
   private index: Record<string, string> = {};
+  private readonly soulDir: string;
+  private readonly soulStateDir: string;
+  private readonly soulCache = new Map<string, SoulStateSnapshot>();
+  private readonly soulDebounceTimers = new Map<string, NodeJS.Timeout>();
+  private readonly soulDebounceMs = 250;
+  private readonly soulPersistEnabled: boolean;
 
   constructor() {
     this.baseDir = join(homedir(), '.pulse-coder', 'remote-sessions');
     this.sessionsDir = join(this.baseDir, 'sessions');
     this.indexPath = join(this.baseDir, 'index.json');
+    this.soulDir = join(homedir(), '.pulse-coder', 'souls');
+    this.soulStateDir = join(this.soulDir, 'state', 'sessions');
+    this.soulPersistEnabled = process.env.PULSE_CODER_SOUL_PERSIST?.trim() !== '0';
   }
 
   async initialize(): Promise<void> {
     await fs.mkdir(this.sessionsDir, { recursive: true });
+    if (this.soulPersistEnabled) {
+      await fs.mkdir(this.soulStateDir, { recursive: true });
+    }
     try {
       const raw = await fs.readFile(this.indexPath, 'utf-8');
       this.index = JSON.parse(raw);
@@ -96,6 +115,85 @@ class RemoteSessionStore {
 
   private async saveIndex(): Promise<void> {
     await fs.writeFile(this.indexPath, JSON.stringify(this.index, null, 2), 'utf-8');
+  }
+
+  private soulStatePath(sessionId: string): string {
+    return join(this.soulStateDir, `${sessionId}.json`);
+  }
+
+  async getSoulState(sessionId: string): Promise<SoulStateSnapshot | null> {
+    const cached = this.soulCache.get(sessionId);
+    if (cached) {
+      return cached;
+    }
+
+    if (!this.soulPersistEnabled) {
+      return null;
+    }
+
+    try {
+      const raw = await fs.readFile(this.soulStatePath(sessionId), 'utf-8');
+      const parsed = JSON.parse(raw) as SoulStateSnapshot;
+      if (!parsed || parsed.sessionId !== sessionId) {
+        return null;
+      }
+      this.soulCache.set(sessionId, parsed);
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  scheduleSoulStateSave(state: SoulStateSnapshot): void {
+    if (!this.soulPersistEnabled) {
+      return;
+    }
+
+    this.soulCache.set(state.sessionId, state);
+    if (this.soulDebounceTimers.has(state.sessionId)) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      this.soulDebounceTimers.delete(state.sessionId);
+      const latest = this.soulCache.get(state.sessionId);
+      if (latest) {
+        void this.persistSoulState(latest);
+      }
+    }, this.soulDebounceMs);
+
+    this.soulDebounceTimers.set(state.sessionId, timer);
+  }
+
+  async clearSoulState(sessionId: string): Promise<void> {
+    this.soulCache.delete(sessionId);
+    const timer = this.soulDebounceTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.soulDebounceTimers.delete(sessionId);
+    }
+
+    if (!this.soulPersistEnabled) {
+      return;
+    }
+
+    try {
+      await fs.unlink(this.soulStatePath(sessionId));
+    } catch {
+      return;
+    }
+  }
+
+  private async persistSoulState(state: SoulStateSnapshot): Promise<void> {
+    if (!this.soulPersistEnabled) {
+      return;
+    }
+
+    try {
+      await fs.writeFile(this.soulStatePath(state.sessionId), JSON.stringify(state, null, 2), 'utf-8');
+    } catch {
+      return;
+    }
   }
 
   private sessionPath(sessionId: string): string {
@@ -340,6 +438,16 @@ class RemoteSessionStore {
     await this.writeSession(forkedSession);
     this.index[platformKey] = forkedSessionId;
     await this.saveIndex();
+
+    const sourceSoulState = await this.getSoulState(sourceSessionId);
+    if (sourceSoulState) {
+      this.scheduleSoulStateSave({
+        sessionId: forkedSessionId,
+        activeSoulIds: [...sourceSoulState.activeSoulIds],
+        primarySoulId: sourceSoulState.primarySoulId,
+        updatedAt: now,
+      });
+    }
 
     return {
       ok: true,
