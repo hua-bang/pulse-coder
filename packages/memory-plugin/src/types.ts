@@ -1,4 +1,4 @@
-export type MemoryScope = 'session' | 'user';
+export type MemoryScope = 'session' | 'user' | 'soul';
 
 export type MemoryType = 'preference' | 'rule' | 'decision' | 'fix' | 'fact';
 
@@ -80,6 +80,17 @@ export interface RecallInput {
   sessionId: string;
   query: string;
   limit?: number;
+}
+
+export interface SoulRecallInput {
+  platformKey: string;
+  query: string;
+  limit?: number;
+}
+
+export interface SoulRecordInput {
+  platformKey: string;
+  content: string;
 }
 
 export interface DailyLogByDayInput {

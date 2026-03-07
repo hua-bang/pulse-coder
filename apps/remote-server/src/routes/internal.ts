@@ -417,19 +417,22 @@ function buildNotifyMessage(payload: {
     `platformKey: ${payload.platformKey}`,
     `sessionId: ${payload.sessionId || '(none)'}`,
     `${skillLine}result:`,
-    truncateForFeishu(payload.result),
+    payload.result,
   ].join('\n');
 }
 
 async function sendFeishuNotification(target: FeishuTarget, message: string): Promise<boolean> {
   const client = createLarkClient();
-  await sendTextMessage(client, target.receiveId, target.receiveIdType, message);
+  await sendTextMessage(client, target.receiveId, target.receiveIdType, truncateForFeishu(message));
   return true;
 }
 
 async function sendDiscordNotification(target: DiscordTarget, message: string): Promise<boolean> {
   const client = new DiscordClient();
-  await client.sendChannelMessage(target.channelId, message, { assumeThread: target.isThread });
+  const chunks = splitDiscordMessage(message);
+  for (const chunk of chunks) {
+    await client.sendChannelMessage(target.channelId, chunk, { assumeThread: target.isThread });
+  }
   return true;
 }
 
@@ -491,10 +494,55 @@ function resolveFeishuTarget(feishu: FeishuNotifyConfig | undefined, platformKey
   return null;
 }
 
+function truncateForNotify(text: string): string {
+  return truncateForDiscord(truncateForFeishu(text));
+}
+
+function truncateForDiscord(text: string, maxLength = 2000): string {
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  return `${text.slice(0, maxLength)}...`;
+}
+
 function truncateForFeishu(text: string, maxLength = 3000): string {
   if (text.length <= maxLength) {
     return text;
   }
 
   return `${text.slice(0, maxLength)}...`;
+}
+
+function splitDiscordMessage(text: string, maxLength = 2000): string[] {
+  if (text.length <= maxLength) {
+    return [text];
+  }
+
+  const chunks: string[] = [];
+  let cursor = 0;
+  while (cursor < text.length) {
+    const remaining = text.length - cursor;
+    if (remaining <= maxLength) {
+      chunks.push(text.slice(cursor));
+      break;
+    }
+
+    const window = text.slice(cursor, cursor + maxLength);
+    let splitAt = window.lastIndexOf('\n\n');
+    if (splitAt > 0) {
+      splitAt += 2;
+    } else {
+      splitAt = window.lastIndexOf('\n');
+      if (splitAt > 0) {
+        splitAt += 1;
+      } else {
+        splitAt = maxLength;
+      }
+    }
+
+    chunks.push(text.slice(cursor, cursor + splitAt));
+    cursor += splitAt;
+  }
+  return chunks;
 }

@@ -1,7 +1,7 @@
 ---
 name: session-digest
-description: Summarize sessions across a multi-day range by paging session_summary in chunks.
-description_zh: 通过分段调用 session_summary 汇总多天会话，避免一次拉取过多内容。
+description: Summarize sessions across a multi-day range by paging session_summary in chunks, output bilingual, and write back stable soul traits.
+description_zh: 通过分段调用 session_summary 汇总多天会话，输出中英双语摘要，并在稳定特征出现时写回 soul。
 version: 1.0.0
 author: Pulse Coder Team
 ---
@@ -59,10 +59,44 @@ Summarize sessions over a long date range without blowing context by paging `ses
 4. Aggregate across windows:
    - Deduplicate repeated items.
    - Highlight: PRs/MRs, code changes, config changes, incidents, decisions.
-5. Output format:
-   - **Overall** (5-8 bullets)
-   - **Per-window digest** (date range + 3-6 bullets)
-   - **Notable items** (optional; PR links, branches, releases)
+5. Produce bilingual output (EN + ZH) with the format below.
+6. **Soul writeback (no read):**
+   - Do NOT call `memory_recall`.
+   - Infer 1-2 stable traits only when the same tendency appears in **>= 2 sessions or windows**.
+   - Record with `memory_record` using `kind: "soul"` and a short, neutral sentence (no sensitive or user-facing text).
+   - Do not mention the soul writeback in the visible output.
+
+## Output Format
+
+- Start with the date range (UTC).
+- Provide English then Chinese sections.
+- Keep each language concise (target <= 1200 chars; avoid long excerpts).
+
+Example:
+
+```
+Date Range (UTC): 2025-03-01 to 2025-03-07
+
+EN
+Overall:
+- ...
+- ...
+Per-window:
+- 2025-03-07: ...
+- 2025-03-06: ...
+Notable:
+- ...
+
+ZH
+总体:
+- ...
+- ...
+分段:
+- 2025-03-07: ...
+- 2025-03-06: ...
+要点:
+- ...
+```
 
 ## Output Rules
 

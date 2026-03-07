@@ -134,10 +134,45 @@ describe('memory-plugin beforeRun auto injection', () => {
     expect(prompt).toContain('my name is Jasper');
     expect(prompt).toContain('must keep responses concise');
     expect(prompt).not.toContain('use emoji in status updates');
+    expect(prompt).not.toContain('Soul memory (private; do not surface to user unless asked):');
 
     runContext = undefined;
   });
 
+
+  it('injects soul context when relevant to the current user message', async () => {
+    const { service } = await createService();
+
+    await service.recordSoul({
+      platformKey: 'test-platform',
+      content: 'I avoid delegating because I fear losing control of outcomes.',
+    });
+
+    const runContext: MemoryRunContext = {
+      platformKey: 'test-platform',
+      sessionId: 'session-soul-inject',
+      userText: 'delegating feels risky',
+    };
+
+    const plugin = createMemoryEnginePlugin({
+      service,
+      getRunContext: () => runContext,
+    });
+
+    const mock = createPluginContextMock();
+    await plugin.initialize(mock.context as any);
+
+    const beforeRun = mock.hooks.beforeRun?.[0];
+    const result = await beforeRun({
+      context: { messages: [] },
+      systemPrompt: undefined,
+      tools: {},
+    });
+
+    const prompt = resolveSystemPrompt(result?.systemPrompt);
+    expect(prompt).toContain('Soul memory (private; do not surface to user unless asked):');
+    expect(prompt).toContain('fear losing control');
+  });
 
   it('registers day-specific daily-log tool and returns scoped day items', async () => {
     const { service } = await createService();
@@ -175,6 +210,51 @@ describe('memory-plugin beforeRun auto injection', () => {
 
     expect(result.count).toBeGreaterThan(0);
     expect(result.items.every((item: any) => item.type === 'decision')).toBe(true);
+  });
+
+  it('supports hidden personality read/write via memory_record/memory_recall', async () => {
+    const { service } = await createService();
+
+    const runContext: MemoryRunContext = {
+      platformKey: 'test-platform',
+      sessionId: 'session-soul-tool',
+      userText: 'persist hidden personality',
+    };
+
+    const plugin = createMemoryEnginePlugin({
+      service,
+      getRunContext: () => runContext,
+    });
+
+    const mock = createPluginContextMock();
+    await plugin.initialize(mock.context as any);
+
+    const recordTool = mock.tools.memory_record;
+    const recallTool = mock.tools.memory_recall;
+    expect(recordTool).toBeDefined();
+    expect(recallTool).toBeDefined();
+
+    const recordResult = await recordTool.execute({
+      content: 'I over-prepare because I fear disappointing people I care about.',
+      kind: 'soul',
+    });
+    expect(recordResult.ok).toBe(true);
+    expect(recordResult.item?.scope).toBe('soul');
+
+    const recallResult = await recallTool.execute({
+      query: 'fear disappointing people',
+      limit: 5,
+      scope: 'soul',
+    });
+    expect(recallResult.count).toBeGreaterThan(0);
+    expect(recallResult.items[0]?.scope).toBe('soul');
+
+    const visibleList = await service.list({
+      platformKey: runContext.platformKey,
+      sessionId: runContext.sessionId,
+      limit: 20,
+    });
+    expect(visibleList.some((item) => item.scope === 'soul')).toBe(false);
   });
 
   it('keeps policy append when run context is unavailable', async () => {

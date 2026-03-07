@@ -27,7 +27,7 @@ afterEach(async () => {
 });
 
 describe('FileMemoryPluginService', () => {
-  it('writes layered files for user and daily memory storage', async () => {
+  it('writes layered files for user, soul, and daily memory storage', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-02-22T12:00:00Z'));
 
@@ -49,15 +49,26 @@ describe('FileMemoryPluginService', () => {
       sourceType: 'daily-log',
     });
 
+    await service.recordSoul({
+      platformKey: 'test-platform',
+      content: 'Soul: behind the scenes I value calm, long-term thinking over short-term excitement.',
+    });
+
     const userPath = join(baseDir, 'test-platform', 'user', 'memories.json');
+    const soulPath = join(baseDir, 'test-platform', 'soul', 'memories.json');
     const dailyPath = join(baseDir, 'test-platform', 'daily', '2026-02-22.json');
 
     const userRaw = JSON.parse(await readFile(userPath, 'utf-8')) as { items?: Array<{ scope: string }>; sessionEnabled?: Record<string, boolean> };
+    const soulRaw = JSON.parse(await readFile(soulPath, 'utf-8')) as { items?: Array<{ scope: string; sourceType?: string }> };
     const dailyRaw = JSON.parse(await readFile(dailyPath, 'utf-8')) as { items?: Array<{ sourceType?: string; dayKey?: string; sessionId?: string }> };
 
     expect(Array.isArray(userRaw.items)).toBe(true);
     expect(userRaw.items?.some((item) => item.scope === 'user')).toBe(true);
     expect(userRaw.sessionEnabled).toBeDefined();
+
+    expect(Array.isArray(soulRaw.items)).toBe(true);
+    expect(soulRaw.items?.every((item) => item.scope === 'soul')).toBe(true);
+    expect(soulRaw.items?.every((item) => item.sourceType === 'explicit')).toBe(true);
 
     expect(Array.isArray(dailyRaw.items)).toBe(true);
     expect(dailyRaw.items?.every((item) => item.sourceType === 'daily-log')).toBe(true);
@@ -636,6 +647,39 @@ describe('FileMemoryPluginService', () => {
     });
 
     expect(recall.items).toHaveLength(0);
+  });
+
+  it('records and recalls soul memory while keeping it hidden from normal list', async () => {
+    const { service } = await createService();
+
+    const stored = await service.recordSoul({
+      platformKey: 'test-platform',
+      content: 'I hide my insecurity with humor when discussing difficult architecture decisions.',
+    });
+
+    const duplicate = await service.recordSoul({
+      platformKey: 'test-platform',
+      content: 'I hide my insecurity with humor when discussing difficult architecture decisions.',
+    });
+
+    expect(duplicate.id).toBe(stored.id);
+
+    const listed = await service.list({
+      platformKey: 'test-platform',
+      sessionId: 'session-soul',
+      limit: 20,
+    });
+    expect(listed.some((item) => item.scope === 'soul')).toBe(false);
+
+    const recalled = await service.recallSoul({
+      platformKey: 'test-platform',
+      query: 'insecurity architecture',
+      limit: 5,
+    });
+
+    expect(recalled.length).toBeGreaterThan(0);
+    expect(recalled[0].scope).toBe('soul');
+    expect(recalled[0].content.toLowerCase()).toContain('humor');
   });
 
   it('uses explicit embedding dimensions with a custom provider', async () => {

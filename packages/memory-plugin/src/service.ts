@@ -35,9 +35,11 @@ import type {
   RecallInput,
   RecallResult,
   RecordTurnInput,
+  SoulRecallInput,
+  SoulRecordInput,
   ToggleResult,
 } from './types.js';
-import { clamp, normalizeContent, normalizeWhitespace, tokenize, uniqueWords } from './utils/text.js';
+import { clamp, normalizeContent, normalizeWhitespace, summarize, tokenize, uniqueWords } from './utils/text.js';
 
 const DEFAULT_EMBEDDING_DIMENSIONS = 256;
 const HYBRID_TOPK_MULTIPLIER = 3;
@@ -116,6 +118,171 @@ export class FileMemoryPluginService {
     this.state.sessionEnabled[key] = enabled;
     await this.saveState();
     return { ok: true, enabled };
+  }
+
+  async recordSoul(input: SoulRecordInput): Promise<MemoryItem> {
+    const normalizedContent = normalizeWhitespace(input.content);
+    if (!normalizedContent) {
+      throw new Error('soul memory content cannot be empty');
+    }
+
+    const now = Date.now();
+    const duplicate = this.state.items.find((item) => (
+      item.platformKey === input.platformKey
+      && !item.deleted
+      && item.scope === 'soul'
+      && normalizeContent(item.content) === normalizeContent(normalizedContent)
+    ));
+
+    if (duplicate) {
+      duplicate.updatedAt = now;
+      duplicate.lastAccessedAt = now;
+      duplicate.importance = Math.max(duplicate.importance, 0.9);
+      duplicate.confidence = Math.max(duplicate.confidence, 0.85);
+      duplicate.keywords = uniqueWords([...duplicate.keywords, ...tokenize(normalizedContent)]);
+      await this.commitTouchedItems(input.platformKey, [duplicate]);
+      return duplicate;
+    }
+
+    const item: MemoryItem = {
+      id: randomUUID().slice(0, 8),
+      platformKey: input.platformKey,
+      scope: 'soul',
+      type: 'fact',
+      content: normalizedContent,
+      summary: summarize(normalizedContent, 120),
+      keywords: tokenize(normalizedContent),
+      confidence: 0.85,
+      importance: 0.9,
+      pinned: false,
+      deleted: false,
+      createdAt: now,
+      updatedAt: now,
+      lastAccessedAt: now,
+      sourceType: 'explicit',
+    };
+
+    this.state.items.push(item);
+    await this.commitTouchedItems(input.platformKey, [item]);
+    return item;
+  }
+
+  async recallSoul(input: SoulRecallInput): Promise<MemoryItem[]> {
+    const normalizedQuery = normalizeWhitespace(input.query);
+    if (!normalizedQuery) {
+      return [];
+    }
+
+    const limit = clamp(input.limit ?? this.defaultRecallLimit, 1, 8);
+    const queryTokens = tokenize(normalizedQuery);
+    const hasKeywordQuery = queryTokens.length > 0;
+    const queryVector = await this.embedText(normalizedQuery);
+    const hasSemanticQuery = Boolean(queryVector);
+    const now = Date.now();
+
+    const visibleItems = this.state.items.filter((item) => (
+      item.platformKey === input.platformKey
+      && !item.deleted
+      && item.scope === 'soul'
+    ));
+
+    if (visibleItems.length === 0) {
+      return [];
+    }
+
+    const embeddingMap = hasSemanticQuery
+      ? loadEmbeddings(this.vectorStore, visibleItems.map((item) => item.id), this.embeddingDimensions)
+      : new Map<string, number[]>();
+
+    const topK = Math.max(limit, limit * HYBRID_TOPK_MULTIPLIER);
+    const merged = new Map<string, RankedCandidate>();
+
+    if (hasSemanticQuery && queryVector) {
+      const semanticTop = visibleItems
+        .map((item) => {
+          const itemVector = embeddingMap.get(item.id);
+          const vectorScore = itemVector ? cosineSimilarity(queryVector, itemVector) : 0;
+          return { item, vectorScore };
+        })
+        .filter((entry) => entry.vectorScore > 0)
+        .sort((a, b) => b.vectorScore - a.vectorScore)
+        .slice(0, topK);
+
+      for (const entry of semanticTop) {
+        merged.set(entry.item.id, {
+          item: entry.item,
+          vectorScore: entry.vectorScore,
+          keywordScore: 0,
+          recencyScore: this.buildRecencyScore(now, entry.item),
+          qualityScore: this.buildQualityScore(entry.item),
+        });
+      }
+    }
+
+    if (hasKeywordQuery) {
+      const keywordTop = visibleItems
+        .map((item) => {
+          const haystack = `${item.summary} ${item.content} ${item.keywords.join(' ')}`.toLowerCase();
+          const matched = queryTokens.filter((token) => haystack.includes(token));
+          return {
+            item,
+            keywordScore: matched.length / queryTokens.length,
+          };
+        })
+        .filter((entry) => entry.keywordScore > 0)
+        .sort((a, b) => b.keywordScore - a.keywordScore)
+        .slice(0, topK);
+
+      for (const entry of keywordTop) {
+        const existing = merged.get(entry.item.id);
+        if (existing) {
+          existing.keywordScore = Math.max(existing.keywordScore, entry.keywordScore);
+          continue;
+        }
+
+        merged.set(entry.item.id, {
+          item: entry.item,
+          vectorScore: 0,
+          keywordScore: entry.keywordScore,
+          recencyScore: this.buildRecencyScore(now, entry.item),
+          qualityScore: this.buildQualityScore(entry.item),
+        });
+      }
+    }
+
+    if (merged.size === 0) {
+      const fallback = visibleItems
+        .slice()
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, topK);
+
+      for (const item of fallback) {
+        merged.set(item.id, {
+          item,
+          vectorScore: 0,
+          keywordScore: 0,
+          recencyScore: this.buildRecencyScore(now, item),
+          qualityScore: this.buildQualityScore(item),
+        });
+      }
+    }
+
+    const ranked = [...merged.values()]
+      .sort((a, b) => this.sortHybrid(a, b, hasKeywordQuery || hasSemanticQuery))
+      .slice(0, limit)
+      .map((entry) => ({ ...entry.item, lastAccessedAt: now }));
+
+    if (ranked.length > 0) {
+      const touched = new Set(ranked.map((item) => item.id));
+      for (const item of this.state.items) {
+        if (touched.has(item.id)) {
+          item.lastAccessedAt = now;
+        }
+      }
+      await this.saveState();
+    }
+
+    return ranked;
   }
 
   async recall(input: RecallInput): Promise<RecallResult> {
@@ -336,7 +503,7 @@ export class FileMemoryPluginService {
 
     for (const candidate of extracted) {
       const duplicate = this.state.items.find((item) => {
-        if (item.platformKey !== input.platformKey || item.deleted || item.sourceType === 'daily-log') {
+        if (item.platformKey !== input.platformKey || item.deleted || item.sourceType === 'daily-log' || item.scope === 'soul') {
           return false;
         }
         return normalizeContent(item.content) === normalizeContent(candidate.content);
@@ -387,7 +554,9 @@ export class FileMemoryPluginService {
       return;
     }
 
-    const policy = resolveDailyLogPolicy(input.sourceType);
+    const policy = input.sourceType === 'daily-log-compact'
+      ? resolveDailyLogPolicy(input.sourceType)
+      : this.dailyLogPolicy;
     if (!policy.enabled) {
       return;
     }
@@ -481,7 +650,7 @@ export class FileMemoryPluginService {
 
   private compact(platformKey: string): string[] {
     const active = this.state.items
-      .filter((item) => item.platformKey === platformKey && !item.deleted)
+      .filter((item) => item.platformKey === platformKey && !item.deleted && item.scope !== 'soul')
       .sort((a, b) => {
         if (a.pinned !== b.pinned) {
           return a.pinned ? -1 : 1;
@@ -522,6 +691,10 @@ export class FileMemoryPluginService {
 
     if (item.scope === 'session') {
       return Boolean(sessionId) && item.sessionId === sessionId;
+    }
+
+    if (item.scope === 'soul') {
+      return false;
     }
 
     return true;

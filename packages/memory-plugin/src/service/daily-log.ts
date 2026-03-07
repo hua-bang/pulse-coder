@@ -220,7 +220,7 @@ function evaluateDailyLogQualityGate(candidate: ExtractedMemory, minConfidence: 
   }
 
   const tokenCount = tokenize(compact).length;
-  if (tokenCount < 1) {
+  if (tokenCount < 3) {
     return sourceType === 'daily-log-compact' ? undefined : 'low_density';
   }
 

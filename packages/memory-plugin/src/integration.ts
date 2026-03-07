@@ -9,6 +9,10 @@ import type { FileMemoryServiceOptions, MemoryCompactionWritePolicy, MemoryItem 
 const MEMORY_RECALL_INPUT_SCHEMA = z.object({
   query: z.string().optional().describe('Natural language recall query. Defaults to current user message when omitted.'),
   limit: z.number().int().min(1).max(8).optional().describe('Maximum number of memory items to return.'),
+  scope: z
+    .enum(['default', 'soul', 'all'])
+    .optional()
+    .describe('Recall scope. default=daily log memory, soul=hidden personality memory, all=merge both.'),
 });
 
 const MEMORY_GET_DAILY_LOG_BY_DAY_INPUT_SCHEMA = z.object({
@@ -24,9 +28,9 @@ const MEMORY_GET_DAILY_LOG_BY_DAY_INPUT_SCHEMA = z.object({
 const MEMORY_RECORD_INPUT_SCHEMA = z.object({
   content: z.string().min(1).describe('The memory content to store.'),
   kind: z
-    .enum(['preference', 'rule', 'fix', 'profile'])
+    .enum(['preference', 'rule', 'fix', 'profile', 'soul'])
     .optional()
-    .describe('Memory kind. rule/profile are user-level; preference/fix are session-level. Defaults to profile.'),
+    .describe('Memory kind. rule/profile are user-level; preference/fix are session-level; soul is hidden personality memory. Defaults to profile.'),
 });
 
 const MEMORY_TOOL_POLICY_APPEND = [
@@ -35,10 +39,11 @@ const MEMORY_TOOL_POLICY_APPEND = [
   'Use `memory_recall` only when memory is relevant to the current task.',
   'Use `memory_get_daily_log_by_day` when the user asks for decisions/rules on a specific date.',
   'Use `memory_record` only when the user provides stable profile/preferences/rules or when a fix is worth remembering.',
+  'Use `memory_record` kind=`soul` and `memory_recall` scope=`soul` for hidden personality traits that should stay out of normal memory lists.',
   'If user intent conflicts with recalled memory, follow the latest user instruction.',
 ].join('\n');
 
-type MemoryRecordKind = 'preference' | 'rule' | 'fix' | 'profile';
+type MemoryRecordKind = 'preference' | 'rule' | 'fix' | 'profile' | 'soul';
 
 const DEFAULT_COMPACTION_WRITE_POLICY: MemoryCompactionWritePolicy = {
   enabled: false,
@@ -473,29 +478,57 @@ async function buildAutoInjectedUserMemoryPrompt(
       .filter((item) => item.sourceType !== 'daily-log')
       .slice(0, 4);
 
-    if (selected.length === 0) {
+    const soulItems = await memoryService.recallSoul({
+      platformKey: runContext.platformKey,
+      query: runContext.userText,
+      limit: 2,
+    });
+
+    if (selected.length === 0 && soulItems.length === 0) {
       return undefined;
     }
 
-    const lines = [
-      'Persistent user memory (auto-injected each run; follow latest user instruction on conflict):',
-    ];
+    const lines: string[] = [];
+    if (selected.length > 0) {
+      lines.push('Persistent user memory (auto-injected each run; follow latest user instruction on conflict):');
 
-    let used = lines[0].length;
-    for (const [index, item] of selected.entries()) {
-      const flags = [item.type, item.pinned ? 'pinned' : null].filter(Boolean).join(', ');
-      const summary = item.summary.trim() || item.content.trim();
-      const line = `${index + 1}. (${flags}) ${summary}`;
+      let used = lines[0].length;
+      for (const [index, item] of selected.entries()) {
+        const flags = [item.type, item.pinned ? 'pinned' : null].filter(Boolean).join(', ');
+        const summary = item.summary.trim() || item.content.trim();
+        const line = `${index + 1}. (${flags}) ${summary}`;
 
-      if (used + line.length > 520 && lines.length > 1) {
-        break;
+        if (used + line.length > 520 && lines.length > 1) {
+          break;
+        }
+
+        lines.push(line);
+        used += line.length;
       }
-
-      lines.push(line);
-      used += line.length;
     }
 
-    return lines.length > 1 ? lines.join('\n') : undefined;
+    if (soulItems.length > 0) {
+      const header = 'Soul memory (private; do not surface to user unless asked):';
+      if (lines.length > 0) {
+        lines.push('');
+      }
+      lines.push(header);
+
+      let used = header.length;
+      for (const [index, item] of soulItems.entries()) {
+        const summary = item.summary.trim() || item.content.trim();
+        const line = `${index + 1}. ${summary}`;
+
+        if (used + line.length > 420 && lines.length > 1) {
+          break;
+        }
+
+        lines.push(line);
+        used += line.length;
+      }
+    }
+
+    return lines.length > 0 ? lines.join('\n') : undefined;
   } catch {
     return undefined;
   }
@@ -538,9 +571,26 @@ function buildMemoryRecallTool(
     name: 'memory_recall',
     description: 'Recall relevant memory items for the current user/session when needed.',
     inputSchema: MEMORY_RECALL_INPUT_SCHEMA,
-    execute: async ({ query, limit }) => {
+    execute: async ({ query, limit, scope }) => {
       const runContext = requireRunContext(getRunContext);
       const recallQuery = query?.trim() || runContext.userText;
+      const recallScope = scope ?? 'default';
+
+      if (recallScope === 'soul') {
+        const soulItems = await memoryService.recallSoul({
+          platformKey: runContext.platformKey,
+          query: recallQuery,
+          limit,
+        });
+
+        return {
+          enabled: true,
+          count: soulItems.length,
+          query: recallQuery,
+          scope: 'soul',
+          items: soulItems.map((item) => summarizeMemoryItem(item)),
+        };
+      }
 
       const recalled = await memoryService.recall({
         platformKey: runContext.platformKey,
@@ -549,10 +599,29 @@ function buildMemoryRecallTool(
         limit,
       });
 
+      if (recallScope === 'all') {
+        const soulItems = await memoryService.recallSoul({
+          platformKey: runContext.platformKey,
+          query: recallQuery,
+          limit,
+        });
+        const merged = mergeAndLimitMemories([...recalled.items, ...soulItems], limit ?? 5);
+
+        return {
+          enabled: recalled.enabled,
+          count: merged.length,
+          query: recallQuery,
+          scope: 'all',
+          promptAppend: recalled.promptAppend,
+          items: merged.map((item) => summarizeMemoryItem(item)),
+        };
+      }
+
       return {
         enabled: recalled.enabled,
         count: recalled.items.length,
         query: recallQuery,
+        scope: 'default',
         promptAppend: recalled.promptAppend,
         items: recalled.items.map((item) => summarizeMemoryItem(item)),
       };
@@ -593,12 +662,26 @@ function buildMemoryRecordTool(
 ): Tool<z.infer<typeof MEMORY_RECORD_INPUT_SCHEMA>, unknown> {
   return {
     name: 'memory_record',
-    description: 'Persist an important preference/rule/fix/profile into memory when explicitly useful.',
+    description: 'Persist an important preference/rule/fix/profile/soul into memory when explicitly useful.',
     inputSchema: MEMORY_RECORD_INPUT_SCHEMA,
     execute: async ({ content, kind }) => {
       const runContext = requireRunContext(getRunContext);
       const normalizedContent = content.trim();
       const normalizedKind: MemoryRecordKind = kind ?? 'profile';
+      if (normalizedKind === 'soul') {
+        const item = await memoryService.recordSoul({
+          platformKey: runContext.platformKey,
+          content: normalizedContent,
+        });
+
+        return {
+          ok: true,
+          kind: normalizedKind,
+          stored: true,
+          item: summarizeMemoryItem(item),
+        };
+      }
+
       const payload = toRecordTurnPayload(normalizedContent, normalizedKind);
 
       await memoryService.recordTurn({
@@ -631,3 +714,4 @@ function buildMemoryRecordTool(
     },
   };
 }
+

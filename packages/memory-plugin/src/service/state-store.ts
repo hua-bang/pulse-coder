@@ -26,6 +26,7 @@ interface LegacyStateLoadResult {
 
 interface PlatformMemoryPayload {
   userItems: MemoryItem[];
+  soulItems: MemoryItem[];
   dailyByDay: Map<string, MemoryItem[]>;
   sessionEnabledBySessionId: Record<string, boolean>;
 }
@@ -81,6 +82,17 @@ export class LayeredMemoryStateStore {
         expectedFiles.add(userPath);
       }
 
+      if (payload.soulItems.length > 0) {
+        const soulPath = this.soulMemoryPath(platformKey);
+        await fs.mkdir(join(platformDir, 'soul'), { recursive: true });
+        await this.writeJsonAtomic(soulPath, {
+          version: STORAGE_FILE_VERSION,
+          updatedAt: Date.now(),
+          items: payload.soulItems,
+        } satisfies MemoryFileEnvelope);
+        expectedFiles.add(soulPath);
+      }
+
       for (const [dayKey, items] of payload.dailyByDay.entries()) {
         const dailyPath = this.dailyMemoryPath(platformKey, dayKey);
         await fs.mkdir(join(platformDir, 'daily'), { recursive: true });
@@ -112,6 +124,7 @@ export class LayeredMemoryStateStore {
 
     for (const platformKey of platformDirs) {
       await this.loadUserLayer(platformKey, loaded);
+      await this.loadSoulLayer(platformKey, loaded);
       await this.loadDailyLayer(platformKey, loaded);
     }
 
@@ -134,6 +147,21 @@ export class LayeredMemoryStateStore {
 
     for (const [sessionId, enabled] of this.extractSessionEnabled(raw)) {
       loaded.sessionEnabled[this.sessionKey(platformKey, sessionId)] = enabled;
+    }
+  }
+
+  private async loadSoulLayer(platformKey: string, loaded: LoadedState): Promise<void> {
+    const soulPath = this.soulMemoryPath(platformKey);
+    const raw = await this.readJsonFile<unknown>(soulPath);
+    if (!raw) {
+      return;
+    }
+
+    for (const item of this.extractItems(raw)) {
+      const normalized = this.normalizeLoadedItem(item, platformKey);
+      if (normalized) {
+        loaded.items.push(normalized);
+      }
     }
   }
 
@@ -217,6 +245,7 @@ export class LayeredMemoryStateStore {
       if (!payload) {
         payload = {
           userItems: [],
+          soulItems: [],
           dailyByDay: new Map<string, MemoryItem[]>(),
           sessionEnabledBySessionId: {},
         };
@@ -236,6 +265,11 @@ export class LayeredMemoryStateStore {
         const bucket = payload.dailyByDay.get(dayKey) ?? [];
         bucket.push(item);
         payload.dailyByDay.set(dayKey, bucket);
+        continue;
+      }
+
+      if (item.scope === 'soul') {
+        payload.soulItems.push(item);
         continue;
       }
 
@@ -268,6 +302,11 @@ export class LayeredMemoryStateStore {
         await fs.rm(userPath, { force: true });
       }
 
+      const soulPath = this.soulMemoryPath(platformKey);
+      if ((await this.fileExists(soulPath)) && !expectedFiles.has(soulPath)) {
+        await fs.rm(soulPath, { force: true });
+      }
+
       const dailyDir = join(this.platformDirPath(platformKey), 'daily');
       const dailyFiles = await this.listJsonFiles(dailyDir);
       for (const dailyPath of dailyFiles) {
@@ -278,6 +317,7 @@ export class LayeredMemoryStateStore {
 
       await this.removeDirIfEmpty(dailyDir);
       await this.removeDirIfEmpty(join(this.platformDirPath(platformKey), 'user'));
+      await this.removeDirIfEmpty(join(this.platformDirPath(platformKey), 'soul'));
       await this.removeDirIfEmpty(this.platformDirPath(platformKey));
     }
   }
@@ -428,6 +468,10 @@ export class LayeredMemoryStateStore {
 
   private userMemoryPath(platformKey: string): string {
     return join(this.platformDirPath(platformKey), 'user', 'memories.json');
+  }
+
+  private soulMemoryPath(platformKey: string): string {
+    return join(this.platformDirPath(platformKey), 'soul', 'memories.json');
   }
 
   private dailyMemoryPath(platformKey: string, dayKey: string): string {
