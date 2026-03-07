@@ -100,6 +100,22 @@ const NEGATIVE_PATTERNS: RegExp[] = [
 
 const PLAN_PATTERNS: RegExp[] = [/先计划/i, /先分析/i, /先出方案/i, /plan\s+first/i, /analysis\s+first/i];
 
+const DISALLOWED_TOOLS_IN_PLANNING = new Set(['write', 'edit']);
+
+function filterPlanningTools(tools: Record<string, any>): Record<string, any> {
+  let removed = false;
+  const filtered: Record<string, any> = {};
+
+  for (const [name, tool] of Object.entries(tools)) {
+    if (DISALLOWED_TOOLS_IN_PLANNING.has(name)) {
+      removed = true;
+      continue;
+    }
+    filtered[name] = tool;
+  }
+
+  return removed ? filtered : tools;
+}
 
 function appendSystemPrompt(base: SystemPromptOption | undefined, append: string): SystemPromptOption {
   if (!append.trim()) {
@@ -512,10 +528,18 @@ export const builtInPlanModePlugin: EnginePlugin = {
       }
 
       const transition = service.processContextMessages(runContext.messages);
-      const append = service.buildPromptAppend(Object.keys(tools), transition);
+      const filteredTools = filterPlanningTools(tools);
+      const append = service.buildPromptAppend(Object.keys(filteredTools), transition);
       const finalSystemPrompt = appendSystemPrompt(systemPrompt, append);
 
-      return { systemPrompt: finalSystemPrompt };
+      if (filteredTools === tools) {
+        return { systemPrompt: finalSystemPrompt };
+      }
+
+      return {
+        systemPrompt: finalSystemPrompt,
+        tools: filteredTools
+      };
     });
 
     // Observe tool calls for policy violations in planning mode
