@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent 开发记录和感想 - 一图总结</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Fraunces:wght@500;700&family=IBM+Plex+Sans:wght@400;600;700&display=swap");
+
+    :root {
+      --bg: #f7f1e6;
+      --ink: #1f2a2e;
+      --muted: #5b6b6f;
+      --accent: #d06a3a;
+      --accent-2: #2a7f78;
+      --accent-3: #0f172a;
+      --paper: #fffaf0;
+      --shadow: rgba(0, 0, 0, 0.12);
+      --line: rgba(31, 42, 46, 0.15);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Noto Sans CJK SC", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 800px at 10% 5%, rgba(208, 106, 58, 0.12), transparent 60%),
+        radial-gradient(1000px 700px at 90% 10%, rgba(42, 127, 120, 0.12), transparent 60%),
+        linear-gradient(180deg, #f8f3ea 0%, #f4ede1 100%);
+    }
+
+    .poster {
+      max-width: 1180px;
+      margin: 32px auto 48px;
+      padding: 28px;
+      background: var(--paper);
+      border: 1px solid rgba(0, 0, 0, 0.05);
+      border-radius: 20px;
+      box-shadow: 0 16px 40px var(--shadow);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .grain {
+      position: absolute;
+      inset: 0;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='180' height='180' filter='url(%23n)' opacity='0.04'/></svg>");
+      pointer-events: none;
+      mix-blend-mode: multiply;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr;
+      gap: 16px;
+      align-items: end;
+      border-bottom: 1px dashed var(--line);
+      padding-bottom: 18px;
+    }
+
+    .title {
+      font-family: "Fraunces", "Noto Serif CJK SC", serif;
+      font-size: 36px;
+      letter-spacing: 0.5px;
+      margin: 0 0 6px;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .keytag {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #f0e4d2;
+      color: #5a3a22;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 20px;
+      margin-top: 18px;
+    }
+
+    .panel {
+      background: #fffdf8;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: 16px;
+      padding: 16px 18px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .panel h3 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      letter-spacing: 0.3px;
+      color: var(--accent-3);
+    }
+
+    .timeline {
+      display: grid;
+      gap: 12px;
+      position: relative;
+      padding-left: 18px;
+    }
+
+    .timeline:before {
+      content: "";
+      position: absolute;
+      left: 4px;
+      top: 6px;
+      bottom: 6px;
+      width: 2px;
+      background: linear-gradient(180deg, var(--accent), var(--accent-2));
+      opacity: 0.5;
+    }
+
+    .node {
+      display: grid;
+      grid-template-columns: 14px 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      background: var(--accent);
+      border-radius: 999px;
+      margin-top: 4px;
+      box-shadow: 0 0 0 4px rgba(208, 106, 58, 0.12);
+    }
+
+    .node p {
+      margin: 0;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .node strong {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .stack {
+      display: grid;
+      gap: 10px;
+    }
+
+    .stack .layer {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: linear-gradient(90deg, rgba(42, 127, 120, 0.08), rgba(42, 127, 120, 0.02));
+      border: 1px dashed rgba(42, 127, 120, 0.3);
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .layer strong {
+      color: var(--accent-2);
+      font-weight: 700;
+    }
+
+    .capabilities {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .cap {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #f9efe2;
+      border: 1px solid rgba(208, 106, 58, 0.2);
+      font-size: 12px;
+      color: #6a3e26;
+    }
+
+    .cap strong { display: block; color: #3f2a1e; margin-bottom: 4px; }
+
+    .insights {
+      display: grid;
+      gap: 10px;
+    }
+
+    .insight {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #f1f6f4;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .insight strong { color: var(--ink); }
+
+    .quote {
+      font-family: "Fraunces", "Noto Serif CJK SC", serif;
+      font-size: 16px;
+      padding: 12px 14px;
+      border-left: 4px solid var(--accent);
+      background: #fff6ee;
+      border-radius: 12px;
+      color: #6a3d27;
+    }
+
+    .footer {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 16px;
+      align-items: center;
+      padding-top: 12px;
+      border-top: 1px dashed var(--line);
+    }
+
+    .keywords {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #1f2a2e;
+      color: #f6f1e7;
+      font-size: 12px;
+      letter-spacing: 0.6px;
+    }
+
+    .mini {
+      display: grid;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .mini strong { color: var(--ink); }
+
+    .floating {
+      position: absolute;
+      right: 18px;
+      top: 18px;
+      background: #0f172a;
+      color: #f8f3ea;
+      padding: 10px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      letter-spacing: 0.4px;
+      box-shadow: 0 10px 20px rgba(15, 23, 42, 0.2);
+    }
+
+    @media (max-width: 960px) {
+      header, .grid, .footer { grid-template-columns: 1fr; }
+      .capabilities { grid-template-columns: 1fr; }
+      .floating { position: static; margin-top: 12px; }
+    }
+
+    .reveal {
+      animation: rise 0.8s ease forwards;
+      opacity: 0;
+      transform: translateY(10px);
+    }
+
+    .reveal:nth-child(1) { animation-delay: 0.05s; }
+    .reveal:nth-child(2) { animation-delay: 0.12s; }
+    .reveal:nth-child(3) { animation-delay: 0.2s; }
+    .reveal:nth-child(4) { animation-delay: 0.28s; }
+
+    @keyframes rise {
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <main class="poster">
+    <div class="grain"></div>
+    <div class="floating">Small core · Infinite surface</div>
+
+    <header>
+      <div>
+        <h1 class="title">Agent 开发记录和感想</h1>
+        <p class="subtitle">一图总结 Pulse Agent 从好奇心驱动的 Demo，到可扩展工程化体系，再到自举迭代与深度反思。</p>
+      </div>
+      <div>
+        <span class="keytag">关键词：开放 · 迭代 · 频率</span>
+      </div>
+    </header>
+
+    <section class="grid">
+      <div class="panel reveal">
+        <h3>开发历程（从 Demo 到自举）</h3>
+        <div class="timeline">
+          <div class="node">
+            <span class="dot"></span>
+            <p><strong>好奇心驱动</strong>：为理解 Agent Loop 与上下文组织，研究开源框架。</p>
+          </div>
+          <div class="node">
+            <span class="dot"></span>
+            <p><strong>最小 Demo</strong>：写出第一版 Coder，体验工具调用循环。</p>
+          </div>
+          <div class="node">
+            <span class="dot"></span>
+            <p><strong>工程化迁移</strong>：多包架构、基础能力完善，构建可维护基建。</p>
+          </div>
+          <div class="node">
+            <span class="dot"></span>
+            <p><strong>插件机制</strong>：支持 MCP/Skill/Task 等机制可插拔扩展。</p>
+          </div>
+          <div class="node">
+            <span class="dot"></span>
+            <p><strong>远程协作</strong>：接入飞书/Discord，实现异步协作。</p>
+          </div>
+          <div class="node">
+            <span class="dot"></span>
+            <p><strong>自我迭代</strong>：Agent 参与 PR 与代码演进，自举迭代。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel reveal">
+        <h3>定位与能力</h3>
+        <div class="capabilities">
+          <div class="cap"><strong>CLI 入口</strong>简版 Coding CLI，命令与会话管理。</div>
+          <div class="cap"><strong>飞书/Discord</strong>远程对话协作与任务执行。</div>
+          <div class="cap"><strong>Agent 套件</strong>SDK + 工具机制 + 插件生态。</div>
+        </div>
+        <div style="height: 12px;"></div>
+        <div class="stack">
+          <div class="layer"><strong>基础运行时层</strong>：Agent Loop + 工具调度</div>
+          <div class="layer"><strong>机制/能力层</strong>：MCP / Skill / SubAgent / Memory</div>
+          <div class="layer"><strong>入口层</strong>：CLI / Discord / Feishu / Web（可扩展）</div>
+        </div>
+      </div>
+
+      <div class="panel reveal">
+        <h3>技术实现要点</h3>
+        <div class="insights">
+          <div class="insight"><strong>Agent Loop</strong>：感知 → 决策 → 执行 → 反馈 → 终止</div>
+          <div class="insight"><strong>插件钩子</strong>：beforeRun / beforeLLM / tool hooks / afterRun</div>
+          <div class="insight"><strong>机制注入</strong>：工具化 + System Prompt 动态拼接</div>
+          <div class="insight"><strong>通道适配</strong>：PlatformAdapter 统一输入/输出</div>
+        </div>
+        <div style="height: 12px;"></div>
+        <div class="quote">“将上下文与工具调用原文交给模型，自主判断执行动作与完成任务。”</div>
+      </div>
+
+      <div class="panel reveal">
+        <h3>开发感想</h3>
+        <div class="insights">
+          <div class="insight"><strong>信息处理频率</strong>：AI 让信息流动更快，也带来压缩。</div>
+          <div class="insight"><strong>可持续迭代</strong>：白盒可控比黑盒更重要。</div>
+          <div class="insight"><strong>时间感改变</strong>：并行 Agent 让“时间”被重新定义。</div>
+          <div class="insight"><strong>人与工具</strong>：彼此塑造，Human in the loop === AI in the loop。</div>
+          <div class="insight"><strong>实践场</strong>：抽象理论需体感验证，构建自己的试验场。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="footer">
+      <div class="mini">
+        <strong>收束观点</strong>
+        <span>保持开放谦逊、建立反馈迭代机制、适配时代频率。</span>
+      </div>
+      <div class="keywords">
+        <span class="badge">开放</span>
+        <span class="badge">迭代</span>
+        <span class="badge">频率</span>
+        <span class="badge">Small core</span>
+        <span class="badge">Infinite surface</span>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

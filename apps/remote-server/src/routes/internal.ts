@@ -36,6 +36,8 @@ interface AgentRunBody {
   skill?: string;
   forceNewSession?: boolean;
   askPolicy?: AskPolicy;
+  caller?: string;
+  callerSelectors?: string[];
   notify?: NotifyConfig;
 }
 
@@ -137,6 +139,8 @@ internalRouter.post('/agent/run', async (c) => {
       forceNewSession,
       userText: text,
       source: 'internal',
+      caller: body.caller,
+      callerSelectors: body.callerSelectors,
       callbacks: {
         onToolCall: (toolCall) => {
           const name = toolCall.toolName ?? toolCall.name ?? 'unknown';

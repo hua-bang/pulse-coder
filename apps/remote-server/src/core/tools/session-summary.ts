@@ -118,7 +118,7 @@ function buildSessionSummary(
   const rawMessages = session.messages || [];
   const filtered = rawMessages
     .map((message) => normalizeMessage(message))
-    .filter((message) => {
+    .filter((message): message is SessionMessage => {
       if (!message) return false;
       if (message.role === 'user') return includeUser;
       if (message.role === 'assistant') return includeAssistant;

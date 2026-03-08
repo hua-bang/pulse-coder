@@ -20,6 +20,16 @@ export interface IncomingMessage {
   /** True when the platform payload explicitly requests a fresh session */
   forceNewSession?: boolean;
   /**
+   * Optional caller tool name used by PTC filtering.
+   * If callerSelectors is present, this can be omitted.
+   */
+  caller?: string;
+  /**
+   * Optional caller tool names for PTC filtering.
+   * Example: ["cron_job", "deferred_demo"]
+   */
+  callerSelectors?: string[];
+  /**
    * Pre-allocated streamId — set by adapters that need to return it in ackRequest
    * (e.g. Web adapter returns streamId in 202 response so the client can open SSE).
    * If not set, the dispatcher generates one.

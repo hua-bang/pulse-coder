@@ -132,6 +132,8 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
       forceNewSession,
       userText: text,
       source: 'dispatcher',
+      caller: incoming.caller,
+      callerSelectors: incoming.callerSelectors,
       abortSignal: ac.signal,
       callbacks: {
         onText: (delta) => {

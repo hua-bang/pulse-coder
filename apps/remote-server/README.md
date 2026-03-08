@@ -38,6 +38,31 @@ Expected behavior:
 - First run: model uses tool search and discovers `deferred_demo`.
 - Second run: `deferred_demo` is now loaded and can be called directly.
 
+## PTC allowed_callers demo
+
+`allowed_callers` in this repo is implemented as a caller tool-name allowlist.
+
+- `ptc_demo_caller_probe`: unrestricted probe tool
+- `ptc_demo_caller_only`: `allowed_callers=["ptc_demo_caller_probe"]`
+- `ptc_demo_cron_only`: `allowed_callers=["cron_job"]`
+- `ptc_demo_deferred_only`: `allowed_callers=["deferred_demo"]`
+
+Quick test via internal endpoint:
+
+```bash
+curl -sS -X POST \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $INTERNAL_API_SECRET" \
+  http://127.0.0.1:3000/internal/agent/run \
+  -d '{
+    "text": "Call ptc_demo_caller_only with message=hello",
+    "caller": "ptc_demo_caller_probe",
+    "callerSelectors": ["ptc_demo_caller_probe"]
+  }'
+```
+
+If you use a non-matching caller (or omit it), restricted demo tools should be filtered out by PTC rules.
+
 ## Enabled webhook endpoints
 
 - `POST /webhooks/feishu`
