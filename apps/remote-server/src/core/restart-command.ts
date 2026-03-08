@@ -20,6 +20,8 @@ interface RestartRecord {
   requestedBy: string;
   sourcePlatformKey: string;
   processName: string;
+  mode?: 'restart' | 'update-restart';
+  branch?: string;
   status: 'scheduled' | 'ok' | 'error';
   notifyTarget?: RestartNotifyTarget;
   notifyStatus?: 'sent' | 'skipped' | 'error';
@@ -32,6 +34,12 @@ interface RestartCheckResult {
   ok: boolean;
   record?: RestartRecord;
   reason?: string;
+}
+
+interface RestartScheduleOptions {
+  mode: 'restart' | 'update-restart';
+  processName: string;
+  branch?: string;
 }
 
 const RESTART_RECORD_FILE = resolve(process.cwd(), '.restart-command-status.json');
@@ -49,14 +57,44 @@ export function handlePm2RestartCommand(incoming: IncomingMessage, args: string[
     return renderPm2RestartStatus();
   }
 
+  if (sub === 'update') {
+    if (args.length > 2) {
+      return {
+        type: 'handled',
+        message: '❌ 用法：/restart update 或 /restart update <branch>',
+      };
+    }
+
+    const rawBranch = args[1]?.trim() || getRestartUpdateBranch();
+    const branch = normalizeBranch(rawBranch);
+    if (!branch) {
+      return {
+        type: 'handled',
+        message: '❌ branch 非法。仅允许字母、数字、`.`、`_`、`-`、`/`。',
+      };
+    }
+
+    return schedulePm2Restart(incoming, {
+      mode: 'update-restart',
+      processName: process.env.PM2_PROCESS_NAME?.trim() || 'remote-server',
+      branch,
+    });
+  }
+
   if (args.length > 0) {
     return {
       type: 'handled',
-      message: '❌ 用法：/restart 或 /restart status',
+      message: '❌ 用法：/restart | /restart status | /restart update [branch]',
     };
   }
 
-  const processName = process.env.PM2_PROCESS_NAME?.trim() || 'remote-server';
+  return schedulePm2Restart(incoming, {
+    mode: 'restart',
+    processName: process.env.PM2_PROCESS_NAME?.trim() || 'remote-server',
+  });
+}
+
+function schedulePm2Restart(incoming: IncomingMessage, options: RestartScheduleOptions): CommandResult {
   const delayMs = getPm2RestartDelayMs();
   const notifyTarget = resolveRestartNotifyTarget(incoming.platformKey);
   const restartRecord: RestartRecord = {
@@ -64,7 +102,9 @@ export function handlePm2RestartCommand(incoming: IncomingMessage, args: string[
     requestedAt: Date.now(),
     requestedBy: incoming.memoryKey ?? incoming.platformKey,
     sourcePlatformKey: incoming.platformKey,
-    processName,
+    processName: options.processName,
+    mode: options.mode,
+    branch: options.branch,
     status: 'scheduled',
     notifyTarget,
   };
@@ -80,36 +120,50 @@ export function handlePm2RestartCommand(incoming: IncomingMessage, args: string[
   try {
     setTimeout(() => {
       try {
-        const child = spawn(process.execPath, ['-e', buildPm2RestartWorkerScript(), RESTART_RECORD_FILE, restartRecord.id, processName], {
+        const child = spawn(process.execPath, [
+          '-e',
+          buildPm2RestartWorkerScript(),
+          RESTART_RECORD_FILE,
+          restartRecord.id,
+          options.processName,
+          options.mode,
+          options.branch ?? '',
+        ], {
           detached: true,
           stdio: 'ignore',
         });
         child.once('error', (error) => {
           markRestartRecordError(restartRecord.id, `spawn restart worker failed: ${String(error)}`);
-          console.error(`[command] failed to spawn restart worker for ${processName}:`, error);
+          console.error(`[command] failed to spawn restart worker for ${options.processName}:`, error);
         });
         child.unref();
       } catch (error) {
         markRestartRecordError(restartRecord.id, `spawn restart worker failed: ${String(error)}`);
-        console.error(`[command] failed to schedule restart worker for ${processName}:`, error);
+        console.error(`[command] failed to schedule restart worker for ${options.processName}:`, error);
       }
     }, delayMs);
   } catch (error) {
     markRestartRecordError(restartRecord.id, `schedule restart timer failed: ${String(error)}`);
     return {
       type: 'handled',
-      message: `❌ 调度 pm2 重启失败：${error instanceof Error ? error.message : String(error)}`,
+      message: `❌ 调度重启任务失败：${error instanceof Error ? error.message : String(error)}`,
     };
   }
 
   const delaySeconds = (delayMs / 1000).toFixed(delayMs % 1000 === 0 ? 0 : 1);
+  const commandText = options.mode === 'update-restart'
+    ? `git checkout ${options.branch} && git pull --ff-only origin ${options.branch} && npm run build && pm2 restart ${options.processName} --update-env`
+    : `pm2 restart ${options.processName} --update-env`;
+
   return {
     type: 'handled',
     message: [
-      `♻️ 已接收重启请求，将在约 ${delaySeconds}s 后执行：\`pm2 restart ${processName} --update-env\``,
+      `♻️ 已接收重启请求，将在约 ${delaySeconds}s 后执行：\`${commandText}\``,
       `- 重启任务 ID: ${restartRecord.id}`,
+      `- 模式: ${options.mode === 'update-restart' ? '更新并重启' : '直接重启'}`,
+      options.mode === 'update-restart' && options.branch ? `- 分支: ${options.branch}` : null,
       '- 可在服务恢复后使用 `/restart status` 查看成功或失败结果。',
-    ].join('\n'),
+    ].filter(Boolean).join('\n'),
   };
 }
 
@@ -130,6 +184,7 @@ function renderPm2RestartStatus(): CommandResult {
   }
 
   const record = result.record;
+  const mode = record.mode ?? 'restart';
   const statusText = record.status === 'scheduled'
     ? '排队中'
     : record.status === 'ok'
@@ -139,10 +194,15 @@ function renderPm2RestartStatus(): CommandResult {
   const lines = [
     '♻️ 最近重启状态：',
     `- 任务 ID: ${record.id}`,
+    `- 模式: ${mode === 'update-restart' ? '更新并重启' : '直接重启'}`,
     `- 进程: ${record.processName}`,
     `- 状态: ${statusText}`,
     `- 请求时间: ${formatTime(record.requestedAt)}`,
   ];
+
+  if (record.branch) {
+    lines.push(`- 分支: ${record.branch}`);
+  }
 
   if (record.completedAt) {
     lines.push(`- 完成时间: ${formatTime(record.completedAt)}`);
@@ -235,6 +295,8 @@ function buildPm2RestartWorkerScript(): string {
     'const filePath = process.argv[1];',
     'const restartId = process.argv[2];',
     'const processName = process.argv[3];',
+    'const mode = process.argv[4] || "restart";',
+    'const branch = process.argv[5] || "master";',
     'if (!filePath || !restartId || !processName) process.exit(0);',
     'const truncate = (value, max) => String(value || "").slice(0, max);',
     'const loadRecord = () => {',
@@ -249,6 +311,29 @@ function buildPm2RestartWorkerScript(): string {
     '  try {',
     "    writeFileSync(filePath, `${JSON.stringify(record)}\\n`, 'utf8');",
     '  } catch {}',
+    '};',
+    'const runStep = (label, command, args) => {',
+    '  const result = spawnSync(command, args, { encoding: "utf8" });',
+    '  const out = `${result.stdout || ""}${result.stderr || ""}`.trim();',
+    '  const line = out ? `[${label}] ${command} ${args.join(" ")}\\n${out}` : `[${label}] ${command} ${args.join(" ")}`;',
+    '  return { ok: result.status === 0, line, status: result.status ?? -1 };',
+    '};',
+    'const executeRestartFlow = () => {',
+    '  const logs = [];',
+    '  if (mode === "update-restart") {',
+    '    const checkout = runStep("checkout", "git", ["checkout", branch]);',
+    '    logs.push(checkout.line);',
+    '    if (!checkout.ok) return { ok: false, logs };',
+    '    const pull = runStep("pull", "git", ["pull", "--ff-only", "origin", branch]);',
+    '    logs.push(pull.line);',
+    '    if (!pull.ok) return { ok: false, logs };',
+    '    const build = runStep("build", "npm", ["run", "build"]);',
+    '    logs.push(build.line);',
+    '    if (!build.ok) return { ok: false, logs };',
+    '  }',
+    '  const restart = runStep("restart", "pm2", ["restart", processName, "--update-env"]);',
+    '  logs.push(restart.line);',
+    '  return { ok: restart.ok, logs };',
     '};',
     'const sendDiscord = async (target, message) => {',
     '  const token = process.env.DISCORD_BOT_TOKEN;',
@@ -349,14 +434,17 @@ function buildPm2RestartWorkerScript(): string {
     'const sendNotification = async (record) => {',
     '  const target = record.notifyTarget;',
     '  if (!target || !target.platform) return { ok: false, reason: "no-notify-target" };',
+    '  const modeText = record.mode === "update-restart" ? "更新并重启" : "直接重启";',
     '  const statusText = record.status === "ok" ? "成功" : "失败";',
     '  const lines = [',
-    '    `♻️ /restart 执行${statusText}` ,',
-    '    `- 任务 ID: ${record.id}` ,',
-    '    `- 进程: ${record.processName}` ,',
-    '    `- 请求时间: ${new Date(record.requestedAt).toLocaleString()}` ,',
-    '    `- 完成时间: ${new Date(record.completedAt || Date.now()).toLocaleString()}` ,',
-    '  ];',
+    '    `♻️ /restart 执行${statusText}`,',
+    '    `- 任务 ID: ${record.id}`,',
+    '    `- 模式: ${modeText}`,',
+    '    `- 进程: ${record.processName}`,',
+    '    record.branch ? `- 分支: ${record.branch}` : null,',
+    '    `- 请求时间: ${new Date(record.requestedAt).toLocaleString()}`,',
+    '    `- 完成时间: ${new Date(record.completedAt || Date.now()).toLocaleString()}`,',
+    '  ].filter(Boolean);',
     '  if (record.detail) lines.push(`- 详情: ${record.detail}`);',
     '  const message = lines.join("\\n");',
     '  if (target.platform === "discord") return sendDiscord(target, message);',
@@ -367,11 +455,14 @@ function buildPm2RestartWorkerScript(): string {
     '(async () => {',
     '  const record = loadRecord();',
     '  if (!record || record.id !== restartId) process.exit(0);',
-    "  const result = spawnSync('pm2', ['restart', processName, '--update-env'], { encoding: 'utf8' });",
-    '  const output = `${result.stdout || ""}${result.stderr || ""}`.trim();',
+    '  const modeToRun = mode === "update-restart" ? "update-restart" : "restart";',
+    '  const branchToRun = branch || "master";',
+    '  const flow = executeRestartFlow();',
     '  record.completedAt = Date.now();',
-    '  record.status = result.status === 0 ? "ok" : "error";',
-    '  record.detail = truncate(output, 1200);',
+    '  record.mode = modeToRun;',
+    '  if (modeToRun === "update-restart") record.branch = branchToRun;',
+    '  record.status = flow.ok ? "ok" : "error";',
+    '  record.detail = truncate(flow.logs.join("\\n\\n"), 1200);',
     '  const notifyResult = await sendNotification(record);',
     '  if (notifyResult.ok) {',
     '    record.notifyStatus = "sent";',
@@ -478,6 +569,24 @@ function getPm2RestartDelayMs(): number {
   }
 
   return parsed;
+}
+
+function getRestartUpdateBranch(): string {
+  const raw = process.env.RESTART_UPDATE_BRANCH?.trim();
+  return normalizeBranch(raw) ?? 'master';
+}
+
+function normalizeBranch(raw: string | undefined): string | null {
+  const value = raw?.trim();
+  if (!value) {
+    return null;
+  }
+
+  if (value.startsWith('-')) {
+    return null;
+  }
+
+  return /^[A-Za-z0-9._/-]+$/.test(value) ? value : null;
 }
 
 function formatTime(ts: number): string {
