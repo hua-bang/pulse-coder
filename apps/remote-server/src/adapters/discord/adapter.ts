@@ -509,6 +509,7 @@ const PASSTHROUGH_SLASH_COMMANDS = new Set([
   'stop',
   'cancel',
   'skills',
+  'soul',
   'insight',
   'model',
   'wt',
@@ -516,7 +517,7 @@ const PASSTHROUGH_SLASH_COMMANDS = new Set([
 
 function extractInteractionText(interaction: DiscordInteraction): string {
   const commandName = interaction.data?.name?.trim().toLowerCase() ?? '';
-  const args = collectOptionValues(interaction.data?.options ?? []).join(' ').trim();
+  const args = collectOptionTokens(interaction.data?.options ?? []).join(' ').trim();
 
   if (!commandName) {
     return '';
@@ -531,6 +532,30 @@ function extractInteractionText(interaction: DiscordInteraction): string {
   }
 
   return args || commandName;
+}
+
+function collectOptionTokens(options: DiscordCommandOption[]): string[] {
+  const tokens: string[] = [];
+
+  for (const option of options) {
+    if (option.options && option.options.length > 0) {
+      tokens.push(...collectOptionTokens(option.options));
+      continue;
+    }
+
+    const name = option.name?.trim();
+    if (name) {
+      tokens.push(name);
+    }
+
+    if (option.value === undefined || option.value === null) {
+      continue;
+    }
+
+    tokens.push(String(option.value));
+  }
+
+  return tokens;
 }
 
 function collectOptionValues(options: DiscordCommandOption[]): string[] {
