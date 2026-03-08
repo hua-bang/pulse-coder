@@ -63,38 +63,30 @@ export const ptcDemoCallerProbeTool = buildDemoTool(
   'Unrestricted tool. Always callable if exposed by normal tool registration.',
 );
 
-export const ptcDemoDiscordOnlyTool = buildDemoTool(
-  'ptc_demo_discord_only',
-  'PTC demo tool that is only available to Discord callers.',
-  'Restricted by allowed_callers=["platform:discord"].',
-  ['platform:discord'],
+export const ptcDemoCallerOnlyTool = buildDemoTool(
+  'ptc_demo_caller_only',
+  'PTC demo tool that is only available when called by ptc_demo_caller_probe.',
+  'Restricted by allowed_callers=["ptc_demo_caller_probe"].',
+  ['ptc_demo_caller_probe'],
 );
 
-export const ptcDemoFeishuOnlyTool = buildDemoTool(
-  'ptc_demo_feishu_only',
-  'PTC demo tool that is only available to Feishu callers.',
-  'Restricted by allowed_callers=["platform:feishu"].',
-  ['platform:feishu'],
+export const ptcDemoCronOnlyTool = buildDemoTool(
+  'ptc_demo_cron_only',
+  'PTC demo tool that is only available when called by cron_job.',
+  'Restricted by allowed_callers=["cron_job"].',
+  ['cron_job'],
 );
 
-export const ptcDemoInternalOnlyTool = buildDemoTool(
-  'ptc_demo_internal_only',
-  'PTC demo tool that is only available to internal callers.',
-  'Restricted by allowed_callers=["platform:internal"].',
-  ['platform:internal'],
-);
-
-export const ptcDemoGroupOnlyTool = buildDemoTool(
-  'ptc_demo_group_only',
-  'PTC demo tool that is only available in group-like channels.',
-  'Restricted by allowed_callers=["kind:group", "kind:channel"].',
-  ['kind:group', 'kind:channel'],
+export const ptcDemoDeferredOnlyTool = buildDemoTool(
+  'ptc_demo_deferred_only',
+  'PTC demo tool that is only available when called by deferred_demo.',
+  'Restricted by allowed_callers=["deferred_demo"].',
+  ['deferred_demo'],
 );
 
 export const ptcDemoTools: Record<string, Tool> = {
   ptc_demo_caller_probe: ptcDemoCallerProbeTool,
-  ptc_demo_discord_only: ptcDemoDiscordOnlyTool,
-  ptc_demo_feishu_only: ptcDemoFeishuOnlyTool,
-  ptc_demo_internal_only: ptcDemoInternalOnlyTool,
-  ptc_demo_group_only: ptcDemoGroupOnlyTool,
+  ptc_demo_caller_only: ptcDemoCallerOnlyTool,
+  ptc_demo_cron_only: ptcDemoCronOnlyTool,
+  ptc_demo_deferred_only: ptcDemoDeferredOnlyTool,
 };

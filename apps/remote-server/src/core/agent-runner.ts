@@ -8,6 +8,14 @@ import { resolveModelForRun } from './model-config.js';
 
 export type CompactionSnapshot = CompactionEvent;
 
+interface RunChannelInfo {
+  platform: 'feishu' | 'discord' | 'telegram' | 'web' | 'internal' | 'unknown';
+  kind?: 'group' | 'dm' | 'thread' | 'channel' | 'chat' | 'user' | 'internal';
+  channelId?: string;
+  userId?: string;
+  isThread?: boolean;
+}
+
 export interface AgentTurnCallbacks {
   onText?: (delta: string) => void;
   onToolCall?: (toolCall: any) => void;
@@ -22,6 +30,8 @@ export interface ExecuteAgentTurnInput {
   forceNewSession?: boolean;
   userText: string;
   source: 'dispatcher' | 'internal';
+  caller?: string;
+  callerSelectors?: string[];
   abortSignal?: AbortSignal;
   callbacks?: AgentTurnCallbacks;
 }
@@ -32,12 +42,44 @@ export interface ExecuteAgentTurnResult {
   compactions: CompactionSnapshot[];
 }
 
-interface RunChannelInfo {
-  platform: 'feishu' | 'discord' | 'telegram' | 'web' | 'internal' | 'unknown';
-  kind?: 'group' | 'dm' | 'thread' | 'channel' | 'chat' | 'user' | 'internal';
-  channelId?: string;
-  userId?: string;
-  isThread?: boolean;
+function normalizeCallerSelectors(raw?: string[]): string[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  const normalized = raw
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim().toLowerCase())
+    .filter((item) => item.length > 0);
+
+  return [...new Set(normalized)];
+}
+
+function normalizeCaller(raw?: string): string | undefined {
+  if (typeof raw !== 'string') {
+    return undefined;
+  }
+  const normalized = raw.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function buildToolCallerContext(input: {
+  caller?: string;
+  callerSelectors?: string[];
+}): { caller?: string; callerSelectors?: string[] } {
+  const directCaller = normalizeCaller(input.caller);
+  const selectors = normalizeCallerSelectors(input.callerSelectors);
+
+  if (directCaller && !selectors.includes(directCaller)) {
+    selectors.unshift(directCaller);
+  }
+
+  const resolvedCaller = directCaller ?? selectors[0];
+
+  return {
+    caller: resolvedCaller,
+    callerSelectors: selectors.length > 0 ? selectors : undefined,
+  };
 }
 
 function buildRunContext(input: {
@@ -45,18 +87,23 @@ function buildRunContext(input: {
   userText: string;
   platformKey: string;
   ownerKey?: string;
+  caller?: string;
+  callerSelectors?: string[];
 }): Record<string, any> {
   const channel = parseChannelInfo(input.platformKey);
-  const callerSelectors = buildCallerSelectors(input.platformKey, channel);
+  const callerContext = buildToolCallerContext({
+    caller: input.caller,
+    callerSelectors: input.callerSelectors,
+  });
 
   return {
     sessionId: input.sessionId,
     userText: input.userText,
     platformKey: input.platformKey,
     ownerKey: input.ownerKey,
-    caller: callerSelectors[0],
-    callerSelectors,
     channel: channel ?? undefined,
+    caller: callerContext.caller,
+    callerSelectors: callerContext.callerSelectors,
   };
 }
 
@@ -146,33 +193,6 @@ function parseChannelInfo(platformKey: string): RunChannelInfo | undefined {
   return { platform: 'unknown' };
 }
 
-function buildCallerSelectors(platformKey: string, channel?: RunChannelInfo): string[] {
-  const selectors = new Set<string>();
-  const normalizedPlatformKey = platformKey.trim().toLowerCase();
-
-  if (normalizedPlatformKey) {
-    selectors.add(`platform_key:${normalizedPlatformKey}`);
-  }
-
-  if (channel?.platform) {
-    selectors.add(`platform:${channel.platform}`);
-  }
-
-  if (channel?.kind) {
-    selectors.add(`kind:${channel.kind}`);
-  }
-
-  if (channel?.isThread === true) {
-    selectors.add('thread:true');
-  }
-
-  if (channel?.isThread === false) {
-    selectors.add('thread:false');
-  }
-
-  return [...selectors];
-}
-
 function buildChannelSystemPrompt(platformKey: string): string | null {
   const channel = parseChannelInfo(platformKey);
   if (!channel || (channel.platform !== 'discord' && channel.platform !== 'feishu')) {
@@ -208,6 +228,8 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
     userText: input.userText,
     platformKey: input.platformKey,
     ownerKey: input.memoryKey,
+    caller: input.caller,
+    callerSelectors: input.callerSelectors,
   });
 
   const resultText = await runWithAgentContexts(
