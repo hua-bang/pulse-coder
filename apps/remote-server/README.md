@@ -118,7 +118,7 @@ DISCORD_GUILD_REQUIRE_MENTION=false
 ### 4) Slash commands (optional, requires HTTPS interactions endpoint)
 
 - `/ask <text>` for prompts in guild channels.
-- Optional pass-through commands: `/help`, `/new`, `/compact`, `/resume`, `/status`, etc.
+- Optional pass-through commands: `/help`, `/new`, `/compact`, `/resume`, `/status`, `/soul`, etc.
 
 ### 5) DM usage
 
