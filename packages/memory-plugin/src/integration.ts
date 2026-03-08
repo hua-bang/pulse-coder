@@ -478,10 +478,8 @@ async function buildAutoInjectedUserMemoryPrompt(
       .filter((item) => item.sourceType !== 'daily-log')
       .slice(0, 4);
 
-    const soulItems = await memoryService.recallSoul({
+    const soulItems = await memoryService.listSoul({
       platformKey: runContext.platformKey,
-      query: runContext.userText,
-      limit: 2,
     });
 
     if (selected.length === 0 && soulItems.length === 0) {
@@ -514,17 +512,10 @@ async function buildAutoInjectedUserMemoryPrompt(
       }
       lines.push(header);
 
-      let used = header.length;
       for (const [index, item] of soulItems.entries()) {
         const summary = item.summary.trim() || item.content.trim();
         const line = `${index + 1}. ${summary}`;
-
-        if (used + line.length > 420 && lines.length > 1) {
-          break;
-        }
-
         lines.push(line);
-        used += line.length;
       }
     }
 

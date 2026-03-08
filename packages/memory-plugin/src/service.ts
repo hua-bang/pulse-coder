@@ -285,6 +285,30 @@ export class FileMemoryPluginService {
     return ranked;
   }
 
+  async listSoul(input: { platformKey: string; limit?: number }): Promise<MemoryItem[]> {
+    const now = Date.now();
+    const sorted = this.state.items
+      .filter((item) => (
+        item.platformKey === input.platformKey
+        && !item.deleted
+        && item.scope === 'soul'
+      ))
+      .sort((a, b) => {
+        if (a.pinned !== b.pinned) {
+          return a.pinned ? -1 : 1;
+        }
+        return b.updatedAt - a.updatedAt;
+      });
+
+    const maxItems = input.limit === undefined
+      ? sorted.length
+      : clamp(input.limit, 1, 5000);
+
+    return sorted
+      .slice(0, maxItems)
+      .map((item) => ({ ...item, lastAccessedAt: item.lastAccessedAt || now }));
+  }
+
   async recall(input: RecallInput): Promise<RecallResult> {
     const enabled = this.isSessionEnabled(input.platformKey, input.sessionId);
     if (!enabled) {
