@@ -1,5 +1,24 @@
 # remote-server
 
+## Built-in X list tool
+
+A deferred tool named `twitter_list_tweets` is available for fetching tweets from X lists.
+
+Quick test (local-only internal endpoint):
+
+```bash
+curl -sS -X POST \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $INTERNAL_API_SECRET" \
+  http://127.0.0.1:3000/internal/agent/run \
+  -d '{"text":"Use tool_search_tool_bm25 to find twitter_list_tweets, then call it with listUrl=https://x.com/i/lists/1234567890 and limit=10."}'
+```
+
+Tool behavior:
+- Uses Nitter-compatible RSS (`/i/lists/<id>/rss`) with fallback instances.
+- Returns normalized tweet records with dedupe metadata.
+- If all instances fail, returns `ok=false` with attempted instances and error details.
+
 ## Deferred tool demo
 
 A demo tool named `deferred_demo` is registered with `defer_loading: true`.
