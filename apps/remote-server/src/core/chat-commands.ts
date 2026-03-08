@@ -1,6 +1,7 @@
 import { engine } from './engine-singleton.js';
 import { sessionStore } from './session-store.js';
 import type { IncomingMessage } from './types.js';
+import { handlePm2RestartCommand } from './restart-command.js';
 import { memoryService } from './memory-integration.js';
 import { abortActiveRun, getActiveRun } from './active-run-store.js';
 import { processWorktreeCommand } from './worktree/commands.js';
@@ -40,11 +41,10 @@ export type CommandResult =
   | { type: 'handled_silent' }
   | { type: 'transformed'; text: string };
 
-const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'current', 'ping', 'memory', 'mode', 'fork', 'wt', 'insight', 'model', 'soul']);
+const COMMANDS_ALLOWED_WHILE_RUNNING = new Set(['help', 'start', 'status', 'stop', 'restart', 'current', 'ping', 'memory', 'mode', 'fork', 'wt', 'insight', 'model', 'soul']);
 const COMMAND_ALIASES: Record<string, string> = {
   '?': 'help',
   h: 'help',
-  restart: 'new',
   reset: 'clear',
   cancel: 'stop',
   halt: 'stop',
@@ -107,6 +107,9 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
         message: `✅ 已创建新会话\nSession ID: ${sessionId}`,
       };
     }
+
+    case 'restart':
+      return handlePm2RestartCommand(incoming, args);
 
     case 'clear': {
       const result = await sessionStore.clearCurrent(incoming.platformKey, memoryKey);
@@ -963,7 +966,9 @@ function buildHelpMessage(): string {
     '/help - 查看命令帮助',
     '/ping - 检查机器人在线状态',
     '/new - 创建新会话',
-    '/restart - /new 的别名',
+    '/restart - 直接执行 pm2 restart（可用 PM2_PROCESS_NAME 覆盖进程名）',
+    '/restart update [branch] - 切到分支拉取最新代码，build 后再重启（默认 master）',
+    '/restart status - 查看最近一次重启结果',
     '/clear - 清空当前会话上下文',
     '/reset - /clear 的别名',
     '/compact - 强制压缩当前会话上下文',
