@@ -47,11 +47,15 @@ function buildRunContext(input: {
   ownerKey?: string;
 }): Record<string, any> {
   const channel = parseChannelInfo(input.platformKey);
+  const callerSelectors = buildCallerSelectors(input.platformKey, channel);
+
   return {
     sessionId: input.sessionId,
     userText: input.userText,
     platformKey: input.platformKey,
     ownerKey: input.ownerKey,
+    caller: callerSelectors[0],
+    callerSelectors,
     channel: channel ?? undefined,
   };
 }
@@ -140,6 +144,33 @@ function parseChannelInfo(platformKey: string): RunChannelInfo | undefined {
   }
 
   return { platform: 'unknown' };
+}
+
+function buildCallerSelectors(platformKey: string, channel?: RunChannelInfo): string[] {
+  const selectors = new Set<string>();
+  const normalizedPlatformKey = platformKey.trim().toLowerCase();
+
+  if (normalizedPlatformKey) {
+    selectors.add(`platform_key:${normalizedPlatformKey}`);
+  }
+
+  if (channel?.platform) {
+    selectors.add(`platform:${channel.platform}`);
+  }
+
+  if (channel?.kind) {
+    selectors.add(`kind:${channel.kind}`);
+  }
+
+  if (channel?.isThread === true) {
+    selectors.add('thread:true');
+  }
+
+  if (channel?.isThread === false) {
+    selectors.add('thread:false');
+  }
+
+  return [...selectors];
 }
 
 function buildChannelSystemPrompt(platformKey: string): string | null {

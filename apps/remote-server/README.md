@@ -38,7 +38,52 @@ Expected behavior:
 - First run: model uses tool search and discovers `deferred_demo`.
 - Second run: `deferred_demo` is now loaded and can be called directly.
 
-## Enabled webhook endpoints
+## PTC demo tools
+
+`remote-server` now includes several demo tools to validate PTC filtering by caller selectors.
+
+Registered demo tools:
+- `ptc_demo_caller_probe` (no restrictions)
+- `ptc_demo_discord_only` (`allowed_callers: ["platform:discord"]`)
+- `ptc_demo_feishu_only` (`allowed_callers: ["platform:feishu"]`)
+- `ptc_demo_internal_only` (`allowed_callers: ["platform:internal"]`)
+- `ptc_demo_group_only` (`allowed_callers: ["kind:group", "kind:channel"]`)
+
+How selectors are produced in remote-server:
+- `runContext.callerSelectors` always includes `platform_key:<platformKey-lowercase>`
+- plus platform selector like `platform:discord` / `platform:feishu` / `platform:internal`
+- plus kind selector like `kind:dm` / `kind:channel` / `kind:group`
+- plus `thread:true|false` for Discord thread/channel cases
+
+Quick internal API checks:
+
+```bash
+# internal caller: should allow internal_only, block discord_only/feishu_only
+curl -sS -X POST \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $INTERNAL_API_SECRET" \
+  http://127.0.0.1:3000/internal/agent/run \
+  -d '{"platformKey":"internal:ptc-demo","text":"Call ptc_demo_internal_only with message=ok, then call ptc_demo_discord_only."}'
+```
+
+```bash
+# discord channel caller: should allow discord_only and group_only
+curl -sS -X POST \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $INTERNAL_API_SECRET" \
+  http://127.0.0.1:3000/internal/agent/run \
+  -d '{"platformKey":"discord:channel:123456:789","text":"Call ptc_demo_discord_only and ptc_demo_group_only with message=ok."}'
+```
+
+```bash
+# feishu dm caller: should allow feishu_only, block group_only
+curl -sS -X POST \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $INTERNAL_API_SECRET" \
+  http://127.0.0.1:3000/internal/agent/run \
+  -d '{"platformKey":"feishu:ou_xxx","text":"Call ptc_demo_feishu_only and then ptc_demo_group_only."}'
+```
+
 
 - `POST /webhooks/feishu`
 - `POST /webhooks/discord`
