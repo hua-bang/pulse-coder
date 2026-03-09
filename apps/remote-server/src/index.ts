@@ -20,10 +20,6 @@ async function main() {
 
   await engine.initialize();
 
-  await registerDiscordApplicationCommands().catch((err) => {
-    console.error('[discord] Failed to register application commands:', err);
-  });
-
   startDiscordGateway();
 
   const app = createApp();
@@ -44,10 +40,13 @@ async function main() {
   console.log(`  POST /internal/discord/gateway/restart`);
   console.log(`  POST /internal/agent/run`);
   // console.log(`  POST /webhooks/telegram`);
+
+  void registerDiscordApplicationCommands().catch((err) => {
+    console.error('[discord] Failed to register application commands:', err);
+  });
 }
 
 main().catch((err) => {
   console.error('[remote-server] Fatal error:', err);
   process.exit(1);
 });
-
