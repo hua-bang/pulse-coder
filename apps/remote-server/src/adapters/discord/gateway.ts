@@ -79,6 +79,8 @@ export class DiscordDmGateway {
   private ws: WebSocket | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private isClosing = false;
+  private isReconnecting = false;
   private isStopped = false;
   private isStarted = false;
   private reconnectAttempt = 0;
@@ -118,6 +120,8 @@ export class DiscordDmGateway {
   stop(): void {
     this.isStopped = true;
     this.isStarted = false;
+    this.isClosing = false;
+    this.isReconnecting = false;
     this.clearHeartbeat();
     this.clearReconnect();
     this.heartbeatIntervalMs = null;
@@ -202,6 +206,9 @@ export class DiscordDmGateway {
       });
 
       ws.addEventListener('error', (event) => {
+        if (this.isClosing || this.isReconnecting) {
+          return;
+        }
         console.error('[discord-gateway] Gateway socket error:', event);
         this.forceReconnect();
       });
@@ -404,7 +411,6 @@ export class DiscordDmGateway {
     dispatchIncoming(discordAdapter, incoming);
   }
 
-
   private identify(): void {
     this.send({
       op: 2,
@@ -459,8 +465,10 @@ export class DiscordDmGateway {
     this.reconnectAttempt += 1;
     const delay = Math.min(MAX_RECONNECT_DELAY_MS, 1000 * 2 ** Math.min(this.reconnectAttempt - 1, 5));
 
+    this.isReconnecting = true;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
+      this.isReconnecting = false;
       this.connect();
     }, delay);
 
@@ -468,9 +476,19 @@ export class DiscordDmGateway {
   }
 
   private forceReconnect(): void {
+    if (this.isStopped || this.isReconnecting) {
+      return;
+    }
+
     if (this.ws) {
-      this.ws.close();
+      const ws = this.ws;
       this.ws = null;
+      this.isClosing = true;
+      try {
+        ws.close();
+      } finally {
+        this.isClosing = false;
+      }
     }
 
     this.clearHeartbeat();
