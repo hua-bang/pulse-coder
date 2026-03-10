@@ -1,4 +1,5 @@
 import { Engine } from 'pulse-coder-engine';
+import { acpBridgeIntegration } from './acp/integration.js';
 import { memoryIntegration } from './memory-integration.js';
 import { worktreeIntegration } from './worktree/integration.js';
 import { cronJobTool } from './tools/cron-job.js';
@@ -16,6 +17,7 @@ import { ptcDemoTools } from './tools/ptc-demo.js';
 export const engine = new Engine({
   enginePlugins: {
     plugins: [
+      acpBridgeIntegration.enginePlugin,
       memoryIntegration.enginePlugin,
       worktreeIntegration.enginePlugin,
     ],

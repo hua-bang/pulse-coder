@@ -63,7 +63,37 @@ curl -sS -X POST \
 
 If you use a non-matching caller (or omit it), restricted demo tools should be filtered out by PTC rules.
 
-## Enabled webhook endpoints
+## ACP bridge integration
+
+`remote-server` now includes an ACP bridge plugin that exposes deferred tools:
+- `acp_status`
+- `acp_session_bind`
+- `acp_prompt`
+- `acp_cancel`
+
+These tools map each `runContext.sessionId` (remote-server session) to one ACP session, so you can route calls to targets like Codex or Claude Code via your ACP gateway.
+
+Minimal setup:
+
+```bash
+# required
+export ACP_BRIDGE_BASE_URL=http://127.0.0.1:8787
+
+# optional
+export ACP_DEFAULT_TARGET=codex
+export ACP_BRIDGE_API_KEY=your_token
+```
+
+Quick test via internal endpoint:
+
+```bash
+curl -sS -X POST \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $INTERNAL_API_SECRET" \
+  http://127.0.0.1:3000/internal/agent/run \
+  -d '{"text":"Use acp_status first, then call acp_prompt with prompt=hello from remote-server ACP bridge and target=codex"}'
+```
+
 
 - `POST /webhooks/feishu`
 - `POST /webhooks/discord`
