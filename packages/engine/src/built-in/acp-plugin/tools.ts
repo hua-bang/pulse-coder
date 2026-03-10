@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import type { Tool } from '../../shared/types';
 
-import { buildMetadata, resolveRunContextSessionId } from './context';
+import { buildAcpMetadata, resolveRunContextSessionId } from './context';
 import type { AcpBridgeService } from './service';
 
 const metadataSchema = z.record(z.string(), z.unknown()).optional();
@@ -72,7 +72,7 @@ function createAcpSessionBindTool(service: AcpBridgeService): Tool<BindInput, {
       const ensured = await service.ensureBoundSession({
         remoteSessionId,
         target: input.target,
-        metadata: buildMetadata(runContext, input.metadata),
+        metadata: buildAcpMetadata(runContext, input.metadata),
         forceNewSession: input.forceNewSession,
       });
 
@@ -108,7 +108,7 @@ function createAcpPromptTool(service: AcpBridgeService): Tool<PromptInput, {
         remoteSessionId,
         prompt: input.prompt,
         target: input.target,
-        metadata: buildMetadata(runContext, input.metadata),
+        metadata: buildAcpMetadata(runContext, input.metadata),
         forceNewSession: input.forceNewSession,
       });
 

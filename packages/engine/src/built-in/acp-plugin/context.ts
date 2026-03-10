@@ -23,27 +23,11 @@ export function resolveRunContextSessionId(context?: ToolExecutionContext): stri
   return sessionId;
 }
 
-export function buildMetadata(
+export function buildAcpMetadata(
   runContext: Record<string, unknown> | undefined,
   inputMetadata?: Record<string, unknown>,
 ): Record<string, unknown> {
-  const metadata: Record<string, unknown> = {
+  return {
     ...(inputMetadata ?? {}),
   };
-
-  const sessionId = readRunContextString(runContext, 'sessionId') ?? readRunContextString(runContext, 'session_id');
-  const platformKey = readRunContextString(runContext, 'platformKey');
-  const ownerKey = readRunContextString(runContext, 'ownerKey');
-
-  if (sessionId) {
-    metadata.remoteSessionId = sessionId;
-  }
-  if (platformKey) {
-    metadata.platformKey = platformKey;
-  }
-  if (ownerKey) {
-    metadata.ownerKey = ownerKey;
-  }
-
-  return metadata;
 }
