@@ -71,12 +71,12 @@ If you use a non-matching caller (or omit it), restricted demo tools should be f
 - `acp_prompt`
 - `acp_cancel`
 
-These tools map each `runContext.sessionId` (remote-server session) to one ACP session, so you can route calls to targets like Codex or Claude Code via your ACP gateway.
+These tools map each `runContext.sessionId` (remote-server session) to one ACP session per target, so you can route calls to targets like Codex or Claude Code via your ACP gateway or direct adapters.
 
 Minimal setup:
 
 ```bash
-# stdio (recommended for codex/claude-code)
+# stdio (single target)
 export ACP_TRANSPORT=stdio
 export ACP_STDIO_COMMAND=/path/to/acp-agent
 # optional: comma-separated args and env pairs
@@ -85,6 +85,23 @@ export ACP_STDIO_COMMAND=/path/to/acp-agent
 
 # defaults
 export ACP_DEFAULT_TARGET=codex
+```
+
+Multi-target setup:
+
+```bash
+# multi-target (recommended for codex + claude-code)
+export ACP_TRANSPORT=multi
+export ACP_TARGETS=codex,claude-code
+export ACP_DEFAULT_TARGET=codex
+
+# codex via stdio
+export ACP_TARGET_CODEX_STDIO_COMMAND=/path/to/codex-acp
+# export ACP_TARGET_CODEX_STDIO_ARGS=--flag1,--flag2=value
+# export ACP_TARGET_CODEX_STDIO_ENV=KEY=value,FOO=bar
+
+# claude-code via stdio
+export ACP_TARGET_CLAUDE_CODE_STDIO_COMMAND=/path/to/claude-code-acp
 ```
 
 HTTP bridge setup (optional fallback):

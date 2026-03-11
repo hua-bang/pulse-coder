@@ -27,6 +27,23 @@ export const DEFAULT_TARGET = 'codex';
 export const DEFAULT_TIMEOUT_MS = 30_000;
 export const DEFAULT_SESSION_STORE_PATH = path.join(homedir(), '.pulse-coder', 'acp', 'sessions.json');
 
+const TARGET_CONFIG_PREFIX = 'ACP_TARGET_';
+
+interface AcpTargetHttpConfig extends AcpClientConfig {
+  target: string;
+}
+
+interface AcpTargetStdioConfig extends AcpStdioConfig {
+  target: string;
+}
+
+interface MultiTargetClientConfig {
+  targets: string[];
+  defaultTarget: string;
+  httpTargets: Map<string, AcpTargetHttpConfig>;
+  stdioTargets: Map<string, AcpTargetStdioConfig>;
+}
+
 export class AcpBridgeService {
   private readonly client: AcpClient;
 
@@ -53,22 +70,25 @@ export class AcpBridgeService {
 
   async ensureBoundSession(input: EnsureSessionInput): Promise<EnsureSessionResult> {
     this.assertConfigured();
-    const existing = await this.sessionStore.get(input.remoteSessionId);
-    const requestedTarget = this.resolveTarget(input.target, existing?.target);
+    const requestedTarget = this.resolveTarget(input.target, false);
+    const existing = requestedTarget
+      ? await this.sessionStore.get(input.remoteSessionId, requestedTarget)
+      : await this.sessionStore.getLatest(input.remoteSessionId);
 
-    if (existing && !input.forceNewSession && existing.target === requestedTarget) {
+    if (existing && !input.forceNewSession) {
       return { binding: existing, reused: true };
     }
 
+    const targetForNew = requestedTarget || existing?.target || this.resolveTarget(undefined, true);
     const created = await this.client.createSession({
-      target: requestedTarget,
+      target: targetForNew,
       metadata: input.metadata,
     });
 
     const binding = await this.sessionStore.upsert({
       remoteSessionId: input.remoteSessionId,
       acpSessionId: created.sessionId,
-      target: requestedTarget,
+      target: targetForNew,
       metadata: input.metadata,
     });
 
@@ -116,6 +136,7 @@ export class AcpBridgeService {
 
   async cancelBoundSession(input: {
     remoteSessionId: string;
+    target?: string;
     reason?: string;
     dropBinding?: boolean;
   }): Promise<{
@@ -125,7 +146,11 @@ export class AcpBridgeService {
     raw?: unknown;
   }> {
     this.assertConfigured();
-    const binding = await this.sessionStore.get(input.remoteSessionId);
+    const requestedTarget = this.resolveTarget(input.target, false);
+    const binding = requestedTarget
+      ? await this.sessionStore.get(input.remoteSessionId, requestedTarget)
+      : await this.sessionStore.getLatest(input.remoteSessionId);
+
     if (!binding) {
       return {
         found: false,
@@ -135,11 +160,12 @@ export class AcpBridgeService {
 
     const canceled = await this.client.cancel({
       sessionId: binding.acpSessionId,
+      target: binding.target,
       reason: input.reason,
     });
 
     if (input.dropBinding) {
-      await this.sessionStore.remove(input.remoteSessionId);
+      await this.sessionStore.remove(binding.remoteSessionId, binding.target);
     }
 
     return {
@@ -150,15 +176,14 @@ export class AcpBridgeService {
     };
   }
 
-  private resolveTarget(primary?: string, fallback?: string): string {
+  private resolveTarget(primary?: string, requireDefault = true): string {
     const fromPrimary = primary?.trim();
     if (fromPrimary) {
       return fromPrimary;
     }
 
-    const fromFallback = fallback?.trim();
-    if (fromFallback) {
-      return fromFallback;
+    if (!requireDefault) {
+      return '';
     }
 
     const fromDefault = this.defaultTarget.trim();
@@ -171,7 +196,7 @@ export class AcpBridgeService {
 
   private assertConfigured(): void {
     if (!this.client.isConfigured()) {
-      throw new Error('ACP bridge is not configured. Set ACP_BRIDGE_BASE_URL first.');
+      throw new Error('ACP bridge is not configured. Set ACP_BRIDGE_BASE_URL or ACP_TARGETS first.');
     }
   }
 }
@@ -239,150 +264,130 @@ class StdioJsonRpcClient {
     this.proc.stderr.on('data', chunk => {
       this.emitter.emit('stderr', chunk);
     });
-    this.proc.on('close', (code, signal) => {
-      this.closed = true;
-      this.rejectAll(new Error(`[${options.name}] ACP stdio exited: code=${code ?? 'null'} signal=${signal ?? 'null'}`));
-    });
-    this.proc.on('error', error => {
-      this.closed = true;
-      this.rejectAll(error);
-    });
   }
 
-  on(event: 'notification' | 'stderr', listener: (payload: unknown) => void) {
-    this.emitter.on(event, listener);
+  on(event: 'notification' | 'stderr', handler: (payload: unknown) => void): void {
+    this.emitter.on(event, handler);
   }
 
-  request(method: string, params: unknown, timeoutMs: number): Promise<JsonRpcResponse> {
-    if (this.closed) {
-      return Promise.reject(new Error('ACP stdio process is closed'));
+  async request(method: string, params: unknown, timeoutMs: number): Promise<JsonRpcResponse> {
+    if (!this.proc.stdin || this.closed) {
+      throw new Error('ACP stdio process is not available.');
     }
 
     const id = randomUUID();
-    const payload: JsonRpcRequest = { jsonrpc: '2.0', id, method, params };
-    const serialized = JSON.stringify(payload);
+    const payload: JsonRpcRequest = {
+      jsonrpc: '2.0',
+      id,
+      method,
+      params,
+    };
 
-    return new Promise((resolve, reject) => {
-      const timer = timeoutMs > 0 ? setTimeout(() => {
+    const responsePromise = new Promise<JsonRpcResponse>((resolve, reject) => {
+      const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`ACP stdio request timeout for ${method}`));
-      }, timeoutMs) : undefined;
-
+        reject(new Error(`ACP stdio request timeout (${method})`));
+      }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      this.proc.stdin.write(`${serialized}\n`);
     });
+
+    const encoded = `${JSON.stringify(payload)}\n`;
+    this.proc.stdin.write(encoded, 'utf8');
+
+    const response = await responsePromise;
+    return response;
   }
 
-  close(): void {
-    if (this.closed) {
+  private handleStdout(chunk: string): void {
+    if (!chunk) {
       return;
     }
 
-    this.closed = true;
-    this.proc.stdin.end();
-    this.proc.kill();
-    this.rejectAll(new Error('ACP stdio client closed'));
-  }
-
-  private handleStdout(chunk: string) {
     this.buffer += chunk;
-    let lineEnd = this.buffer.indexOf('\n');
+    let index = this.buffer.indexOf('\n');
+    while (index >= 0) {
+      const line = this.buffer.slice(0, index).trim();
+      this.buffer = this.buffer.slice(index + 1);
+      index = this.buffer.indexOf('\n');
 
-    while (lineEnd >= 0) {
-      const line = this.buffer.slice(0, lineEnd).trim();
-      this.buffer = this.buffer.slice(lineEnd + 1);
-
-      if (line) {
-        this.handleMessageLine(line);
+      if (!line) {
+        continue;
       }
 
-      lineEnd = this.buffer.indexOf('\n');
+      let parsed: JsonRpcMessage | null = null;
+      try {
+        parsed = JSON.parse(line) as JsonRpcMessage;
+      } catch (error) {
+        console.warn('[ACP stdio] failed to parse jsonrpc message:', error);
+      }
+
+      if (parsed && 'id' in parsed) {
+        const pending = this.pending.get(parsed.id);
+        if (pending) {
+          this.pending.delete(parsed.id);
+          if (pending.timer) {
+            clearTimeout(pending.timer);
+          }
+          pending.resolve(parsed);
+          continue;
+        }
+      }
+
+      if (parsed && 'method' in parsed) {
+        this.emitter.emit('notification', parsed);
+      }
     }
-  }
-
-  private handleMessageLine(line: string) {
-    let message: JsonRpcMessage;
-    try {
-      message = JSON.parse(line) as JsonRpcMessage;
-    } catch {
-      this.emitter.emit('stderr', `[ACP stdio] Invalid JSON: ${line}`);
-      return;
-    }
-
-    if ('id' in message && message.id) {
-      const pending = this.pending.get(message.id);
-      if (!pending) {
-        return;
-      }
-
-      this.pending.delete(message.id);
-      if (pending.timer) {
-        clearTimeout(pending.timer);
-      }
-
-      if ('error' in message && message.error) {
-        pending.reject(new Error(message.error.message));
-      } else {
-        pending.resolve(message as JsonRpcResponse);
-      }
-
-      return;
-    }
-
-    this.emitter.emit('notification', message);
-  }
-
-  private rejectAll(error: Error) {
-    for (const pending of this.pending.values()) {
-      if (pending.timer) {
-        clearTimeout(pending.timer);
-      }
-      pending.reject(error);
-    }
-    this.pending.clear();
   }
 }
 
-function parseBoolean(value: string | undefined, fallback: boolean): boolean {
-  if (value === undefined) {
+function trimSlash(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+function ensureLeadingSlash(value: string, fallback: string): string {
+  if (!value) {
     return fallback;
   }
-  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+  return value.startsWith('/') ? value : `/${value}`;
+}
+
+function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+  if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) {
+    return false;
+  }
+  return fallback;
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
   if (!value) {
     return fallback;
   }
-
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) {
     return fallback;
   }
-
-  return Math.floor(parsed);
-}
-
-function trimSlash(value: string): string {
-  return value.endsWith('/') ? value.slice(0, -1) : value;
-}
-
-function ensureLeadingSlash(value: string, fallback: string): string {
-  const normalized = value.trim() || fallback;
-  return normalized.startsWith('/') ? normalized : `/${normalized}`;
+  return parsed;
 }
 
 function parseArgs(value: string | undefined): string[] | undefined {
   if (!value) {
     return undefined;
   }
-
-  const parsed = value
+  const entries = value
     .split(',')
     .map(item => item.trim())
     .filter(Boolean);
-
-  return parsed.length ? parsed : undefined;
+  return entries.length ? entries : undefined;
 }
 
 function parseEnvPairs(value: string | undefined): Record<string, string> | undefined {
@@ -411,6 +416,107 @@ function parseEnvPairs(value: string | undefined): Record<string, string> | unde
   return Object.fromEntries(entries);
 }
 
+function parseTargets(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function getTargetEnv(env: NodeJS.ProcessEnv, target: string, suffix: string): string | undefined {
+  return env[`${TARGET_CONFIG_PREFIX}${target.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_${suffix}`];
+}
+
+function buildTargetHttpConfig(env: NodeJS.ProcessEnv, target: string): AcpTargetHttpConfig | null {
+  const baseUrl = trimSlash(getTargetEnv(env, target, 'BRIDGE_BASE_URL')?.trim() ?? '');
+  const apiKey = getTargetEnv(env, target, 'BRIDGE_API_KEY')?.trim() || undefined;
+  const timeoutMs = parsePositiveInteger(getTargetEnv(env, target, 'BRIDGE_TIMEOUT_MS'), DEFAULT_TIMEOUT_MS);
+  const initializePath = ensureLeadingSlash(getTargetEnv(env, target, 'INITIALIZE_PATH') ?? '', '/initialize');
+  const sessionNewPath = ensureLeadingSlash(getTargetEnv(env, target, 'SESSION_NEW_PATH') ?? '', '/session/new');
+  const sessionPromptPath = ensureLeadingSlash(getTargetEnv(env, target, 'SESSION_PROMPT_PATH') ?? '', '/session/prompt');
+  const sessionCancelPath = ensureLeadingSlash(getTargetEnv(env, target, 'SESSION_CANCEL_PATH') ?? '', '/session/cancel');
+  const initializeOptional = parseBoolean(getTargetEnv(env, target, 'INITIALIZE_OPTIONAL'), true);
+
+  if (!baseUrl) {
+    return null;
+  }
+
+  return {
+    target,
+    baseUrl,
+    apiKey,
+    timeoutMs,
+    initializePath,
+    sessionNewPath,
+    sessionPromptPath,
+    sessionCancelPath,
+    initializeOptional,
+  };
+}
+
+function buildTargetStdioConfig(env: NodeJS.ProcessEnv, target: string): AcpTargetStdioConfig | null {
+  const command = getTargetEnv(env, target, 'STDIO_COMMAND')?.trim() ?? '';
+  if (!command) {
+    return null;
+  }
+
+  return {
+    target,
+    command,
+    args: parseArgs(getTargetEnv(env, target, 'STDIO_ARGS')),
+    env: parseEnvPairs(getTargetEnv(env, target, 'STDIO_ENV')),
+    cwd: getTargetEnv(env, target, 'STDIO_CWD')?.trim() || undefined,
+    timeoutMs: parsePositiveInteger(getTargetEnv(env, target, 'STDIO_TIMEOUT_MS'), DEFAULT_TIMEOUT_MS),
+  };
+}
+
+function buildMultiTargetConfig(env: NodeJS.ProcessEnv): MultiTargetClientConfig | null {
+  const targets = parseTargets(env.ACP_TARGETS);
+  if (!targets.length) {
+    return null;
+  }
+
+  const defaultTarget = env.ACP_DEFAULT_TARGET?.trim() || DEFAULT_TARGET;
+  const httpTargets = new Map<string, AcpTargetHttpConfig>();
+  const stdioTargets = new Map<string, AcpTargetStdioConfig>();
+
+  for (const target of targets) {
+    const httpConfig = buildTargetHttpConfig(env, target);
+    if (httpConfig) {
+      httpTargets.set(target, httpConfig);
+    }
+
+    const stdioConfig = buildTargetStdioConfig(env, target);
+    if (stdioConfig) {
+      stdioTargets.set(target, stdioConfig);
+    }
+  }
+
+  if (!httpTargets.size && !stdioTargets.size) {
+    return null;
+  }
+
+  return {
+    targets,
+    defaultTarget,
+    httpTargets,
+    stdioTargets,
+  };
+}
+
+export function buildMultiTargetClient(env: NodeJS.ProcessEnv): AcpClient {
+  const config = buildMultiTargetConfig(env);
+  if (!config) {
+    return new AcpHttpClient(buildClientConfigFromEnv(env));
+  }
+
+  return new AcpMultiClient(config);
+}
+
 export function buildClientConfigFromEnv(env: NodeJS.ProcessEnv): AcpClientConfig {
   return {
     baseUrl: trimSlash(env.ACP_BRIDGE_BASE_URL?.trim() ?? ''),
@@ -436,8 +542,12 @@ export function buildStdioConfigFromEnv(env: NodeJS.ProcessEnv): AcpStdioConfig 
 
 export function resolveAcpTransport(env: NodeJS.ProcessEnv): AcpTransport {
   const explicit = env.ACP_TRANSPORT?.trim().toLowerCase();
-  if (explicit === 'stdio' || explicit === 'http') {
+  if (explicit === 'stdio' || explicit === 'http' || explicit === 'multi') {
     return explicit;
+  }
+
+  if (env.ACP_TARGETS && env.ACP_TARGETS.trim()) {
+    return 'multi';
   }
 
   if (env.ACP_STDIO_COMMAND && env.ACP_STDIO_COMMAND.trim()) {
@@ -474,8 +584,7 @@ function extractSessionId(payload: unknown): string | null {
   }
 
   const nestedData = (payload as Record<string, unknown>).data;
-  const nested = readStringField(nestedData, ['sessionId', 'session_id', 'id']);
-  return nested ?? null;
+  return readStringField(nestedData, ['sessionId', 'session_id', 'id']) ?? null;
 }
 
 function extractText(payload: unknown): string {
@@ -587,6 +696,7 @@ export class AcpHttpClient {
     const payload = await this.postJson(this.config.sessionCancelPath, {
       sessionId: input.sessionId,
       session_id: input.sessionId,
+      target: input.target,
       reason: input.reason,
     });
 
@@ -655,6 +765,90 @@ export class AcpHttpClient {
   }
 }
 
+class AcpMultiClient implements AcpClient {
+  private readonly defaultTarget: string;
+  private readonly targets: string[];
+  private readonly configuredTargets = new Set<string>();
+  private readonly clients = new Map<string, AcpClient>();
+
+  constructor(config: MultiTargetClientConfig) {
+    this.defaultTarget = config.defaultTarget;
+    this.targets = config.targets;
+
+    for (const [target, httpConfig] of config.httpTargets.entries()) {
+      this.clients.set(target, new AcpHttpClient(httpConfig));
+      this.configuredTargets.add(target);
+    }
+
+    for (const [target, stdioConfig] of config.stdioTargets.entries()) {
+      if (this.clients.has(target)) {
+        console.warn(`[ACP] target ${target} has both HTTP and stdio config; stdio will override HTTP.`);
+      }
+      this.clients.set(target, new AcpStdioClient(stdioConfig));
+      this.configuredTargets.add(target);
+    }
+  }
+
+  isConfigured(): boolean {
+    return this.configuredTargets.size > 0;
+  }
+
+  getStatus(): AcpClientStatus {
+    return {
+      configured: this.isConfigured(),
+      timeoutMs: DEFAULT_TIMEOUT_MS,
+      transport: 'multi',
+      targets: this.targets,
+      configuredTargets: Array.from(this.configuredTargets),
+    };
+  }
+
+  async ensureInitialized(): Promise<void> {
+    const initialized: Promise<void>[] = [];
+    for (const client of this.clients.values()) {
+      initialized.push(client.ensureInitialized());
+    }
+
+    if (!initialized.length) {
+      return;
+    }
+
+    await Promise.all(initialized);
+  }
+
+  async createSession(input: AcpNewSessionInput): Promise<AcpNewSessionResult> {
+    const client = this.resolveClient(input.target);
+    return client.createSession(input);
+  }
+
+  async prompt(input: AcpPromptInput): Promise<AcpPromptResult> {
+    const target = input.target || this.defaultTarget;
+    const client = this.resolveClient(target);
+    return client.prompt({ ...input, target });
+  }
+
+  async cancel(input: AcpCancelInput): Promise<{ ok: boolean; raw: unknown }> {
+    const target = input.target || this.defaultTarget;
+    const client = this.resolveClient(target);
+    return client.cancel({ ...input, target });
+  }
+
+  private resolveClient(target: string): AcpClient {
+    const normalized = target.trim();
+    if (!normalized) {
+      throw new Error('ACP target is missing. Provide target or set ACP_DEFAULT_TARGET.');
+    }
+
+    const client = this.clients.get(normalized);
+    if (!client) {
+      const configured = Array.from(this.configuredTargets).join(', ') || '(none)';
+      throw new Error(`ACP target ${normalized} is not configured. Configured targets: ${configured}`);
+    }
+
+    return client;
+  }
+}
+
 function toOptionalString(value: unknown): string | undefined {
   if (typeof value === 'string' && value.trim()) {
     return value.trim();
@@ -707,7 +901,7 @@ function ensureResultPayload(response: JsonRpcResponse, fallback: unknown): unkn
   return fallback;
 }
 
-export class AcpStdioClient {
+export class AcpStdioClient implements AcpClient {
   private readonly config: AcpStdioConfig;
   private readonly rpc: StdioJsonRpcClient | null;
   private initialized = false;
@@ -879,6 +1073,7 @@ export class AcpStdioClient {
       {
         sessionId: input.sessionId,
         session_id: input.sessionId,
+        target: input.target,
         reason: input.reason,
       },
       this.config.timeoutMs,

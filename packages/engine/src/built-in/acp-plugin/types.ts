@@ -1,6 +1,6 @@
 import type { ToolExecutionContext } from '../../shared/types';
 
-export type AcpTransport = 'http' | 'stdio';
+export type AcpTransport = 'http' | 'stdio' | 'multi';
 
 export interface AcpClientConfig {
   baseUrl: string;
@@ -29,6 +29,8 @@ export interface AcpClientStatus {
   command?: string;
   env?: Record<string, string>;
   cwd?: string;
+  targets?: string[];
+  configuredTargets?: string[];
 }
 
 export interface AcpClient {
@@ -51,9 +53,10 @@ export interface AcpSessionBinding {
 
 export interface AcpSessionStore {
   initialize(): Promise<void>;
-  get(remoteSessionId: string): Promise<AcpSessionBinding | null>;
+  get(remoteSessionId: string, target: string): Promise<AcpSessionBinding | null>;
+  getLatest(remoteSessionId: string): Promise<AcpSessionBinding | null>;
   upsert(binding: Omit<AcpSessionBinding, 'createdAt' | 'updatedAt'>): Promise<AcpSessionBinding>;
-  remove(remoteSessionId: string): Promise<void>;
+  remove(remoteSessionId: string, target: string): Promise<void>;
 }
 
 export interface AcpNewSessionInput {
@@ -81,6 +84,7 @@ export interface AcpPromptResult {
 
 export interface AcpCancelInput {
   sessionId: string;
+  target?: string;
   reason?: string;
 }
 
@@ -118,6 +122,7 @@ export interface AcpBridgeService {
   }>;
   cancelBoundSession(input: {
     remoteSessionId: string;
+    target?: string;
     reason?: string;
     dropBinding?: boolean;
   }): Promise<{

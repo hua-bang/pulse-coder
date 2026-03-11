@@ -51,6 +51,7 @@ const promptSchema = z.object({
   forceNewSession: z.boolean().optional().describe('If true, create a fresh ACP session before sending this prompt.'),
 });
 const cancelSchema = z.object({
+  target: z.string().min(1).optional().describe('Optional target agent override for canceling the ACP session.'),
   reason: z.string().optional().describe('Optional cancel reason for ACP session/cancel.'),
   dropBinding: z.boolean().optional().describe('When true, remove local session binding after cancel succeeds.'),
 });
@@ -63,9 +64,13 @@ type CancelInput = z.infer<typeof cancelSchema>;
 function createAcpStatusTool(service: AcpBridgeService): Tool<StatusInput, {
   ok: true;
   configured: boolean;
+  transport: string;
   baseUrl?: string;
+  command?: string;
   timeoutMs: number;
   defaultTarget: string;
+  targets?: string[];
+  configuredTargets?: string[];
 }> {
   return {
     name: 'acp_status',
@@ -77,9 +82,13 @@ function createAcpStatusTool(service: AcpBridgeService): Tool<StatusInput, {
       return {
         ok: true,
         configured: status.configured,
+        transport: status.transport,
         baseUrl: status.baseUrl,
+        command: status.command,
         timeoutMs: status.timeoutMs,
         defaultTarget: status.defaultTarget,
+        targets: status.targets,
+        configuredTargets: status.configuredTargets,
       };
     },
   };
@@ -162,6 +171,7 @@ function createAcpCancelTool(service: AcpBridgeService): Tool<CancelInput, {
   foundBinding: boolean;
   canceled: boolean;
   droppedBinding: boolean;
+  target?: string;
 }> {
   return {
     name: 'acp_cancel',
@@ -172,6 +182,7 @@ function createAcpCancelTool(service: AcpBridgeService): Tool<CancelInput, {
       const remoteSessionId = resolveRunContextSessionId(context);
       const canceled = await service.cancelBoundSession({
         remoteSessionId,
+        target: input.target,
         reason: input.reason,
         dropBinding: input.dropBinding,
       });
@@ -182,6 +193,7 @@ function createAcpCancelTool(service: AcpBridgeService): Tool<CancelInput, {
         foundBinding: canceled.found,
         canceled: canceled.canceled,
         droppedBinding: Boolean(input.dropBinding && canceled.found),
+        target: canceled.binding?.target,
       };
     },
   };

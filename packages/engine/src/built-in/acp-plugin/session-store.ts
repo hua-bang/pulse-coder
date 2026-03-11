@@ -4,7 +4,8 @@ import path from 'path';
 import type { AcpSessionBinding, AcpSessionStore } from './types';
 
 interface AcpSessionStorePayload {
-  sessions: Record<string, AcpSessionBinding>;
+  sessions: Record<string, AcpSessionBinding | Record<string, AcpSessionBinding>>;
+  latestTargets?: Record<string, string>;
 }
 
 export class FileAcpSessionStore implements AcpSessionStore {
@@ -13,6 +14,7 @@ export class FileAcpSessionStore implements AcpSessionStore {
   private initialized = false;
 
   private sessions = new Map<string, AcpSessionBinding>();
+  private latestTargetByRemoteSession = new Map<string, string>();
 
   constructor(filePath: string) {
     this.filePath = filePath;
@@ -29,14 +31,39 @@ export class FileAcpSessionStore implements AcpSessionStore {
       const raw = await fs.readFile(this.filePath, 'utf8');
       const parsed = JSON.parse(raw) as AcpSessionStorePayload;
       if (parsed && parsed.sessions && typeof parsed.sessions === 'object') {
-        for (const value of Object.values(parsed.sessions)) {
+        for (const [remoteSessionId, entry] of Object.entries(parsed.sessions)) {
           if (
-            value
-            && typeof value.remoteSessionId === 'string'
-            && typeof value.acpSessionId === 'string'
-            && typeof value.target === 'string'
+            entry
+            && typeof (entry as AcpSessionBinding).remoteSessionId === 'string'
+            && typeof (entry as AcpSessionBinding).acpSessionId === 'string'
+            && typeof (entry as AcpSessionBinding).target === 'string'
           ) {
-            this.sessions.set(value.remoteSessionId, value);
+            const binding = entry as AcpSessionBinding;
+            this.sessions.set(this.makeKey(binding.remoteSessionId, binding.target), binding);
+            this.latestTargetByRemoteSession.set(binding.remoteSessionId, binding.target);
+            continue;
+          }
+
+          if (entry && typeof entry === 'object') {
+            for (const value of Object.values(entry)) {
+              if (
+                value
+                && typeof value.remoteSessionId === 'string'
+                && typeof value.acpSessionId === 'string'
+                && typeof value.target === 'string'
+              ) {
+                this.sessions.set(this.makeKey(value.remoteSessionId, value.target), value);
+                this.latestTargetByRemoteSession.set(value.remoteSessionId, value.target);
+              }
+            }
+          }
+        }
+      }
+
+      if (parsed && parsed.latestTargets && typeof parsed.latestTargets === 'object') {
+        for (const [remoteSessionId, target] of Object.entries(parsed.latestTargets)) {
+          if (typeof target === 'string' && target.trim()) {
+            this.latestTargetByRemoteSession.set(remoteSessionId, target.trim());
           }
         }
       }
@@ -47,15 +74,25 @@ export class FileAcpSessionStore implements AcpSessionStore {
     this.initialized = true;
   }
 
-  async get(remoteSessionId: string): Promise<AcpSessionBinding | null> {
+  async get(remoteSessionId: string, target: string): Promise<AcpSessionBinding | null> {
     await this.initialize();
-    return this.sessions.get(remoteSessionId) ?? null;
+    return this.sessions.get(this.makeKey(remoteSessionId, target)) ?? null;
+  }
+
+  async getLatest(remoteSessionId: string): Promise<AcpSessionBinding | null> {
+    await this.initialize();
+    const target = this.latestTargetByRemoteSession.get(remoteSessionId);
+    if (!target) {
+      return null;
+    }
+    return this.sessions.get(this.makeKey(remoteSessionId, target)) ?? null;
   }
 
   async upsert(binding: Omit<AcpSessionBinding, 'createdAt' | 'updatedAt'>): Promise<AcpSessionBinding> {
     await this.initialize();
     const now = Date.now();
-    const existing = this.sessions.get(binding.remoteSessionId);
+    const key = this.makeKey(binding.remoteSessionId, binding.target);
+    const existing = this.sessions.get(key);
 
     const next: AcpSessionBinding = {
       ...binding,
@@ -63,24 +100,45 @@ export class FileAcpSessionStore implements AcpSessionStore {
       updatedAt: now,
     };
 
-    this.sessions.set(binding.remoteSessionId, next);
+    this.sessions.set(key, next);
+    this.latestTargetByRemoteSession.set(binding.remoteSessionId, binding.target);
     await this.persist();
     return next;
   }
 
-  async remove(remoteSessionId: string): Promise<void> {
+  async remove(remoteSessionId: string, target: string): Promise<void> {
     await this.initialize();
-    if (!this.sessions.delete(remoteSessionId)) {
+    const key = this.makeKey(remoteSessionId, target);
+    if (!this.sessions.delete(key)) {
       return;
     }
+
+    const latest = this.latestTargetByRemoteSession.get(remoteSessionId);
+    if (latest === target) {
+      this.latestTargetByRemoteSession.delete(remoteSessionId);
+    }
+
     await this.persist();
   }
 
   private async persist(): Promise<void> {
+    const sessionsPayload: Record<string, Record<string, AcpSessionBinding>> = {};
+    for (const binding of this.sessions.values()) {
+      if (!sessionsPayload[binding.remoteSessionId]) {
+        sessionsPayload[binding.remoteSessionId] = {};
+      }
+      sessionsPayload[binding.remoteSessionId][binding.target] = binding;
+    }
+
     const payload: AcpSessionStorePayload = {
-      sessions: Object.fromEntries(this.sessions.entries()),
+      sessions: sessionsPayload,
+      latestTargets: Object.fromEntries(this.latestTargetByRemoteSession.entries()),
     };
 
     await fs.writeFile(this.filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  }
+
+  private makeKey(remoteSessionId: string, target: string): string {
+    return `${remoteSessionId}::${target}`;
   }
 }

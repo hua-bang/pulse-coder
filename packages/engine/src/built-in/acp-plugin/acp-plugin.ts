@@ -6,6 +6,7 @@ import {
   AcpHttpClient,
   AcpStdioClient,
   buildClientConfigFromEnv,
+  buildMultiTargetClient,
   buildStdioConfigFromEnv,
   DEFAULT_SESSION_STORE_PATH,
   DEFAULT_TARGET,
@@ -19,9 +20,11 @@ export const builtInAcpPlugin: EnginePlugin = {
   version: '0.1.0',
   async initialize(context: EnginePluginContext) {
     const transport = resolveAcpTransport(process.env);
-    const client = transport === 'stdio'
-      ? new AcpStdioClient(buildStdioConfigFromEnv(process.env))
-      : new AcpHttpClient(buildClientConfigFromEnv(process.env));
+    const client = transport === 'multi'
+      ? buildMultiTargetClient(process.env)
+      : transport === 'stdio'
+        ? new AcpStdioClient(buildStdioConfigFromEnv(process.env))
+        : new AcpHttpClient(buildClientConfigFromEnv(process.env));
 
     const storePath = process.env.ACP_SESSION_STORE_PATH?.trim() || DEFAULT_SESSION_STORE_PATH;
     const sessionStore = new FileAcpSessionStore(storePath);
@@ -43,7 +46,7 @@ export const builtInAcpPlugin: EnginePlugin = {
 
     const status = service.getStatus();
     context.logger.info(
-      `[ACP] plugin ready transport=${status.transport} configured=${status.configured} baseUrl=${status.baseUrl ?? '(unset)'} command=${status.command ?? '(unset)'} defaultTarget=${status.defaultTarget}`,
+      `[ACP] plugin ready transport=${status.transport} configured=${status.configured} baseUrl=${status.baseUrl ?? '(unset)'} command=${status.command ?? '(unset)'} targets=${status.targets?.join(',') ?? '(unset)'} configuredTargets=${status.configuredTargets?.join(',') ?? '(unset)'} defaultTarget=${status.defaultTarget}`,
     );
   },
 };
