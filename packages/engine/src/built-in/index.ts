@@ -3,6 +3,7 @@
  * 引擎内置插件集合
  */
 
+import { builtInAcpPlugin } from './acp-plugin';
 import { builtInMCPPlugin } from './mcp-plugin';
 import { builtInSkillsPlugin } from './skills-plugin';
 import { builtInPlanModePlugin } from './plan-mode-plugin';
@@ -18,6 +19,7 @@ import { builtInPtcPlugin } from './ptc-plugin';
  * 这些插件会在引擎启动时自动加载
  */
 export const builtInPlugins = [
+  builtInAcpPlugin,
   builtInMCPPlugin,
   builtInSkillsPlugin,
   builtInToolSearchPlugin,
@@ -32,6 +34,7 @@ export const builtInPlugins = [
 /**
  * 单独导出各个内置插件，便于外部使用
  */
+export { builtInAcpPlugin } from './acp-plugin';
 export { builtInMCPPlugin } from './mcp-plugin';
 export { builtInSkillsPlugin, BuiltInSkillRegistry } from './skills-plugin';
 export { builtInPlanModePlugin, BuiltInPlanModeService } from './plan-mode-plugin';
