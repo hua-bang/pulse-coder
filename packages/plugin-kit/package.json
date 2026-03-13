@@ -47,7 +47,8 @@
     "dist"
   ],
   "dependencies": {
-    "pulse-coder-engine": "workspace:*"
+    "pulse-coder-engine": "workspace:*",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^25.0.10",
