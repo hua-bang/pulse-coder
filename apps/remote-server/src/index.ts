@@ -5,6 +5,7 @@ import { engine } from './core/engine-singleton.js';
 import { sessionStore } from './core/session-store.js';
 import { memoryIntegration } from './core/memory-integration.js';
 import { worktreeIntegration } from './core/worktree/integration.js';
+import { workspaceIntegration } from './core/workspace/integration.js';
 import { startDiscordGateway } from './adapters/discord/gateway-manager.js';
 import { registerDiscordApplicationCommands } from './adapters/discord/application-commands.js';
 
@@ -17,6 +18,9 @@ async function main() {
 
   // Initialize worktree binding state store
   await worktreeIntegration.initialize();
+
+  // Initialize workspace binding state store
+  await workspaceIntegration.initialize();
 
   await engine.initialize();
 
