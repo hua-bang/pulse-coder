@@ -532,6 +532,12 @@ function extractInteractionText(interaction: DiscordInteraction): string {
   }
 
   if (PASSTHROUGH_SLASH_COMMANDS.has(commandName)) {
+    if (commandName === 'wt') {
+      const values = collectOptionValues(interaction.data?.options ?? []);
+      const normalizedValues = values.map((value) => value.trim()).filter(Boolean);
+      const argText = normalizedValues.join(' ');
+      return argText ? `/${commandName} ${argText}` : `/${commandName}`;
+    }
     return args ? `/${commandName} ${args}` : `/${commandName}`;
   }
 

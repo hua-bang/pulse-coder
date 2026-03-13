@@ -1,4 +1,3 @@
-import { DiscordClient, type DiscordApplicationCommandCreate } from './client.js';
 
 const RESTART_COMMAND: DiscordApplicationCommandCreate = {
   name: 'restart',
@@ -21,6 +20,19 @@ const RESTART_COMMAND: DiscordApplicationCommandCreate = {
   ],
 };
 
+const WORKTREE_COMMAND: DiscordApplicationCommandCreate = {
+  name: 'wt',
+  description: 'Bind or inspect worktree state.',
+  options: [
+    {
+      type: 3,
+      name: 'command',
+      description: 'Command text, e.g. "use feat-refactor-commands" or "status".',
+      required: false,
+    },
+  ],
+};
+
 export async function registerDiscordApplicationCommands(): Promise<void> {
   if (!parseEnabledFlag(process.env.DISCORD_COMMAND_REGISTER_ENABLED, true)) {
     console.log('[discord] Skip app command registration: DISCORD_COMMAND_REGISTER_ENABLED=false');
@@ -37,18 +49,23 @@ export async function registerDiscordApplicationCommands(): Promise<void> {
   const configuredApplicationId = process.env.DISCORD_APPLICATION_ID?.trim();
   const applicationId = configuredApplicationId || await client.getApplicationId();
   const guildIds = parseGuildIds(process.env.DISCORD_COMMAND_GUILD_IDS);
+  const commands = [RESTART_COMMAND, WORKTREE_COMMAND];
 
   if (guildIds.length === 0) {
-    await client.upsertGlobalApplicationCommand(applicationId, RESTART_COMMAND);
-    console.log('[discord] Registered global application command: /restart');
+    for (const command of commands) {
+      await client.upsertGlobalApplicationCommand(applicationId, command);
+      console.log(`[discord] Registered global application command: /${command.name}`);
+    }
     return;
   }
 
   for (const guildId of guildIds) {
-    await client.upsertGuildApplicationCommand(applicationId, guildId, RESTART_COMMAND);
+    for (const command of commands) {
+      await client.upsertGuildApplicationCommand(applicationId, guildId, command);
+    }
   }
 
-  console.log(`[discord] Registered guild application command /restart for ${guildIds.length} guild(s)`);
+  console.log(`[discord] Registered guild application commands for ${guildIds.length} guild(s)`);
 }
 
 function parseGuildIds(raw: string | undefined): string[] {
