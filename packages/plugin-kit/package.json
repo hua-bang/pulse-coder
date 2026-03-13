@@ -16,6 +16,11 @@
       "import": "./dist/worktree.js",
       "require": "./dist/worktree.cjs"
     },
+    "./workspace": {
+      "types": "./dist/workspace.d.ts",
+      "import": "./dist/workspace.js",
+      "require": "./dist/workspace.cjs"
+    },
     "./src": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
@@ -23,6 +28,10 @@
     "./src/worktree": {
       "types": "./src/worktree/index.ts",
       "import": "./src/worktree/index.ts"
+    },
+    "./src/workspace": {
+      "types": "./src/workspace/index.ts",
+      "import": "./src/workspace/index.ts"
     }
   },
   "publishConfig": {

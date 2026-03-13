@@ -4,6 +4,7 @@ import { engine } from './engine-singleton.js';
 import { sessionStore } from './session-store.js';
 import { memoryIntegration, recordDailyLogFromSuccessPath } from './memory-integration.js';
 import { buildRemoteWorktreeRunContext, worktreeIntegration } from './worktree/integration.js';
+import { buildRemoteWorkspaceRunContext, workspaceIntegration } from './workspace/integration.js';
 import { resolveModelForRun } from './model-config.js';
 
 export type CompactionSnapshot = CompactionEvent;
@@ -295,13 +296,16 @@ export async function runWithAgentContexts<T>(
 ): Promise<T> {
   return worktreeIntegration.withRunContext(
     buildRemoteWorktreeRunContext(input.platformKey),
-    async () => memoryIntegration.withRunContext(
-      {
-        platformKey: input.memoryKey,
-        sessionId: input.sessionId,
-        userText: input.userText,
-      },
-      run,
+    async () => workspaceIntegration.withRunContext(
+      buildRemoteWorkspaceRunContext(input.platformKey),
+      async () => memoryIntegration.withRunContext(
+        {
+          platformKey: input.memoryKey,
+          sessionId: input.sessionId,
+          userText: input.userText,
+        },
+        run,
+      ),
     ),
   );
 }

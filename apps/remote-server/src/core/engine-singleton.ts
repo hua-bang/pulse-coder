@@ -1,6 +1,7 @@
 import { Engine } from 'pulse-coder-engine';
 import { memoryIntegration } from './memory-integration.js';
 import { worktreeIntegration } from './worktree/integration.js';
+import { workspaceIntegration } from './workspace/integration.js';
 import { cronJobTool } from './tools/cron-job.js';
 import { deferDemoTool } from './tools/defer-demo.js';
 import { jinaAiReadTool } from './tools/jina-ai.js';
@@ -18,6 +19,7 @@ export const engine = new Engine({
     plugins: [
       memoryIntegration.enginePlugin,
       worktreeIntegration.enginePlugin,
+      workspaceIntegration.enginePlugin,
     ],
   },
   tools: {
