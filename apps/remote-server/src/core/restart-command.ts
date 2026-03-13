@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import { readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import type { IncomingMessage } from './types.js';
-import type { CommandResult } from './chat-commands.js';
+import type { CommandResult } from './chat-commands/types.js';
 
 interface RestartNotifyTarget {
   platform: 'discord' | 'telegram' | 'feishu';

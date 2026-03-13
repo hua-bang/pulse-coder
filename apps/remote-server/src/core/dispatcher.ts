@@ -2,7 +2,8 @@ import { randomUUID } from 'crypto';
 import type { Context as HonoContext } from 'hono';
 import type { PlatformAdapter, IncomingMessage, StreamHandle } from './types.js';
 import { clarificationQueue } from './clarification-queue.js';
-import { processIncomingCommand, type CommandResult } from './chat-commands.js';
+import { processIncomingCommand } from './chat-commands.js';
+import type { CommandResult } from './chat-commands/types.js';
 import { executeAgentTurn, formatCompactionEvents } from './agent-runner.js';
 import {
   hasActiveRun,
