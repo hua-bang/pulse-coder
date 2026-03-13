@@ -1,6 +1,6 @@
 import { homedir } from 'os';
 import { join } from 'path';
-import { createWorkspaceIntegration, createWorkspaceInspectTool } from 'pulse-coder-plugin-kit/workspace';
+import { createWorkspaceIntegration } from 'pulse-coder-plugin-kit/workspace';
 import { resolveWorkspaceIdentity } from './resolver.js';
 
 const DEFAULT_RUNTIME_KEY = 'remote-server';
@@ -10,11 +10,6 @@ export const workspaceIntegration = createWorkspaceIntegration({
   pluginName: 'remote-workspace-binding',
   pluginVersion: '0.0.1',
   resolver: resolveWorkspaceIdentity,
-  tools: {
-    workspace_inspect: createWorkspaceInspectTool({
-      getWorkspace: () => workspaceIntegration.getWorkspace(),
-    }),
-  },
 });
 
 export const workspaceService = workspaceIntegration.service;

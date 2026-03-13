@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'async_hooks';
-import type { EnginePlugin, SystemPromptOption, Tool } from 'pulse-coder-engine';
+import type { EnginePlugin, SystemPromptOption } from 'pulse-coder-engine';
 import type {
   FileWorkspaceServiceOptions,
   WorkspaceContext,
@@ -8,6 +8,7 @@ import type {
   WorkspaceRunContext,
 } from './types.js';
 import { FileWorkspacePluginService } from './service.js';
+import { createWorkspaceInspectTool } from './tools.js';
 
 const DEFAULT_PROMPT = [
   '## Workspace Binding',
@@ -24,7 +25,6 @@ export interface CreateWorkspaceIntegrationOptions extends FileWorkspaceServiceO
   pluginVersion?: string;
   promptHeader?: string;
   resolver?: WorkspaceResolver;
-  tools?: Record<string, Tool>;
 }
 
 export interface ResolveCurrentWorkspaceInput {
@@ -77,7 +77,6 @@ export function createWorkspaceIntegration(options: CreateWorkspaceIntegrationOp
     pluginVersion,
     promptHeader,
     resolver,
-    tools,
     ...serviceOptions
   } = options;
 
@@ -90,7 +89,6 @@ export function createWorkspaceIntegration(options: CreateWorkspaceIntegrationOp
     version: pluginVersion,
     promptHeader,
     resolver,
-    tools,
   });
 
   return {
@@ -116,7 +114,6 @@ export interface CreateWorkspaceEnginePluginOptions {
   version?: string;
   promptHeader?: string;
   resolver?: WorkspaceResolver;
-  tools?: Record<string, Tool>;
 }
 
 export function createWorkspaceEnginePlugin(options: CreateWorkspaceEnginePluginOptions): EnginePlugin {
@@ -130,9 +127,15 @@ export function createWorkspaceEnginePlugin(options: CreateWorkspaceEnginePlugin
     version: pluginVersion,
     async initialize(context) {
       context.registerService('workspaceService', options.service);
-      if (options.tools && Object.keys(options.tools).length > 0) {
-        context.registerTools(options.tools);
-      }
+      const inspectTool = createWorkspaceInspectTool({
+        getWorkspace: () =>
+          resolveCurrentWorkspace({
+            service: options.service,
+            resolver,
+            runContext: options.getRunContext(),
+          }),
+      });
+      context.registerTools({ [inspectTool.name]: inspectTool });
 
       context.registerHook('beforeRun', async ({ systemPrompt, runContext }) => {
         const identity = await resolver({ runContext: options.getRunContext(), engineRunContext: runContext });
