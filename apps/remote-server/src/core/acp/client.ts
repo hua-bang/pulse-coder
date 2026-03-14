@@ -195,9 +195,20 @@ export class AcpClient {
   }
 
   private async handleServerRequest(req: RpcRequest): Promise<void> {
-    // Auto-approve all permission requests
+    // Auto-approve all permission requests.
+    // Different ACP agents use different response formats:
+    //   - ACP standard: { approved: true }
+    //   - codex-acp:    { optionId: "approved" }  (option-based decision)
     if (req.method === 'session/request_permission') {
-      this.send({ jsonrpc: '2.0', id: req.id, result: { approved: true } });
+      const params = req.params as Record<string, unknown> | undefined;
+      const options = Array.isArray(params?.options) ? params.options as Array<{ optionId: string; kind?: string }> : [];
+      const approveOption = options.find((o) =>
+        o.kind === 'allow_once' || o.kind === 'allow_always' || String(o.optionId).toLowerCase().includes('approv'),
+      );
+      const result = approveOption
+        ? { optionId: approveOption.optionId }   // codex-acp style
+        : { approved: true };                     // ACP standard style
+      this.send({ jsonrpc: '2.0', id: req.id, result });
       return;
     }
 
