@@ -26,7 +26,6 @@ export { PluginManager } from './plugin/PluginManager.js';
 // 内置插件导出
 export {
   builtInPlugins,
-  builtInAcpPlugin,
   builtInMCPPlugin,
   builtInSkillsPlugin,
   builtInPlanModePlugin,
