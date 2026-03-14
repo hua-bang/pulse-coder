@@ -87,7 +87,7 @@ export interface PromptResult {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_CMDS: Record<AcpAgent, string> = {
-  claude: 'claude-code-acp',
+  claude: 'claude-agent-acp',
   codex: 'codex-acp',
 };
 
