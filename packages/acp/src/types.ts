@@ -1,4 +1,3 @@
-import type { ToolExecutionContext } from 'pulse-coder-engine';
 
 export type AcpTransport = 'http' | 'stdio' | 'multi';
 
@@ -104,33 +103,3 @@ export interface AcpBridgeStatus extends AcpClientStatus {
   defaultTarget: string;
 }
 
-export interface AcpBridgeService {
-  getStatus(): AcpBridgeStatus;
-  ensureBoundSession(input: EnsureSessionInput): Promise<EnsureSessionResult>;
-  promptWithBoundSession(input: {
-    remoteSessionId: string;
-    prompt: string;
-    target?: string;
-    metadata?: Record<string, unknown>;
-    forceNewSession?: boolean;
-  }): Promise<{
-    binding: AcpSessionBinding;
-    reusedSession: boolean;
-    text: string;
-    finishReason?: string;
-    raw: unknown;
-  }>;
-  cancelBoundSession(input: {
-    remoteSessionId: string;
-    target?: string;
-    reason?: string;
-    dropBinding?: boolean;
-  }): Promise<{
-    found: boolean;
-    canceled: boolean;
-    binding?: AcpSessionBinding;
-    raw?: unknown;
-  }>;
-}
-
-export type AcpToolExecutionContext = ToolExecutionContext | undefined;

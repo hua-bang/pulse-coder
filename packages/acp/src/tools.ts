@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { Tool, ToolExecutionContext } from 'pulse-coder-engine';
+import type { Tool, ToolExecutionContext } from './engine-types.js';
 
 import type { AcpBridgeService } from './client.js';
 

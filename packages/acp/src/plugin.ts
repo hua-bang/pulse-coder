@@ -1,4 +1,4 @@
-import type { EnginePlugin, EnginePluginContext } from 'pulse-coder-engine';
+import type { EnginePlugin, EnginePluginContext } from './engine-types.js';
 
 import {
   ACP_SERVICE_NAME,

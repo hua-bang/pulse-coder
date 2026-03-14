@@ -4,6 +4,7 @@
  */
 
 import { createAcpPlugin } from 'pulse-coder-acp';
+import type { EnginePlugin } from '../plugin/EnginePlugin';
 import { builtInMCPPlugin } from './mcp-plugin';
 import { builtInSkillsPlugin } from './skills-plugin';
 import { builtInPlanModePlugin } from './plan-mode-plugin';
@@ -14,12 +15,12 @@ import { SubAgentPlugin } from './sub-agent-plugin';
 import { builtInAgentTeamsPlugin } from './agent-teams-plugin';
 import { builtInPtcPlugin } from './ptc-plugin';
 
-const acpPluginInstance = createAcpPlugin();
+const acpPluginInstance: EnginePlugin = createAcpPlugin() as EnginePlugin;
 
 /**
  * Default built-in plugins.
  */
-export const builtInPlugins = [
+export const builtInPlugins: EnginePlugin[] = [
   acpPluginInstance,
   builtInMCPPlugin,
   builtInSkillsPlugin,
@@ -36,7 +37,7 @@ export const builtInPlugins = [
  * Export built-in plugins individually.
  */
 export { createAcpPlugin } from 'pulse-coder-acp';
-export const builtInAcpPlugin = acpPluginInstance;
+export const builtInAcpPlugin: EnginePlugin = acpPluginInstance;
 export { builtInMCPPlugin } from './mcp-plugin';
 export { builtInSkillsPlugin, BuiltInSkillRegistry } from './skills-plugin';
 export { builtInPlanModePlugin, BuiltInPlanModeService } from './plan-mode-plugin';
