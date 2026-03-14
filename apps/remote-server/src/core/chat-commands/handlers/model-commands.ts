@@ -1,6 +1,10 @@
 import { clearModelOverride, getModelStatus, writeModelConfig } from '../../model-config.js';
 import type { CommandResult } from '../types.js';
 
+const PROVIDER_KEYS = new Set(['openai', 'anthropic']);
+
+const normalizeProvider = (value: string): string => value.trim().toLowerCase();
+
 export async function handleModelCommand(args: string[]): Promise<CommandResult> {
   const raw = args.join(' ').trim();
   const lowered = raw.toLowerCase();
@@ -24,12 +28,26 @@ export async function handleModelCommand(args: string[]): Promise<CommandResult>
     }
   }
 
-  const model = raw;
+  const parts = raw.split(/\s+/).filter(Boolean);
+  let provider: string | undefined;
+  let model: string | undefined;
+
+  if (parts.length >= 2 && PROVIDER_KEYS.has(normalizeProvider(parts[0]))) {
+    provider = normalizeProvider(parts[0]);
+    model = parts.slice(1).join(' ');
+  } else {
+    model = raw;
+  }
+
   try {
-    const result = await writeModelConfig({ current_model: model });
+    const result = await writeModelConfig({
+      current_model: model,
+      ...(provider ? { current_provider: provider } : {}),
+    });
+    const providerLabel = provider ? ` (${provider})` : '';
     return {
       type: 'handled',
-      message: `✅ 已更新模型为 ${model}\nConfig: ${result.path}`,
+      message: `✅ 已更新模型为 ${model}${providerLabel}\nConfig: ${result.path}`,
     };
   } catch (error) {
     console.error('[model-config] failed to update model config:', error);
@@ -51,15 +69,28 @@ async function renderModelStatus(): Promise<CommandResult> {
     }
 
     const lines = ['🧠 当前模型信息：', `- Config: ${status.path}`];
+    if (status.currentProvider) {
+      lines.push(`- current_provider: ${status.currentProvider}`);
+    } else {
+      lines.push('- current_provider: (未设置)');
+    }
     if (status.currentModel) {
       lines.push(`- current_model: ${status.currentModel}`);
     } else {
       lines.push('- current_model: (未设置)');
     }
+    if (status.resolvedProvider) {
+      lines.push(`- resolved_provider: ${status.resolvedProvider}`);
+    } else {
+      lines.push('- resolved_provider: (未解析到)');
+    }
     if (status.resolvedModel) {
       lines.push(`- resolved_model: ${status.resolvedModel}`);
     } else {
       lines.push('- resolved_model: (未解析到)');
+    }
+    if (status.providers && status.providers.length > 0) {
+      lines.push(`- providers: ${status.providers.join(', ')}`);
     }
     if (status.models && status.models.length > 0) {
       lines.push(`- models: ${status.models.join(', ')}`);

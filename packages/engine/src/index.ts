@@ -66,3 +66,5 @@ export type { LoopOptions, LoopHooks, CompactionEvent } from './core/loop.js';
 export { streamTextAI } from './ai/index.js';
 export { maybeCompactContext } from './context/index.js';
 export * from './tools/index.js';
+export { createProviderFactory, resolveProviderConfig } from './config/index.js';
+export type { ProviderConfig, ProviderType } from './config/index.js';
