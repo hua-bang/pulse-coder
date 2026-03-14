@@ -1,13 +1,17 @@
 import type { CompactionEvent } from 'pulse-coder-engine';
 import type { ClarificationRequest } from './types.js';
 import { engine } from './engine-singleton.js';
-import { getAcpState } from './acp/state.js';
-import { runAcp } from './acp/runner.js';
+import { getAcpState, runAcp } from 'pulse-coder-acp';
 import { sessionStore } from './session-store.js';
 import { memoryIntegration, recordDailyLogFromSuccessPath } from './memory-integration.js';
 import { buildRemoteWorktreeRunContext, worktreeIntegration } from './worktree/integration.js';
 import { buildRemoteWorkspaceRunContext, workspaceIntegration } from './workspace/integration.js';
 import { resolveModelForRun } from './model-config.js';
+const ACP_CLIENT_INFO = {
+  name: 'pulse-remote-server',
+  title: 'Pulse Remote Server',
+  version: '1.0.0',
+};
 
 export type CompactionSnapshot = CompactionEvent;
 
@@ -254,6 +258,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
           sessionId: acpState.sessionId,
           userText: input.userText,
           abortSignal: input.abortSignal,
+          clientInfo: ACP_CLIENT_INFO,
           callbacks: {
             onText: callbacks.onText,
             onToolCall: callbacks.onToolCall,

@@ -1,44 +1,26 @@
-/**
- * ACP Runner — drives a full ACP session/prompt turn and maps
- * streaming session/update notifications to the same callbacks
- * that engine.run() uses, so agent-runner.ts can swap them transparently.
- */
-import {
-  AcpClient,
-  type SessionUpdateNotification,
-  type InitializeResult,
-  type SessionNewResult,
-  type PromptResult,
-  type PermissionRequest,
-  type PermissionOutcome,
-  type PermissionOption,
-} from './client.js';
-import { saveAcpSessionId } from './state.js';
-import type { AcpAgent } from './state.js';
-import type { ClarificationRequest } from '../types.js';
+import type {
+  AcpRunnerInput,
+  AcpRunnerResult,
+  InitializeResult,
+  PermissionOutcome,
+  PermissionOption,
+  PermissionRequest,
+  PromptResult,
+  SessionNewResult,
+  SessionUpdateNotification,
+} from './types.js';
+import { AcpClient } from './client.js';
+import { FileAcpStateStore } from './state-store.js';
 
-export interface AcpRunnerCallbacks {
-  onText?: (delta: string) => void;
-  onToolCall?: (toolCall: unknown) => void;
-  onToolResult?: (toolResult: unknown) => void;
-  onClarificationRequest?: (request: ClarificationRequest) => Promise<string>;
-}
+const DEFAULT_CLIENT_INFO = {
+  name: 'pulse-acp-client',
+  title: 'Pulse ACP Client',
+  version: '1.0.0',
+};
 
-export interface AcpRunnerInput {
-  platformKey: string;
-  agent: AcpAgent;
-  cwd: string;
-  sessionId?: string;
-  userText: string;
-  abortSignal?: AbortSignal;
-  callbacks?: AcpRunnerCallbacks;
-}
-
-export interface AcpRunnerResult {
-  text: string;
-  sessionId: string;
-  stopReason: string;
-}
+const DEFAULT_CLIENT_CAPABILITIES = {
+  fs: { readTextFile: true, writeTextFile: true },
+};
 
 type AcpPermissionMode = 'allow' | 'prompt';
 
@@ -52,7 +34,9 @@ function resolvePermissionMode(): AcpPermissionMode {
 
 export async function runAcp(input: AcpRunnerInput): Promise<AcpRunnerResult> {
   const permissionMode = resolvePermissionMode();
+  const stateStore = input.stateStore ?? new FileAcpStateStore();
   const client = new AcpClient(input.agent, input.cwd, {
+    commandOverrides: input.commandOverrides,
     onPermissionRequest: async (request) => {
       const options = request.options;
       if (permissionMode !== 'prompt' || !input.callbacks?.onClarificationRequest) {
@@ -74,22 +58,19 @@ export async function runAcp(input: AcpRunnerInput): Promise<AcpRunnerResult> {
   });
 
   try {
-    // 1. Handshake — declare fs capabilities so agents can read/write files via us
+    const clientInfo = input.clientInfo ?? DEFAULT_CLIENT_INFO;
+    const clientCapabilities = input.clientCapabilities ?? DEFAULT_CLIENT_CAPABILITIES;
     const initResult = await client.call<InitializeResult>('initialize', {
       protocolVersion: 1,
-      clientCapabilities: {
-        fs: { readTextFile: true, writeTextFile: true },
-      },
-      clientInfo: { name: 'pulse-remote-server', title: 'Pulse Remote Server', version: '1.0.0' },
+      clientCapabilities,
+      clientInfo,
     });
 
-    // 2. Session — resume if we have a saved sessionId and the agent supports it
     let sessionId = input.sessionId;
     const supportsLoad = initResult.agentCapabilities?.loadSession === true;
 
     if (sessionId && supportsLoad) {
       try {
-        // session/load replays history via session/update notifications (we ignore them)
         await client.call('session/load', {
           sessionId,
           cwd: input.cwd,
@@ -109,12 +90,10 @@ export async function runAcp(input: AcpRunnerInput): Promise<AcpRunnerResult> {
       sessionId = newSession.sessionId;
     }
 
-    // 3. Subscribe to session/update notifications
     const textChunks: string[] = [];
     const unsub = client.onNotification((method, params) => {
       if (method !== 'session/update') return;
 
-      // Log raw notification to help diagnose field mapping issues
       if (process.env.ACP_DEBUG === '1' || process.env.ACP_DEBUG === 'true') {
         console.error('[acp/runner] session/update raw:', JSON.stringify(params));
       }
@@ -146,18 +125,15 @@ export async function runAcp(input: AcpRunnerInput): Promise<AcpRunnerResult> {
           break;
         }
         case 'plan':
-          // plan updates are informational — no callback needed for now
           break;
       }
     });
 
-    // 4. Abort wiring
     const abortHandler = () => {
       client.call('session/cancel', { sessionId }).catch(() => {});
     };
     input.abortSignal?.addEventListener('abort', abortHandler);
 
-    // 5. Prompt turn
     let promptResult: PromptResult;
     try {
       promptResult = await client.call<PromptResult>('session/prompt', {
@@ -169,8 +145,7 @@ export async function runAcp(input: AcpRunnerInput): Promise<AcpRunnerResult> {
       unsub();
     }
 
-    // 6. Persist new sessionId for next turn resume
-    await saveAcpSessionId(input.platformKey, sessionId);
+    await stateStore.saveSessionId(input.platformKey, sessionId);
 
     return {
       text: textChunks.join(''),
@@ -182,7 +157,7 @@ export async function runAcp(input: AcpRunnerInput): Promise<AcpRunnerResult> {
   }
 }
 
-function buildPermissionClarification(request: PermissionRequest): ClarificationRequest {
+function buildPermissionClarification(request: PermissionRequest) {
   const lines: string[] = [];
   const toolLabel = extractToolLabel(request.toolCall);
   if (toolLabel) {
@@ -213,7 +188,7 @@ function extractToolLabel(toolCall?: Record<string, unknown>): string | null {
   if (!toolCall) return null;
   const name = readString(toolCall, 'name') ?? readString(toolCall, 'tool') ?? readString(toolCall, 'toolName');
   if (!name) return null;
-  const args = toolCall.args ?? toolCall.input;
+  const args = (toolCall as { args?: unknown; input?: unknown }).args ?? (toolCall as { input?: unknown }).input;
   if (args === undefined || args === null) {
     return name;
   }
@@ -315,7 +290,9 @@ function resolveToolName(update: SessionUpdateNotification['update']): string {
 
 function extractToolArgs(update: SessionUpdateNotification['update']): unknown | undefined {
   const record = update as Record<string, unknown>;
-  const direct = record.toolInput ?? record.input ?? record.args;
+  const direct = (record as { toolInput?: unknown; input?: unknown; args?: unknown }).toolInput
+    ?? (record as { input?: unknown }).input
+    ?? (record as { args?: unknown }).args;
   if (direct !== undefined) {
     return direct;
   }
@@ -327,12 +304,16 @@ function extractToolArgs(update: SessionUpdateNotification['update']): unknown |
 
   const payloadEntry = entries.find((entry) => isRecord(entry) && hasAnyKey(entry, ['toolInput', 'input', 'args']));
   if (payloadEntry && isRecord(payloadEntry)) {
-    return payloadEntry.toolInput ?? payloadEntry.input ?? payloadEntry.args;
+    return (payloadEntry as { toolInput?: unknown; input?: unknown; args?: unknown }).toolInput
+      ?? (payloadEntry as { input?: unknown }).input
+      ?? (payloadEntry as { args?: unknown }).args;
   }
 
   if (entries.length === 1 && isRecord(entries[0])) {
     const single = entries[0] as Record<string, unknown>;
-    const directEntry = single.toolInput ?? single.input ?? single.args;
+    const directEntry = (single as { toolInput?: unknown; input?: unknown; args?: unknown }).toolInput
+      ?? (single as { input?: unknown }).input
+      ?? (single as { args?: unknown }).args;
     if (directEntry !== undefined) {
       return directEntry;
     }

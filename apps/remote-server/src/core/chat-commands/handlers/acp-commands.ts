@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import { resolve as resolvePath } from 'path';
-import { getAcpState, setAcpState, clearAcpState, updateAcpCwd } from '../../acp/state.js';
-import type { AcpAgent } from '../../acp/state.js';
+import { getAcpState, setAcpState, clearAcpState, updateAcpCwd } from 'pulse-coder-acp';
+import type { AcpAgent } from 'pulse-coder-acp';
 import type { CommandResult } from '../types.js';
 
 const VALID_AGENTS: AcpAgent[] = ['claude', 'codex'];

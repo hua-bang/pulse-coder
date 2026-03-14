@@ -1,26 +1,18 @@
-/**
- * Minimal JSON-RPC 2.0 over stdio client for ACP (Agent Client Protocol).
- *
- * Protocol reference: https://agentclientprotocol.com
- *
- * Transport: newline-delimited JSON over stdin/stdout.
- * The server may send:
- *   - Responses     { jsonrpc, id, result }  or  { jsonrpc, id, error }
- *   - Notifications { jsonrpc, method, params }               (no id)
- *   - Requests      { jsonrpc, id, method, params }           (server→client, e.g. session/request_permission, fs/*)
- */
 import { spawn, type ChildProcess } from 'child_process';
 import { createInterface } from 'readline';
 import { randomUUID } from 'crypto';
 import { promises as fsPromises } from 'fs';
 import * as nodePath from 'path';
-import type { AcpAgent } from './state.js';
+import type {
+  AcpAgent,
+  AcpClientOptions,
+  PermissionOutcome,
+  PermissionRequest,
+  PermissionRequestHandler,
+  PermissionOption,
+} from './types.js';
 
 const ACP_DEBUG = process.env.ACP_DEBUG === '1' || process.env.ACP_DEBUG === 'true';
-
-// ---------------------------------------------------------------------------
-// JSON-RPC types
-// ---------------------------------------------------------------------------
 
 interface RpcRequest {
   jsonrpc: '2.0';
@@ -50,80 +42,18 @@ interface RpcError {
 type RpcResponse = RpcSuccess | RpcError;
 type RpcIncoming = RpcResponse | RpcNotification | RpcRequest;
 
-// ---------------------------------------------------------------------------
-// ACP-specific types
-// ---------------------------------------------------------------------------
-
-export interface SessionUpdateNotification {
-  sessionId: string;
-  update: {
-    sessionUpdate: 'plan' | 'agent_message_chunk' | 'tool_call' | 'tool_call_update';
-    /** text chunk (agent_message_chunk) */
-    content?: { type: string; text: string };
-    /** tool call info */
-    toolCallId?: string;
-    title?: string;
-    kind?: string;
-    status?: 'pending' | 'in_progress' | 'completed' | 'cancelled';
-    entries?: unknown[];
-  };
-}
-
-export interface InitializeResult {
-  protocolVersion: number;
-  agentCapabilities: {
-    loadSession?: boolean;
-    [key: string]: unknown;
-  };
-  agentInfo: { name: string; title?: string; version?: string };
-}
-
-export interface SessionNewResult {
-  sessionId: string;
-}
-
-export interface PromptResult {
-  stopReason: 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' | 'cancelled';
-}
-
-export interface PermissionOption {
-  optionId: string;
-  kind?: string;
-  name?: string;
-  description?: string;
-  [key: string]: unknown;
-}
-
-export interface PermissionRequest {
-  sessionId?: string;
-  toolCall?: Record<string, unknown>;
-  options: PermissionOption[];
-  rawParams: Record<string, unknown>;
-}
-
-export type PermissionOutcome =
-  | { outcome: 'selected'; optionId: string }
-  | { outcome: 'cancelled' };
-
-export type PermissionRequestHandler = (request: PermissionRequest) => Promise<PermissionOutcome | null>;
-
-// ---------------------------------------------------------------------------
-// Spawn command resolution
-// ---------------------------------------------------------------------------
-
 const DEFAULT_CMDS: Record<AcpAgent, string> = {
   claude: 'claude-agent-acp',
-  codex: 'codex-acp',   // @zed-industries/codex-acp installs as 'codex-acp'
+  codex: 'codex-acp',
 };
 
-function resolveCmd(agent: AcpAgent): string {
+function resolveCmd(agent: AcpAgent, overrides?: Partial<Record<AcpAgent, string>>): string {
+  if (overrides?.[agent]) {
+    return overrides[agent]!.trim();
+  }
   const envKey = agent === 'claude' ? 'ACP_CLAUDE_CODE_CMD' : 'ACP_CODEX_CMD';
   return process.env[envKey]?.trim() || DEFAULT_CMDS[agent];
 }
-
-// ---------------------------------------------------------------------------
-// AcpClient
-// ---------------------------------------------------------------------------
 
 type PendingEntry = { resolve: (v: unknown) => void; reject: (e: unknown) => void };
 type NotificationHandler = (method: string, params: unknown) => void;
@@ -137,12 +67,12 @@ export class AcpClient {
   private agent: AcpAgent;
   private permissionHandler?: PermissionRequestHandler;
 
-  constructor(agent: AcpAgent, cwd: string, options?: { onPermissionRequest?: PermissionRequestHandler }) {
+  constructor(agent: AcpAgent, cwd: string, options?: AcpClientOptions) {
     this.agent = agent;
     this.cwd = cwd;
     this.permissionHandler = options?.onPermissionRequest;
 
-    const cmd = resolveCmd(agent);
+    const cmd = resolveCmd(agent, options?.commandOverrides);
     const [bin, ...args] = cmd.split(/\s+/);
     this.proc = spawn(bin!, args, {
       cwd,
@@ -150,12 +80,10 @@ export class AcpClient {
       env: process.env,
     });
 
-    // read stderr for debug logging
     this.proc.stderr?.on('data', (chunk: Buffer) => {
       console.error(`[acp/${agent}] ${chunk.toString().trim()}`);
     });
 
-    // line-buffered stdout parsing
     const rl = createInterface({ input: this.proc.stdout! });
     rl.on('line', (line) => {
       const trimmed = line.trim();
@@ -181,12 +109,7 @@ export class AcpClient {
     });
   }
 
-  // -------------------------------------------------------------------------
-  // Internal dispatch
-  // -------------------------------------------------------------------------
-
   private dispatch(msg: RpcIncoming): void {
-    // Server-to-client requests (have both id and method)
     if ('id' in msg && 'method' in msg) {
       this.handleServerRequest(msg as RpcRequest).catch((err) => {
         console.error(`[acp/${this.agent}] handleServerRequest error:`, err);
@@ -194,7 +117,6 @@ export class AcpClient {
       return;
     }
 
-    // Responses (have id, no method)
     if ('id' in msg && !('method' in msg)) {
       const entry = this.pending.get((msg as RpcResponse).id);
       if (!entry) return;
@@ -208,7 +130,6 @@ export class AcpClient {
       return;
     }
 
-    // Notifications (have method, no id)
     if ('method' in msg && !('id' in msg)) {
       const notif = msg as RpcNotification;
       for (const handler of this.notificationHandlers) {
@@ -218,8 +139,6 @@ export class AcpClient {
   }
 
   private async handleServerRequest(req: RpcRequest): Promise<void> {
-    // ACP spec response (Requesting Permission):
-    //   { result: { outcome: { outcome: "selected", optionId } } }
     if (req.method === 'session/request_permission') {
       const params = (req.params ?? {}) as Record<string, unknown>;
       const options = normalizePermissionOptions(params.options);
@@ -232,7 +151,7 @@ export class AcpClient {
             toolCall: isRecord(params.toolCall) ? params.toolCall : undefined,
             options,
             rawParams: params,
-          });
+          } as PermissionRequest);
         } catch (err) {
           console.error(`[acp/${this.agent}] permission handler failed:`, err);
         }
@@ -243,7 +162,6 @@ export class AcpClient {
       return;
     }
 
-    // File system capabilities — agents use these to read/write files on the client
     if (req.method === 'fs/read_text_file') {
       const params = req.params as { path: string };
       try {
@@ -273,7 +191,6 @@ export class AcpClient {
       return;
     }
 
-    // Unknown server request → method-not-found
     console.warn(`[acp/${this.agent}] unhandled server request: ${req.method}`);
     this.send({
       jsonrpc: '2.0',
@@ -281,10 +198,6 @@ export class AcpClient {
       error: { code: -32601, message: `Method not found: ${req.method}` },
     });
   }
-
-  // -------------------------------------------------------------------------
-  // Public API
-  // -------------------------------------------------------------------------
 
   async call<T>(method: string, params?: unknown): Promise<T> {
     if (this.closed) throw new Error('ACP client is closed');
@@ -294,7 +207,11 @@ export class AcpClient {
     }
     this.send({ jsonrpc: '2.0', id, method, params });
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const entry: PendingEntry = {
+        resolve: (value) => resolve(value as T),
+        reject,
+      };
+      this.pending.set(id, entry);
     }) as Promise<T>;
   }
 

@@ -19,6 +19,7 @@
     "@larksuiteoapi/node-sdk": "^1.59.0",
     "dotenv": "^16.4.7",
     "hono": "^4.6.0",
+    "pulse-coder-acp": "workspace:*",
     "pulse-coder-engine": "workspace:*",
     "pulse-coder-memory-plugin": "workspace:*",
     "pulse-coder-plugin-kit": "workspace:*",

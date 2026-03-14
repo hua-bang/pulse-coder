@@ -24,7 +24,7 @@ import { handleInsightCommand } from './chat-commands/handlers/insight-commands.
 import { handleSkillsCommand } from './chat-commands/handlers/skills-commands.js';
 import { handleSoulCommand } from './chat-commands/handlers/soul-commands.js';
 import { handleAcpCommand } from './chat-commands/handlers/acp-commands.js';
-import { getAcpState } from './acp/state.js';
+import { getAcpState } from 'pulse-coder-acp';
 import { getActiveRun } from './active-run-store.js';
 
 /**
