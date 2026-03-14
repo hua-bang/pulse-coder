@@ -86,6 +86,27 @@ export interface PromptResult {
   stopReason: 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' | 'cancelled';
 }
 
+export interface PermissionOption {
+  optionId: string;
+  kind?: string;
+  name?: string;
+  description?: string;
+  [key: string]: unknown;
+}
+
+export interface PermissionRequest {
+  sessionId?: string;
+  toolCall?: Record<string, unknown>;
+  options: PermissionOption[];
+  rawParams: Record<string, unknown>;
+}
+
+export type PermissionOutcome =
+  | { outcome: 'selected'; optionId: string }
+  | { outcome: 'cancelled' };
+
+export type PermissionRequestHandler = (request: PermissionRequest) => Promise<PermissionOutcome | null>;
+
 // ---------------------------------------------------------------------------
 // Spawn command resolution
 // ---------------------------------------------------------------------------
@@ -114,10 +135,12 @@ export class AcpClient {
   private closed = false;
   private cwd: string;
   private agent: AcpAgent;
+  private permissionHandler?: PermissionRequestHandler;
 
-  constructor(agent: AcpAgent, cwd: string) {
+  constructor(agent: AcpAgent, cwd: string, options?: { onPermissionRequest?: PermissionRequestHandler }) {
     this.agent = agent;
     this.cwd = cwd;
+    this.permissionHandler = options?.onPermissionRequest;
 
     const cmd = resolveCmd(agent);
     const [bin, ...args] = cmd.split(/\s+/);
@@ -195,20 +218,28 @@ export class AcpClient {
   }
 
   private async handleServerRequest(req: RpcRequest): Promise<void> {
-    // Auto-approve all permission requests.
     // ACP spec response (Requesting Permission):
     //   { result: { outcome: { outcome: "selected", optionId } } }
     if (req.method === 'session/request_permission') {
-      const params = req.params as Record<string, unknown> | undefined;
-      const options = Array.isArray(params?.options) ? params.options as Array<{ optionId: string; kind?: string }> : [];
-      const approveOption = options.find((o) =>
-        o.kind === 'allow_once' || o.kind === 'allow_always' || String(o.optionId).toLowerCase().includes('approv'),
-      );
-      const selectedOption = approveOption ?? options[0];
-      const result = selectedOption
-        ? { outcome: { outcome: 'selected', optionId: selectedOption.optionId } }
-        : { outcome: { outcome: 'cancelled' } };
-      this.send({ jsonrpc: '2.0', id: req.id, result });
+      const params = (req.params ?? {}) as Record<string, unknown>;
+      const options = normalizePermissionOptions(params.options);
+
+      let outcome: PermissionOutcome | null = null;
+      if (this.permissionHandler) {
+        try {
+          outcome = await this.permissionHandler({
+            sessionId: typeof params.sessionId === 'string' ? params.sessionId : undefined,
+            toolCall: isRecord(params.toolCall) ? params.toolCall : undefined,
+            options,
+            rawParams: params,
+          });
+        } catch (err) {
+          console.error(`[acp/${this.agent}] permission handler failed:`, err);
+        }
+      }
+
+      const resolvedOutcome = outcome ?? chooseAutoPermissionOutcome(options);
+      this.send({ jsonrpc: '2.0', id: req.id, result: { outcome: resolvedOutcome } });
       return;
     }
 
@@ -259,18 +290,14 @@ export class AcpClient {
     if (this.closed) throw new Error('ACP client is closed');
     const id = randomUUID();
     if (ACP_DEBUG) {
-      console.error(`[acp/${this.agent}] → ${JSON.stringify({ method, params })}`);
+      console.error(`[acp/${this.agent}] → ${JSON.stringify({ jsonrpc: '2.0', id, method, params })}`);
     }
-    return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, {
-        resolve: (v) => resolve(v as T),
-        reject,
-      });
-      this.send({ jsonrpc: '2.0', id, method, params });
-    });
+    this.send({ jsonrpc: '2.0', id, method, params });
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+    }) as Promise<T>;
   }
 
-  /** Register a handler for incoming notifications. Returns an unsubscribe fn. */
   onNotification(handler: NotificationHandler): () => void {
     this.notificationHandlers.push(handler);
     return () => {
@@ -279,21 +306,49 @@ export class AcpClient {
   }
 
   kill(): void {
-    if (!this.closed) {
-      this.proc.kill();
-    }
+    if (this.closed) return;
+    this.closed = true;
+    this.proc.kill();
   }
 
   private send(msg: unknown): void {
     if (this.closed) return;
-    this.proc.stdin?.write(JSON.stringify(msg) + '\n');
+    const payload = JSON.stringify(msg);
+    if (ACP_DEBUG) {
+      console.error(`[acp/${this.agent}] → ${payload}`);
+    }
+    this.proc.stdin?.write(`${payload}\n`);
   }
 }
 
-// ---------------------------------------------------------------------------
-// Factory helper
-// ---------------------------------------------------------------------------
+function normalizePermissionOptions(raw: unknown): PermissionOption[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (!isRecord(item) || !item.optionId) return null;
+      return {
+        optionId: String(item.optionId),
+        kind: typeof item.kind === 'string' ? item.kind : undefined,
+        name: typeof item.name === 'string' ? item.name : undefined,
+        description: typeof item.description === 'string' ? item.description : undefined,
+        ...item,
+      } as PermissionOption;
+    })
+    .filter((item): item is PermissionOption => Boolean(item));
+}
 
-export function createAcpClient(agent: AcpAgent, cwd: string): AcpClient {
-  return new AcpClient(agent, cwd);
+function chooseAutoPermissionOutcome(options: PermissionOption[]): PermissionOutcome {
+  const approveOption = options.find((option) => {
+    const kind = option.kind?.toLowerCase() ?? '';
+    const optionId = option.optionId.toLowerCase();
+    return kind === 'allow_once' || kind === 'allow_always' || optionId.includes('approv');
+  });
+  const selectedOption = approveOption ?? options[0];
+  return selectedOption
+    ? { outcome: 'selected', optionId: selectedOption.optionId }
+    : { outcome: 'cancelled' };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }

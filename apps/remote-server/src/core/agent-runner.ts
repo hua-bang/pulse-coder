@@ -1,5 +1,5 @@
-import type { ClarificationRequest } from './types.js';
 import type { CompactionEvent } from 'pulse-coder-engine';
+import type { ClarificationRequest } from './types.js';
 import { engine } from './engine-singleton.js';
 import { getAcpState } from './acp/state.js';
 import { runAcp } from './acp/runner.js';
@@ -258,6 +258,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
             onText: callbacks.onText,
             onToolCall: callbacks.onToolCall,
             onToolResult: callbacks.onToolResult,
+            onClarificationRequest: callbacks.onClarificationRequest,
           },
         });
         return result.text;
