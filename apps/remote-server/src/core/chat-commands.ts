@@ -125,7 +125,7 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
       return await handleSoulCommand(incoming.platformKey, args);
 
     case 'acp':
-      return handleAcpCommand(args);
+      return await handleAcpCommand(incoming.platformKey, args);
 
     default:
       return {

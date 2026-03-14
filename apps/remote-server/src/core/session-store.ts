@@ -14,6 +14,7 @@ interface RemoteSession {
   createdAt: number;
   updatedAt: number;
   messages: unknown[]; // Stored as-is; cast to Context['messages'] on load
+  acpModeEnabled?: boolean;
 }
 
 export interface RemoteSessionSummary {
@@ -183,6 +184,23 @@ class RemoteSessionStore {
   async createNewSession(platformKey: string, ownerKey?: string): Promise<string> {
     const result = await this.getOrCreate(platformKey, true, ownerKey);
     return result.sessionId;
+  }
+
+  async setAcpMode(sessionId: string, enabled: boolean): Promise<boolean> {
+    const session = await this.readSession(sessionId);
+    if (!session) {
+      return false;
+    }
+
+    session.acpModeEnabled = enabled;
+    session.updatedAt = Date.now();
+    await this.writeSession(session);
+    return true;
+  }
+
+  async isAcpModeEnabled(sessionId: string): Promise<boolean> {
+    const session = await this.readSession(sessionId);
+    return Boolean(session?.acpModeEnabled);
   }
 
 

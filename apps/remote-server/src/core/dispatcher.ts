@@ -5,6 +5,7 @@ import { clarificationQueue } from './clarification-queue.js';
 import { processIncomingCommand } from './chat-commands.js';
 import type { CommandResult } from './chat-commands/types.js';
 import { executeAgentTurn, formatCompactionEvents } from './agent-runner.js';
+import { sessionStore } from './session-store.js';
 import {
   hasActiveRun,
   setActiveRun,
@@ -62,6 +63,17 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
   const { platformKey, forceNewSession } = incoming;
   const memoryKey = incoming.memoryKey ?? platformKey;
   let text = incoming.text;
+
+  if (!text.trim().startsWith('/')) {
+    const sessionId = sessionStore.getCurrentSessionId(platformKey);
+    if (sessionId) {
+      const acpModeEnabled = await sessionStore.isAcpModeEnabled(sessionId);
+      if (acpModeEnabled) {
+        const sanitized = text.replace(/\s+/g, ' ').trim();
+        text = `Use acp_prompt with prompt=${sanitized}`;
+      }
+    }
+  }
 
   // Start streaming feedback early for long-running slash commands (for better UX on Feishu/Telegram)
   let commandHandle: StreamHandle | null = null;

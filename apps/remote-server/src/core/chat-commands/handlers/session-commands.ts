@@ -15,6 +15,7 @@ import {
 import { getSoulService } from '../services.js';
 export async function handleNewCommand(platformKey: string, memoryKey: string): Promise<CommandResult> {
   const sessionId = await sessionStore.createNewSession(platformKey, memoryKey);
+  await sessionStore.setAcpMode(sessionId, false);
   return {
     type: 'handled',
     message: `✅ 已创建新会话\nSession ID: ${sessionId}`,
@@ -29,6 +30,8 @@ export async function handleClearCommand(platformKey: string, memoryKey: string)
       message: `🧹 当前无可清空会话，已新建会话\nSession ID: ${result.sessionId}`,
     };
   }
+
+  await sessionStore.setAcpMode(result.sessionId, false);
 
   const soulService = getSoulService();
   if (soulService) {
@@ -91,14 +94,16 @@ export async function handleResumeCommand(platformKey: string, args: string[]): 
     };
   }
 
+  const acpModeEnabled = await sessionStore.isAcpModeEnabled(sessionId);
+
   const soulService = getSoulService();
   const soulState = soulService ? await soulService.getState(sessionId) : undefined;
 
   return {
     type: 'handled',
     message: soulState?.activeSoulIds?.length
-      ? `✅ 已恢复会话：${sessionId}\n🎭 已加载 soul：${soulState.activeSoulIds.join(', ')}`
-      : `✅ 已恢复会话：${sessionId}`,
+      ? `✅ 已恢复会话：${sessionId}\n🎭 已加载 soul：${soulState.activeSoulIds.join(', ')}\n🤖 ACP 模式：${acpModeEnabled ? 'on' : 'off'}`
+      : `✅ 已恢复会话：${sessionId}\n🤖 ACP 模式：${acpModeEnabled ? 'on' : 'off'}`,
   };
 }
 
@@ -119,6 +124,8 @@ export async function handleForkCommand(platformKey: string, memoryKey: string, 
     };
   }
 
+  const acpModeEnabled = await sessionStore.isAcpModeEnabled(result.sessionId);
+
   const soulService = getSoulService();
   if (soulService) {
     await soulService.cloneState(sourceSessionId, result.sessionId);
@@ -131,6 +138,7 @@ export async function handleForkCommand(platformKey: string, memoryKey: string, 
       `- Source Session ID: ${result.sourceSessionId ?? sourceSessionId}`,
       `- New Session ID: ${result.sessionId}`,
       `- 复制消息数：${result.messageCount ?? 0}`,
+      `- ACP 模式：${acpModeEnabled ? 'on' : 'off'}`,
       '- 当前已自动切换到新会话。',
     ].join('\n'),
   };
