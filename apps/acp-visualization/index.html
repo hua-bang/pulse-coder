@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ACP - Agent Client Protocol 可视化解析</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d2e;
+      --surface2: #232640;
+      --accent: #7c6af7;
+      --accent2: #50d9c8;
+      --accent3: #f7a94e;
+      --text: #e2e4f0;
+      --muted: #8890b0;
+      --border: #2d3155;
+      --tag-bg: #2a2d4a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    /* Hero */
+    .hero {
+      background: linear-gradient(135deg, #1a1d2e 0%, #0f1117 60%, #1a0d2e 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 60px 40px 50px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -80px; left: 50%;
+      transform: translateX(-50%);
+      width: 600px; height: 300px;
+      background: radial-gradient(ellipse, rgba(124,106,247,0.15) 0%, transparent 70%);
+    }
+    .hero h1 {
+      font-size: 2.6rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #a89cf7, #50d9c8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 12px;
+    }
+    .hero .subtitle {
+      font-size: 1.1rem;
+      color: var(--muted);
+      max-width: 640px;
+      margin: 0 auto 24px;
+    }
+    .hero .tags {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .tag {
+      background: var(--tag-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 0.8rem;
+      color: var(--accent2);
+    }
+
+    /* Nav */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(15,17,23,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 40px;
+      display: flex;
+      gap: 0;
+      overflow-x: auto;
+    }
+    .nav a {
+      color: var(--muted);
+      text-decoration: none;
+      padding: 14px 18px;
+      font-size: 0.875rem;
+      white-space: nowrap;
+      border-bottom: 2px solid transparent;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .nav a:hover { color: var(--text); border-bottom-color: var(--accent); }
+
+    /* Layout */
+    .content { max-width: 1100px; margin: 0 auto; padding: 40px 24px 80px; }
+
+    section {
+      margin-bottom: 60px;
+      scroll-margin-top: 60px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 28px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .section-icon {
+      width: 36px; height: 36px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      background: var(--surface2);
+    }
+    .section-header h2 {
+      font-size: 1.35rem;
+      font-weight: 600;
+    }
+
+    /* Cards */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .card:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+    .card-icon { font-size: 1.8rem; margin-bottom: 10px; }
+    .card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 6px; }
+    .card p { font-size: 0.875rem; color: var(--muted); }
+
+    /* Diagram container */
+    .diagram-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      overflow-x: auto;
+    }
+    .diagram-box .mermaid {
+      display: flex;
+      justify-content: center;
+    }
+
+    /* Comparison Table */
+    .compare-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+    .compare-table th {
+      background: var(--surface2);
+      padding: 12px 16px;
+      text-align: left;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      color: var(--accent2);
+    }
+    .compare-table td {
+      padding: 11px 16px;
+      border: 1px solid var(--border);
+      vertical-align: top;
+    }
+    .compare-table tr:nth-child(even) td { background: var(--surface); }
+    .compare-table tr:nth-child(odd) td { background: rgba(26,29,46,0.5); }
+
+    /* Message type list */
+    .msg-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 12px;
+    }
+    .msg-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .msg-badge {
+      font-family: monospace;
+      font-size: 0.78rem;
+      padding: 3px 8px;
+      border-radius: 4px;
+      white-space: nowrap;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .badge-c2a { background: rgba(124,106,247,0.2); color: #a89cf7; border: 1px solid rgba(124,106,247,0.3); }
+    .badge-a2c { background: rgba(80,217,200,0.15); color: var(--accent2); border: 1px solid rgba(80,217,200,0.3); }
+    .badge-opt { background: rgba(247,169,78,0.15); color: var(--accent3); border: 1px solid rgba(247,169,78,0.3); }
+    .msg-info h4 { font-size: 0.9rem; font-weight: 600; margin-bottom: 3px; }
+    .msg-info p { font-size: 0.8rem; color: var(--muted); }
+
+    /* Stop reason pills */
+    .pill-group { display: flex; gap: 10px; flex-wrap: wrap; }
+    .pill {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 0.83rem;
+      font-family: monospace;
+    }
+    .pill.green { color: #6fdd9a; border-color: rgba(111,221,154,0.3); background: rgba(111,221,154,0.08); }
+    .pill.yellow { color: var(--accent3); border-color: rgba(247,169,78,0.3); background: rgba(247,169,78,0.08); }
+    .pill.red { color: #f77474; border-color: rgba(247,116,116,0.3); background: rgba(247,116,116,0.08); }
+    .pill.blue { color: #74b4f7; border-color: rgba(116,180,247,0.3); background: rgba(116,180,247,0.08); }
+
+    /* SDK grid */
+    .sdk-grid {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .sdk-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 20px;
+      text-align: center;
+      min-width: 110px;
+    }
+    .sdk-card .lang { font-size: 1.5rem; margin-bottom: 6px; }
+    .sdk-card .name { font-size: 0.85rem; font-weight: 500; }
+
+    /* RFD grid */
+    .rfd-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 10px;
+    }
+    .rfd-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 0.83rem;
+    }
+    .rfd-item .rfd-tag {
+      color: var(--accent3);
+      font-family: monospace;
+      font-size: 0.75rem;
+      margin-bottom: 4px;
+    }
+    .rfd-item .rfd-name { color: var(--text); font-weight: 500; }
+
+    /* Two-col */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 700px) {
+      .two-col { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 1.8rem; }
+    }
+
+    .highlight-box {
+      background: linear-gradient(135deg, rgba(124,106,247,0.08), rgba(80,217,200,0.08));
+      border: 1px solid rgba(124,106,247,0.25);
+      border-radius: 10px;
+      padding: 18px 20px;
+      margin-bottom: 16px;
+    }
+    .highlight-box h4 { color: var(--accent2); margin-bottom: 6px; font-size: 0.95rem; }
+    .highlight-box p { font-size: 0.875rem; color: var(--muted); }
+
+    footer {
+      text-align: center;
+      padding: 30px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    footer a { color: var(--accent2); text-decoration: none; }
+  </style>
+</head>
+<body>
+
+<!-- Hero -->
+<div class="hero">
+  <h1>Agent Client Protocol</h1>
+  <p class="subtitle">
+    ACP 是 AI 编码 Agent 与代码编辑器之间的标准通信协议，如同编程语言领域的 LSP，打破 Agent-Editor 生态碎片化。
+  </p>
+  <div class="tags">
+    <span class="tag">JSON-RPC 2.0</span>
+    <span class="tag">stdio / HTTP / WebSocket</span>
+    <span class="tag">MCP 兼容</span>
+    <span class="tag">多语言 SDK</span>
+    <span class="tag">开源治理</span>
+  </div>
+</div>
+
+<!-- Nav -->
+<nav class="nav">
+  <a href="#motivation">动机与定位</a>
+  <a href="#architecture">整体架构</a>
+  <a href="#lifecycle">会话生命周期</a>
+  <a href="#prompt-turn">Prompt Turn</a>
+  <a href="#messages">消息类型</a>
+  <a href="#transport">传输层</a>
+  <a href="#mcp">MCP 集成</a>
+  <a href="#sdks">SDK</a>
+  <a href="#rfds">RFD 路线图</a>
+</nav>
+
+<div class="content">
+
+  <!-- 1. 动机 -->
+  <section id="motivation">
+    <div class="section-header">
+      <div class="section-icon">💡</div>
+      <h2>动机与定位：为什么需要 ACP？</h2>
+    </div>
+    <div class="card-grid">
+      <div class="card">
+        <div class="card-icon">🔗</div>
+        <h3>现有痛点</h3>
+        <p>每个 Editor 都需要为每个 Agent 写定制集成，每个 Agent 也要适配每个 Editor——M×N 的组合爆炸。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🌐</div>
+        <h3>ACP 的目标</h3>
+        <p>定义标准接口，Agent 与 Editor 只需各实现一次，即可与整个生态互操作，类比 LSP 解决了语言服务器的问题。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🎯</div>
+        <h3>核心假设</h3>
+        <p>用户主要在编辑器中工作，Agent 是辅助工具。协议以编辑器为中心，Agent 以子进程或远程服务形式接入。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🔓</div>
+        <h3>开放生态</h3>
+        <p>双方可在协议框架内独立创新，用户自由选择最佳工具组合，避免厂商锁定。</p>
+      </div>
+    </div>
+    <br/>
+    <div class="diagram-box">
+      <div class="mermaid">
+graph LR
+    subgraph 没有ACP["❌ 没有 ACP（M×N 集成）"]
+        E1[Editor A] --> A1[Agent 1]
+        E1 --> A2[Agent 2]
+        E1 --> A3[Agent 3]
+        E2[Editor B] --> A1
+        E2 --> A2
+        E2 --> A3
+        E3[Editor C] --> A1
+        E3 --> A2
+        E3 --> A3
+    end
+    subgraph 有ACP["✅ 有 ACP（M+N 集成）"]
+        EA[Editor A] --> ACP_PROTO[ACP 标准协议]
+        EB[Editor B] --> ACP_PROTO
+        EC[Editor C] --> ACP_PROTO
+        ACP_PROTO --> AA[Agent 1]
+        ACP_PROTO --> AB[Agent 2]
+        ACP_PROTO --> AC[Agent 3]
+    end
+
+    style ACP_PROTO fill:#7c6af7,color:#fff,stroke:#a89cf7
+    style 有ACP fill:#1a1d2e,stroke:#2d3155,color:#e2e4f0
+    style 没有ACP fill:#1a1d2e,stroke:#2d3155,color:#e2e4f0
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. 架构 -->
+  <section id="architecture">
+    <div class="section-header">
+      <div class="section-icon">🏗️</div>
+      <h2>整体架构</h2>
+    </div>
+    <div class="highlight-box">
+      <h4>三大设计原则</h4>
+      <p><strong style="color:#a89cf7">MCP-friendly</strong> · 基于 JSON-RPC，复用 MCP 类型，避免重复定义 &nbsp;|&nbsp; <strong style="color:#50d9c8">UX-first</strong> · 平衡 Agent 意图可见性与必要抽象 &nbsp;|&nbsp; <strong style="color:#f7a94e">Trusted</strong> · 在编辑器可信环境内运行，用户保留工具执行控制权</p>
+    </div>
+    <div class="diagram-box">
+      <div class="mermaid">
+graph TB
+    subgraph Client["🖥️ Client（IDE / Code Editor）"]
+        UI[用户界面 / UI]
+        FS[文件系统操作]
+        TERM[终端管理]
+        MCP_PROXY[MCP 代理服务器]
+    end
+
+    subgraph Transport["🔌 传输层"]
+        STDIO["stdio（本地，JSON-RPC）"]
+        HTTP_WS["HTTP / WebSocket（远程，WIP）"]
+    end
+
+    subgraph Agent["🤖 Agent"]
+        LLM[LLM 推理引擎]
+        TOOLS[工具调用执行]
+        PLAN[计划管理]
+        SESSION[会话状态]
+    end
+
+    subgraph MCP_Servers["⚙️ MCP 服务器群"]
+        MCP1[MCP Server 1]
+        MCP2[MCP Server 2]
+        MCP3[MCP Server 3]
+    end
+
+    UI -- "session/prompt" --> STDIO
+    STDIO -- "session/update" --> UI
+    TERM -- "terminal/*" --> STDIO
+    FS -- "fs/*" --> STDIO
+    STDIO <--> Agent
+    Agent -- "direct conn" --> MCP_Servers
+    MCP_PROXY -- "proxy tunnel" --> MCP_Servers
+    Client -- "MCP config" --> Agent
+
+    style Client fill:#1a1d2e,stroke:#7c6af7,color:#e2e4f0
+    style Agent fill:#1a1d2e,stroke:#50d9c8,color:#e2e4f0
+    style Transport fill:#232640,stroke:#2d3155,color:#e2e4f0
+    style MCP_Servers fill:#1a1d2e,stroke:#f7a94e,color:#e2e4f0
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. 生命周期 -->
+  <section id="lifecycle">
+    <div class="section-header">
+      <div class="section-icon">🔄</div>
+      <h2>会话完整生命周期</h2>
+    </div>
+    <div class="diagram-box">
+      <div class="mermaid">
+sequenceDiagram
+    participant C as 🖥️ Client
+    participant A as 🤖 Agent
+
+    Note over C,A: ① 初始化阶段
+    C->>A: initialize（协议版本、能力声明）
+    A-->>C: 返回支持的能力（loadSession、MCP transport 等）
+
+    opt 需要认证
+        C->>A: authenticate
+        A-->>C: 认证结果
+    end
+
+    Note over C,A: ② 会话建立
+    C->>A: session/new（cwd, MCP servers）
+    A-->>C: session_id: "sess_abc123"
+
+    alt 恢复历史会话（可选）
+        C->>A: session/load（session_id, cwd）
+        A-->>C: session/update × N（重播历史）
+        A-->>C: 加载完成
+    end
+
+    Note over C,A: ③ Prompt Turn 主循环
+    loop 每次用户输入
+        C->>A: session/prompt（用户消息 + 内容块）
+        A-->>C: session/update: plan（计划更新）
+        A-->>C: session/update: text chunk（流式文本）
+
+        opt 工具调用
+            A-->>C: session/update: tool_call（请求执行工具）
+            opt 需要权限
+                A->>C: session/request_permission
+                C-->>A: 用户确认/拒绝
+            end
+            Note over A: 工具执行中...
+            A-->>C: session/update: tool_result
+        end
+
+        A-->>C: session/prompt 响应（stop_reason）
+    end
+
+    Note over C,A: ④ 会话结束
+    opt 取消操作
+        C->>A: session/cancel
+        A-->>C: stop_reason: cancelled
+    end
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. Prompt Turn -->
+  <section id="prompt-turn">
+    <div class="section-header">
+      <div class="section-icon">💬</div>
+      <h2>Prompt Turn 详解</h2>
+    </div>
+    <p style="color:var(--muted);margin-bottom:20px;font-size:0.9rem;">一次 Prompt Turn = 从用户发送消息到 Agent 完成响应的完整交互周期</p>
+    <div class="diagram-box" style="margin-bottom:20px">
+      <div class="mermaid">
+flowchart TD
+    START([Client 发送 session/prompt]) --> LLM[LLM 处理请求]
+    LLM --> STREAM[流式输出 session/update]
+    STREAM --> CHECK{是否有待处理工具调用?}
+
+    CHECK -- 否 --> STOP([返回 StopReason])
+    CHECK -- 是 --> PERM{需要权限?}
+
+    PERM -- 是 --> REQ_PERM[session/request_permission]
+    REQ_PERM --> USER_DECISION{用户决策}
+    USER_DECISION -- 批准 --> EXEC_TOOL
+    USER_DECISION -- 拒绝 --> STOP
+
+    PERM -- 否 --> EXEC_TOOL[执行工具]
+    EXEC_TOOL --> RESULT[返回工具结果]
+    RESULT --> LLM
+
+    STOP --> END_TURN{StopReason 类型}
+    END_TURN --> ET[end_turn ✅]
+    END_TURN --> MT[max_tokens ⚠️]
+    END_TURN --> MR[max_turn_requests ⚠️]
+    END_TURN --> RF[refusal ❌]
+    END_TURN --> CC[cancelled 🚫]
+
+    style START fill:#7c6af7,color:#fff,stroke:none
+    style STOP fill:#50d9c8,color:#0f1117,stroke:none
+    style LLM fill:#232640,stroke:#7c6af7,color:#e2e4f0
+    style ET fill:#1a3a27,stroke:#6fdd9a,color:#6fdd9a
+    style CC fill:#3a1a1a,stroke:#f77474,color:#f77474
+    style RF fill:#3a1a1a,stroke:#f77474,color:#f77474
+    style MT fill:#3a2a10,stroke:#f7a94e,color:#f7a94e
+    style MR fill:#3a2a10,stroke:#f7a94e,color:#f7a94e
+      </div>
+    </div>
+    <div class="two-col">
+      <div>
+        <h3 style="margin-bottom:12px;font-size:1rem;color:var(--accent2)">session/update 通知类型</h3>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="msg-item">
+            <span class="msg-badge badge-a2c">plan</span>
+            <div class="msg-info"><h4>计划更新</h4><p>Agent 告知即将执行的操作步骤</p></div>
+          </div>
+          <div class="msg-item">
+            <span class="msg-badge badge-a2c">text</span>
+            <div class="msg-info"><h4>文本块</h4><p>LLM 流式输出的文本响应（Markdown）</p></div>
+          </div>
+          <div class="msg-item">
+            <span class="msg-badge badge-a2c">tool_call</span>
+            <div class="msg-info"><h4>工具调用</h4><p>请求执行工具，包含状态：pending → in_progress → completed</p></div>
+          </div>
+          <div class="msg-item">
+            <span class="msg-badge badge-a2c">tool_result</span>
+            <div class="msg-info"><h4>工具结果</h4><p>工具执行完成后的输出内容</p></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h3 style="margin-bottom:12px;font-size:1rem;color:var(--accent2)">Stop Reason</h3>
+        <div class="pill-group" style="margin-bottom:16px">
+          <span class="pill green">end_turn</span>
+          <span class="pill yellow">max_tokens</span>
+          <span class="pill yellow">max_turn_requests</span>
+          <span class="pill red">refusal</span>
+          <span class="pill blue">cancelled</span>
+        </div>
+        <h3 style="margin-bottom:12px;font-size:1rem;color:var(--accent2)">输入内容块类型</h3>
+        <div class="pill-group">
+          <span class="pill">text</span>
+          <span class="pill">resource</span>
+          <span class="pill">image</span>
+          <span class="pill">diff</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. 消息类型 -->
+  <section id="messages">
+    <div class="section-header">
+      <div class="section-icon">📨</div>
+      <h2>完整消息类型参考</h2>
+    </div>
+    <p style="color:var(--muted);margin-bottom:20px;font-size:0.875rem">
+      <span style="color:#a89cf7">■</span> Client → Agent &nbsp;&nbsp;
+      <span style="color:#50d9c8">■</span> Agent → Client &nbsp;&nbsp;
+      <span style="color:#f7a94e">■</span> 可选能力
+    </p>
+    <div class="msg-list">
+      <div class="msg-item">
+        <span class="msg-badge badge-c2a">C→A</span>
+        <div class="msg-info"><h4>initialize</h4><p>发起连接，声明客户端能力和协议版本</p></div>
+      </div>
+      <div class="msg-item">
+        <span class="msg-badge badge-opt">可选</span>
+        <div class="msg-info"><h4>authenticate</h4><p>向 Agent 提交认证凭据</p></div>
+      </div>
+      <div class="msg-item">
+        <span class="msg-badge badge-c2a">C→A</span>
+        <div class="msg-info"><h4>session/new</h4><p>创建新会话，指定工作目录和 MCP 服务器</p></div>
+      </div>
+      <div class="msg-item">
+        <span class="msg-badge badge-opt">可选</span>
+        <div class="msg-info"><h4>session/load</h4><p>恢复历史会话（需 Agent 支持 loadSession）</p></div>
+      </div>
+      <div class="msg-item">
+        <span class="msg-badge badge-c2a">C→A</span>
+        <div class="msg-info"><h4>session/prompt</h4><p>发送用户消息，触发一次 Prompt Turn</p></div>
+      </div>
+      <div class="msg-item">
+        <span class="msg-badge badge-a2c">A→C</span>
+        <div class="msg-info"><h4>session/update</h4><p>Agent 流式通知：计划、文本、工具调用等</p></div>
+      </div>
+      <div class="msg-item">
+        <span class="msg-badge badge-a2c">A→C</span>
+        <div class="msg-info"><h4>session/request_permission</h4><p>请求用户授权执行某个工具操作</p></div>
+      </div>
+      <div class="msg-item">
+        <span class="msg-badge badge-c2a">C→A</span>
+        <div class="msg-info"><h4>session/cancel</h4><p>客户端取消当前进行中的操作</p></div>
+      </div>
+      <div class="msg-item">
+        <span class="msg-badge badge-opt">可选</span>
+        <div class="msg-info"><h4>session/set_mode</h4><p>切换会话模式（如自动/手动批准）</p></div>
+      </div>
+      <div class="msg-item">
+        <span class="msg-badge badge-opt">可选</span>
+        <div class="msg-info"><h4>fs/read_text_file</h4><p>读取客户端文件系统中的文本文件</p></div>
+      </div>
+      <div class="msg-item">
+        <span class="msg-badge badge-opt">可选</span>
+        <div class="msg-info"><h4>fs/write_text_file</h4><p>写入文件到客户端文件系统</p></div>
+      </div>
+      <div class="msg-item">
+        <span class="msg-badge badge-opt">可选</span>
+        <div class="msg-info"><h4>terminal/create</h4><p>在客户端创建终端实例</p></div>
+      </div>
+      <div class="msg-item">
+        <span class="msg-badge badge-opt">可选</span>
+        <div class="msg-info"><h4>terminal/output</h4><p>获取终端输出内容</p></div>
+      </div>
+      <div class="msg-item">
+        <span class="msg-badge badge-opt">可选</span>
+        <div class="msg-info"><h4>terminal/kill</h4><p>终止终端进程</p></div>
+      </div>
+      <div class="msg-item">
+        <span class="msg-badge badge-c2a">C→A</span>
+        <div class="msg-info"><h4>slash commands</h4><p>Agent 注册的快捷指令（如 /explain, /fix）</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. 传输层 -->
+  <section id="transport">
+    <div class="section-header">
+      <div class="section-icon">🔌</div>
+      <h2>传输层</h2>
+    </div>
+    <div class="two-col">
+      <div class="card" style="border-color: rgba(124,106,247,0.4)">
+        <div class="card-icon">🏠</div>
+        <h3>本地（stdio）</h3>
+        <p>Editor 以子进程方式启动 Agent，通过 stdin/stdout 进行 JSON-RPC 通信。延迟低、无网络依赖，是默认推荐模式。一个连接可承载多个并发 Session。</p>
+        <br/>
+        <div class="pill-group">
+          <span class="pill green">已稳定</span>
+          <span class="pill">低延迟</span>
+          <span class="pill">无需认证</span>
+        </div>
+      </div>
+      <div class="card" style="border-color: rgba(247,169,78,0.4)">
+        <div class="card-icon">☁️</div>
+        <h3>远程（HTTP / WebSocket）</h3>
+        <p>Agent 托管在云端或分布式环境，通过 HTTP 或 WebSocket 与 Editor 通信。适用于团队共享 Agent、无本地计算资源场景。</p>
+        <br/>
+        <div class="pill-group">
+          <span class="pill yellow">开发中 WIP</span>
+          <span class="pill">需认证</span>
+          <span class="pill">适合远程托管</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. MCP 集成 -->
+  <section id="mcp">
+    <div class="section-header">
+      <div class="section-icon">⚙️</div>
+      <h2>MCP 集成方式</h2>
+    </div>
+    <div class="diagram-box">
+      <div class="mermaid">
+graph LR
+    subgraph Mode1["模式 A：直连"]
+        C1[Editor] -- "MCP 配置传给 Agent" --> AG1[Agent]
+        AG1 -- "stdio/HTTP" --> MCP1[MCP Server]
+    end
+
+    subgraph Mode2["模式 B：代理模式"]
+        C2[Editor] -- "ACP" --> AG2[Agent]
+        AG2 -- "MCP请求" --> PROXY[Editor MCP Proxy]
+        PROXY -- "转发" --> MCP2[MCP Server A]
+        PROXY -- "转发" --> MCP3[MCP Server B]
+    end
+
+    style Mode1 fill:#1a1d2e,stroke:#50d9c8,color:#e2e4f0
+    style Mode2 fill:#1a1d2e,stroke:#f7a94e,color:#e2e4f0
+    style PROXY fill:#232640,stroke:#f7a94e,color:#f7a94e
+      </div>
+    </div>
+    <p style="color:var(--muted);font-size:0.875rem;margin-top:16px">
+      由于 Agent 通常只通过 stdio 支持 MCP，Editor 提供一个小型代理服务器将 MCP 请求通过 ACP 隧道转回自身，实现 ACP ↔ MCP 的协议桥接。
+    </p>
+  </section>
+
+  <!-- 8. SDK -->
+  <section id="sdks">
+    <div class="section-header">
+      <div class="section-icon">📦</div>
+      <h2>多语言 SDK 支持</h2>
+    </div>
+    <div class="sdk-grid">
+      <div class="sdk-card"><div class="lang">🟦</div><div class="name">TypeScript</div></div>
+      <div class="sdk-card"><div class="lang">🐍</div><div class="name">Python</div></div>
+      <div class="sdk-card"><div class="lang">☕</div><div class="name">Java</div></div>
+      <div class="sdk-card"><div class="lang">🦀</div><div class="name">Rust</div></div>
+      <div class="sdk-card"><div class="lang">🎯</div><div class="name">Kotlin</div></div>
+    </div>
+    <br/>
+    <div class="highlight-box">
+      <h4>ACP Registry</h4>
+      <p>提供兼容实现的中央发现服务——Editor 和 Agent 都可以注册，用户通过 Registry 找到互相兼容的工具组合。</p>
+    </div>
+  </section>
+
+  <!-- 9. RFD 路线图 -->
+  <section id="rfds">
+    <div class="section-header">
+      <div class="section-icon">🗺️</div>
+      <h2>RFD 路线图（Request for Discussion）</h2>
+    </div>
+    <p style="color:var(--muted);font-size:0.875rem;margin-bottom:20px">ACP 通过 RFD 流程驱动协议演进，以下为主要在研/已提案的扩展方向：</p>
+    <div class="rfd-grid">
+      <div class="rfd-item"><div class="rfd-tag">RFD</div><div class="rfd-name">Session Resume - 会话恢复</div></div>
+      <div class="rfd-item"><div class="rfd-tag">RFD</div><div class="rfd-name">Session Fork - 会话分叉</div></div>
+      <div class="rfd-item"><div class="rfd-tag">RFD</div><div class="rfd-name">Session Delete / Close</div></div>
+      <div class="rfd-item"><div class="rfd-tag">RFD</div><div class="rfd-name">Auth Methods - 认证方式</div></div>
+      <div class="rfd-item"><div class="rfd-tag">RFD</div><div class="rfd-name">MCP over ACP - 协议桥接</div></div>
+      <div class="rfd-item"><div class="rfd-tag">RFD</div><div class="rfd-name">Elicitation - 主动提问</div></div>
+      <div class="rfd-item"><div class="rfd-tag">RFD</div><div class="rfd-name">Diff Delete - 差异删除</div></div>
+      <div class="rfd-item"><div class="rfd-tag">RFD</div><div class="rfd-name">Next Edit Suggestions</div></div>
+      <div class="rfd-item"><div class="rfd-tag">RFD</div><div class="rfd-name">Proxy Chains - 代理链</div></div>
+      <div class="rfd-item"><div class="rfd-tag">RFD</div><div class="rfd-name">Request Cancellation</div></div>
+      <div class="rfd-item"><div class="rfd-tag">RFD</div><div class="rfd-name">Agent Telemetry Export</div></div>
+      <div class="rfd-item"><div class="rfd-tag">RFD</div><div class="rfd-name">Message ID Tracking</div></div>
+      <div class="rfd-item"><div class="rfd-tag">RFD</div><div class="rfd-name">Meta Field Propagation</div></div>
+      <div class="rfd-item"><div class="rfd-tag">RFD</div><div class="rfd-name">Session Config Options</div></div>
+      <div class="rfd-item"><div class="rfd-tag">RFD</div><div class="rfd-name">ACP Agent Registry</div></div>
+      <div class="rfd-item"><div class="rfd-tag">RFD</div><div class="rfd-name">Boolean Config Option</div></div>
+    </div>
+
+    <br/>
+
+    <!-- 与 MCP/LSP 对比 -->
+    <div class="section-header" style="margin-top:20px">
+      <div class="section-icon">📊</div>
+      <h2>ACP vs MCP vs LSP 对比</h2>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>维度</th>
+            <th>ACP（Agent Client Protocol）</th>
+            <th>MCP（Model Context Protocol）</th>
+            <th>LSP（Language Server Protocol）</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>目标</strong></td>
+            <td>Editor ↔ AI Agent 通信标准</td>
+            <td>LLM ↔ 工具/上下文提供者</td>
+            <td>Editor ↔ 语言服务器</td>
+          </tr>
+          <tr>
+            <td><strong>协议基础</strong></td>
+            <td>JSON-RPC 2.0</td>
+            <td>JSON-RPC 2.0</td>
+            <td>JSON-RPC 2.0</td>
+          </tr>
+          <tr>
+            <td><strong>交互模式</strong></td>
+            <td>双向、流式、会话驱动</td>
+            <td>请求-响应为主</td>
+            <td>请求-响应 + 通知</td>
+          </tr>
+          <tr>
+            <td><strong>传输层</strong></td>
+            <td>stdio（稳定）/ HTTP+WS（WIP）</td>
+            <td>stdio / SSE / HTTP</td>
+            <td>stdio / Socket</td>
+          </tr>
+          <tr>
+            <td><strong>特色内容</strong></td>
+            <td>Diff 可视化、Agent 计划、权限申请</td>
+            <td>工具描述、资源、提示模板</td>
+            <td>自动补全、诊断、重构</td>
+          </tr>
+          <tr>
+            <td><strong>关系</strong></td>
+            <td>复用 MCP 类型，可桥接 MCP</td>
+            <td>ACP 可透传 MCP 配置给 Agent</td>
+            <td>独立协议，ACP 借鉴其理念</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  数据来源：<a href="https://agentclientprotocol.com/" target="_blank">agentclientprotocol.com</a> &nbsp;·&nbsp;
+  可视化由 <strong>Pulse Agent</strong> 生成 &nbsp;·&nbsp; 2026-03-14
+</footer>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      primaryColor: '#7c6af7',
+      primaryTextColor: '#e2e4f0',
+      primaryBorderColor: '#a89cf7',
+      lineColor: '#50d9c8',
+      secondaryColor: '#232640',
+      tertiaryColor: '#1a1d2e',
+      background: '#0f1117',
+      mainBkg: '#1a1d2e',
+      nodeBorder: '#2d3155',
+      clusterBkg: '#1a1d2e',
+      clusterBorder: '#2d3155',
+      titleColor: '#e2e4f0',
+      edgeLabelBackground: '#232640',
+      actorBkg: '#1a1d2e',
+      actorBorder: '#7c6af7',
+      actorTextColor: '#e2e4f0',
+      actorLineColor: '#50d9c8',
+      signalColor: '#50d9c8',
+      signalTextColor: '#e2e4f0',
+      labelBoxBkgColor: '#232640',
+      labelBoxBorderColor: '#2d3155',
+      labelTextColor: '#e2e4f0',
+      loopTextColor: '#e2e4f0',
+      noteBorderColor: '#f7a94e',
+      noteBkgColor: 'rgba(247,169,78,0.1)',
+      noteTextColor: '#e2e4f0',
+      activationBorderColor: '#7c6af7',
+      activationBkgColor: 'rgba(124,106,247,0.15)',
+      sequenceNumberColor: '#0f1117',
+    },
+    flowchart: { curve: 'basis', padding: 20 },
+    sequence: { actorMargin: 60, width: 160, height: 50, boxMargin: 10, useMaxWidth: true },
+  });
+</script>
+</body>
+</html>
