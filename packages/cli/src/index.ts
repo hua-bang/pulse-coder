@@ -475,6 +475,12 @@ class CoderCLI {
         const args = parts.slice(1);
         const normalizedCommand = command.toLowerCase();
 
+        if (normalizedCommand === 'acp') {
+          await this.handleCommand(command, args);
+          rl.prompt();
+          return;
+        }
+
         if (!LOCAL_COMMANDS.has(normalizedCommand)) {
           const acpState = await getAcpState(this.acpPlatformKey);
           if (acpState) {
@@ -513,10 +519,6 @@ class CoderCLI {
 
             messageInput = `[use skill](worktree) new ${workName}`;
             console.log('\n✅ Worktree request prepared via skill: worktree');
-          } else if (normalizedCommand === 'acp') {
-            await this.handleCommand(command, args);
-            rl.prompt();
-            return;
           } else {
             await this.handleCommand(command, args);
             rl.prompt();
