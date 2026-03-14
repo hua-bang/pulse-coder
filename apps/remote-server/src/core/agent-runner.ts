@@ -6,6 +6,7 @@ import { memoryIntegration, recordDailyLogFromSuccessPath } from './memory-integ
 import { buildRemoteWorktreeRunContext, worktreeIntegration } from './worktree/integration.js';
 import { buildRemoteWorkspaceRunContext, workspaceIntegration } from './workspace/integration.js';
 import { resolveModelForRun } from './model-config.js';
+import { resolveProviderFactoryForRun } from './provider-config.js';
 
 export type CompactionSnapshot = CompactionEvent;
 
@@ -221,6 +222,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
   const callbacks = input.callbacks ?? {};
   const compactions: CompactionSnapshot[] = [];
   const modelOverride = await resolveModelForRun(input.platformKey);
+  const providerOverride = await resolveProviderFactoryForRun(input.platformKey);
 
   context.messages.push({ role: 'user', content: input.userText });
 
@@ -243,6 +245,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
     },
     async () => engine.run(context, {
       model: modelOverride,
+      provider: providerOverride?.provider,
       runContext,
       systemPrompt: (() => {
         const channelPrompt = buildChannelSystemPrompt(input.platformKey);

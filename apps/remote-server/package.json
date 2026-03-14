@@ -15,6 +15,8 @@
     "pm2:save": "pm2 save"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.42",
+    "@ai-sdk/openai": "^3.0.21",
     "@hono/node-server": "^1.13.0",
     "@larksuiteoapi/node-sdk": "^1.59.0",
     "dotenv": "^16.4.7",

@@ -1,8 +1,24 @@
 {
+  "providers": {
+    "openai": {
+      "type": "openai",
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "baseUrlEnv": "OPENAI_API_URL",
+      "baseUrl": "https://api.openai.com/v1"
+    },
+    "anthropic": {
+      "type": "anthropic",
+      "apiKeyEnv": "ANTHROPIC_API_KEY",
+      "baseUrlEnv": "ANTHROPIC_API_URL",
+      "baseUrl": "https://api.anthropic.com/v1"
+    }
+  },
   "models": [
     {
-      "name": "gpt-5.2-codex"
+      "name": "gpt-5.2-codex",
+      "provider": "openai"
     }
   ],
+  "current_provider": "openai",
   "current_model": "gpt-5.3-codex"
 }

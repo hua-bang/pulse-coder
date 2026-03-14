@@ -16,6 +16,7 @@ export function buildHelpMessage(): string {
     '/model - 查看当前模型',
     '/model reset - 恢复默认模型',
     '/model <name> - 切换模型（写入 config.json）',
+    '/model <provider> <name> - 切换 provider + 模型（provider: openai/anthropic）',
     '/memory - 查看 memory 列表',
     '/memory on|off - 开关当前会话 memory',
     '/memory pin <id> - 置顶一条 memory',
