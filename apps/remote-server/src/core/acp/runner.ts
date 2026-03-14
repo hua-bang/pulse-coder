@@ -40,11 +40,22 @@ export interface AcpRunnerResult {
   stopReason: string;
 }
 
+type AcpPermissionMode = 'allow' | 'prompt';
+
+function resolvePermissionMode(): AcpPermissionMode {
+  const raw = process.env.ACP_PERMISSION_MODE;
+  if (!raw) return 'allow';
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'prompt') return 'prompt';
+  return 'allow';
+}
+
 export async function runAcp(input: AcpRunnerInput): Promise<AcpRunnerResult> {
+  const permissionMode = resolvePermissionMode();
   const client = new AcpClient(input.agent, input.cwd, {
     onPermissionRequest: async (request) => {
       const options = request.options;
-      if (!input.callbacks?.onClarificationRequest) {
+      if (permissionMode !== 'prompt' || !input.callbacks?.onClarificationRequest) {
         return null;
       }
 
