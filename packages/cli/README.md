@@ -23,6 +23,7 @@ npm start
 - ✅ **内置 MCP 支持** - 无需额外配置
 - ✅ **内置 Skills 系统** - 智能技能识别
 - ✅ **会话管理** - 保存和恢复对话
+- ✅ **ACP 模式** - CLI 内置 ACP 切换与路由
 - ✅ **命令模式** - 丰富的交互命令
 
 ## 使用示例
@@ -47,6 +48,17 @@ coder
 ```
 > 帮我生成一个分支名
 # 会自动使用 branch-naming 技能
+```
+
+### ACP 模式
+
+```
+/acp status                  # 查看 ACP 状态
+/acp on <claude|codex> [cwd]  # 开启 ACP
+/acp cd <path>               # 切换 ACP 工作目录
+/acp off                     # 关闭 ACP
+
+//clear                      # ACP 开启时强制透传 /clear 给 ACP
 ```
 
 ### 会话管理命令

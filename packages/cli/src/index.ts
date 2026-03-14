@@ -2,10 +2,33 @@ import { PulseAgent } from 'pulse-coder-engine';
 import { createJsExecutor, createRunJsTool } from 'pulse-sandbox/src';
 import * as readline from 'readline';
 import type { Context, TaskListService } from 'pulse-coder-engine';
+import { getAcpState, runAcp } from 'pulse-coder-acp';
 import { SessionCommands } from './session-commands.js';
 import { InputManager } from './input-manager.js';
 import { SkillCommands } from './skill-commands.js';
 import { memoryIntegration, buildMemoryRunContext, recordDailyLogFromSuccessPath } from './memory-integration.js';
+import { ACP_CLIENT_INFO, handleAcpCommand, resolveAcpPlatformKey } from './acp-commands.js';
+
+const LOCAL_COMMANDS = new Set([
+  'help',
+  'new',
+  'resume',
+  'sessions',
+  'search',
+  'rename',
+  'delete',
+  'clear',
+  'compact',
+  'skills',
+  'wt',
+  'acp',
+  'status',
+  'mode',
+  'plan',
+  'execute',
+  'save',
+  'exit',
+]);
 
 class CoderCLI {
   private agent: PulseAgent;
@@ -13,6 +36,7 @@ class CoderCLI {
   private sessionCommands: SessionCommands;
   private inputManager: InputManager;
   private skillCommands: SkillCommands;
+  private acpPlatformKey: string;
 
   constructor() {
     const runJsTool = createRunJsTool({
@@ -40,6 +64,7 @@ class CoderCLI {
     this.sessionCommands = new SessionCommands();
     this.inputManager = new InputManager();
     this.skillCommands = new SkillCommands(this.agent);
+    this.acpPlatformKey = resolveAcpPlatformKey();
   }
 
   private safeStringify(value: unknown): string {
@@ -123,6 +148,7 @@ class CoderCLI {
           console.log('/clear - Clear current conversation');
           console.log('/compact - Force compact current conversation context');
           console.log('/skills [list|<name|index> <message>] - Run one message with a selected skill');
+          console.log('/acp [status|on|off|cd] - Manage ACP mode for this CLI');
           console.log('/wt use <work-name> - Create a worktree + branch via worktree skill');
           console.log('/status - Show current session status');
           console.log('/mode - Show current plan mode');
@@ -230,6 +256,12 @@ class CoderCLI {
         case 'skills':
           console.log('\nℹ️ Use /skills <name|index> <message> directly in input for one-shot skill execution.');
           break;
+
+        case 'acp': {
+          const message = await handleAcpCommand(this.acpPlatformKey, args);
+          console.log(`\n${message}`);
+          break;
+        }
 
         case 'status':
           const currentId = this.sessionCommands.getCurrentSessionId();
@@ -415,10 +447,22 @@ class CoderCLI {
       }
 
       let messageInput = trimmedInput;
+      let forceAcp = false;
+
+      if (trimmedInput.startsWith('//')) {
+        const acpState = await getAcpState(this.acpPlatformKey);
+        if (!acpState) {
+          console.log('\n⚠️ ACP 未启用，请先使用 /acp on <claude|codex>。');
+          rl.prompt();
+          return;
+        }
+        messageInput = trimmedInput.slice(1);
+        forceAcp = true;
+      }
 
       // Handle commands
-      if (trimmedInput.startsWith('/')) {
-        const commandLine = trimmedInput.substring(1);
+      if (messageInput.startsWith('/') && !forceAcp) {
+        const commandLine = messageInput.substring(1);
         const parts = commandLine.split(/\s+/).filter(part => part.length > 0);
 
         if (parts.length === 0) {
@@ -429,36 +473,55 @@ class CoderCLI {
 
         const command = parts[0];
         const args = parts.slice(1);
+        const normalizedCommand = command.toLowerCase();
 
-        if (command.toLowerCase() === 'skills') {
-          const transformedMessage = await this.skillCommands.transformSkillsCommandToMessage(args);
-          if (!transformedMessage) {
+        if (!LOCAL_COMMANDS.has(normalizedCommand)) {
+          const acpState = await getAcpState(this.acpPlatformKey);
+          if (acpState) {
+            forceAcp = true;
+          } else {
+            console.log(`\n⚠️ Unknown command: /${command}`);
+            console.log('Type /help to see available commands');
             rl.prompt();
             return;
           }
+        }
 
-          messageInput = transformedMessage;
-        } else if (command.toLowerCase() === 'wt') {
-          if (args.length < 2 || args[0].toLowerCase() !== 'use') {
-            console.log('\n❌ Usage: /wt use <work-name>');
+        if (!forceAcp) {
+          if (normalizedCommand === 'skills') {
+            const transformedMessage = await this.skillCommands.transformSkillsCommandToMessage(args);
+            if (!transformedMessage) {
+              rl.prompt();
+              return;
+            }
+
+            messageInput = transformedMessage;
+          } else if (normalizedCommand === 'wt') {
+            if (args.length < 2 || args[0].toLowerCase() !== 'use') {
+              console.log('\n❌ Usage: /wt use <work-name>');
+              rl.prompt();
+              return;
+            }
+
+            const workName = args.slice(1).join(' ').trim();
+            if (!workName) {
+              console.log('\n❌ Worktree name cannot be empty.');
+              console.log('Usage: /wt use <work-name>');
+              rl.prompt();
+              return;
+            }
+
+            messageInput = `[use skill](worktree) new ${workName}`;
+            console.log('\n✅ Worktree request prepared via skill: worktree');
+          } else if (normalizedCommand === 'acp') {
+            await this.handleCommand(command, args);
+            rl.prompt();
+            return;
+          } else {
+            await this.handleCommand(command, args);
             rl.prompt();
             return;
           }
-
-          const workName = args.slice(1).join(' ').trim();
-          if (!workName) {
-            console.log('\n❌ Worktree name cannot be empty.');
-            console.log('Usage: /wt use <work-name>');
-            rl.prompt();
-            return;
-          }
-
-          messageInput = `[use skill](worktree) new ${workName}`;
-          console.log('\n✅ Worktree request prepared via skill: worktree');
-        } else {
-          await this.handleCommand(command, args);
-          rl.prompt();
-          return;
         }
       }
 
@@ -477,8 +540,38 @@ class CoderCLI {
 
       let sawText = false;
 
+      const getToolInput = (toolCall: Record<string, unknown>): unknown => {
+        const input = (toolCall as { input?: unknown }).input;
+        if (input !== undefined) {
+          return input;
+        }
+        const args = (toolCall as { args?: unknown }).args;
+        if (args !== undefined) {
+          return args;
+        }
+        return undefined;
+      };
+
+      const resolveToolName = (payload: Record<string, unknown>): string => {
+        const name = (payload as { toolName?: unknown }).toolName
+          ?? (payload as { name?: unknown }).name
+          ?? (payload as { tool?: unknown }).tool
+          ?? (payload as { title?: unknown }).title
+          ?? (payload as { kind?: unknown }).kind;
+        if (typeof name === 'string' && name.trim()) {
+          return name;
+        }
+        const toolCallId = (payload as { toolCallId?: unknown }).toolCallId;
+        if (typeof toolCallId === 'string' && toolCallId.trim()) {
+          return toolCallId;
+        }
+        return 'tool';
+      };
+
       try {
         await this.syncSessionTaskListBinding();
+
+        const acpState = await getAcpState(this.acpPlatformKey);
 
         const currentSessionId = this.resolveCurrentSessionId();
 
@@ -489,12 +582,13 @@ class CoderCLI {
             process.stdout.write(delta);
           },
           onToolCall: (toolCall) => {
-            const input = 'input' in toolCall ? toolCall.input : undefined;
+            const input = getToolInput(toolCall);
             const inputText = input === undefined ? '' : `(${JSON.stringify(input)})`;
-            process.stdout.write(`\n🔧 ${toolCall.toolName}${inputText}\n`);
+            process.stdout.write(`\n🔧 ${resolveToolName(toolCall)}${inputText}\n`);
           },
           onToolResult: (toolResult) => {
-            process.stdout.write(`\n✅ ${toolResult.toolName}\n`);
+            const toolName = resolveToolName(toolResult as Record<string, unknown>);
+            process.stdout.write(`\n✅ ${toolName}\n`);
           },
           onStepFinish: (step) => {
             process.stdout.write(`\n📋 Step finished: ${step.finishReason}\n`);
@@ -509,15 +603,50 @@ class CoderCLI {
             this.context.messages.push(...messages);
           },
         });
+        const runAcpAgent = async () => {
+          if (!acpState) {
+            return '';
+          }
+          const result = await runAcp({
+            platformKey: this.acpPlatformKey,
+            agent: acpState.agent,
+            cwd: acpState.cwd,
+            sessionId: acpState.sessionId,
+            userText: messageInput,
+            abortSignal: ac.signal,
+            clientInfo: ACP_CLIENT_INFO,
+            callbacks: {
+              onText: (delta) => {
+                sawText = true;
+                process.stdout.write(delta);
+              },
+              onToolCall: (toolCall) => {
+                const input = getToolInput(toolCall);
+                const inputText = input === undefined ? '' : `(${JSON.stringify(input)})`;
+                process.stdout.write(`\n🔧 ${resolveToolName(toolCall)}${inputText}\n`);
+              },
+              onToolResult: (toolResult) => {
+                const toolName = resolveToolName(toolResult as Record<string, unknown>);
+                process.stdout.write(`\n✅ ${toolName}\n`);
+              },
+
+              onClarificationRequest: async (request) => {
+                return await this.inputManager.requestInput(request);
+              },
+            },
+          });
+          return result.text;
+        };
+
         const result = currentSessionId
           ? await memoryIntegration.withRunContext(
             buildMemoryRunContext({
               sessionId: currentSessionId,
               userText: messageInput,
             }),
-            runAgent,
+            acpState ? runAcpAgent : runAgent,
           )
-          : await runAgent();
+          : await (acpState ? runAcpAgent() : runAgent());
 
         if (result) {
           if (!sawText) {
