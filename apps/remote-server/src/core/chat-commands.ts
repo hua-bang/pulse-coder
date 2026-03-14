@@ -24,6 +24,7 @@ import { handleInsightCommand } from './chat-commands/handlers/insight-commands.
 import { handleSkillsCommand } from './chat-commands/handlers/skills-commands.js';
 import { handleSoulCommand } from './chat-commands/handlers/soul-commands.js';
 import { handleAcpCommand } from './chat-commands/handlers/acp-commands.js';
+import { getAcpState } from './acp/state.js';
 import { getActiveRun } from './active-run-store.js';
 
 /**
@@ -33,6 +34,14 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
   const raw = incoming.text.trim();
   if (!raw.startsWith('/')) {
     return { type: 'none' };
+  }
+
+  // //cmd → force-forward to ACP agent (strips one slash, e.g. //clear → /clear)
+  if (raw.startsWith('//')) {
+    const acpState = await getAcpState(incoming.platformKey);
+    if (acpState) {
+      return { type: 'transformed', text: raw.slice(1) };
+    }
   }
 
   const tokens = raw.slice(1).split(/\s+/).filter((token) => token.length > 0);
@@ -127,10 +136,16 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
     case 'acp':
       return await handleAcpCommand(incoming.platformKey, args);
 
-    default:
+    default: {
+      // In ACP mode, pass unrecognized slash commands through to the ACP agent as-is
+      const acpState = await getAcpState(incoming.platformKey);
+      if (acpState) {
+        return { type: 'transformed', text: incoming.text };
+      }
       return {
         type: 'handled',
         message: `⚠️ 未知命令: /${command}\n\n${buildHelpMessage()}`,
       };
+    }
   }
 }

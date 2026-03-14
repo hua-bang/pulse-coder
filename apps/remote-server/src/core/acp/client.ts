@@ -7,12 +7,16 @@
  * The server may send:
  *   - Responses     { jsonrpc, id, result }  or  { jsonrpc, id, error }
  *   - Notifications { jsonrpc, method, params }               (no id)
- *   - Requests      { jsonrpc, id, method, params }           (server→client, e.g. session/request_permission)
+ *   - Requests      { jsonrpc, id, method, params }           (server→client, e.g. session/request_permission, fs/*)
  */
 import { spawn, type ChildProcess } from 'child_process';
 import { createInterface } from 'readline';
 import { randomUUID } from 'crypto';
+import { promises as fsPromises } from 'fs';
+import * as nodePath from 'path';
 import type { AcpAgent } from './state.js';
+
+const ACP_DEBUG = process.env.ACP_DEBUG === '1' || process.env.ACP_DEBUG === 'true';
 
 // ---------------------------------------------------------------------------
 // JSON-RPC types
@@ -108,8 +112,13 @@ export class AcpClient {
   private pending = new Map<string, PendingEntry>();
   private notificationHandlers: NotificationHandler[] = [];
   private closed = false;
+  private cwd: string;
+  private agent: AcpAgent;
 
   constructor(agent: AcpAgent, cwd: string) {
+    this.agent = agent;
+    this.cwd = cwd;
+
     const cmd = resolveCmd(agent);
     const [bin, ...args] = cmd.split(/\s+/);
     this.proc = spawn(bin!, args, {
@@ -129,7 +138,11 @@ export class AcpClient {
       const trimmed = line.trim();
       if (!trimmed) return;
       try {
-        this.dispatch(JSON.parse(trimmed) as RpcIncoming);
+        const msg = JSON.parse(trimmed) as RpcIncoming;
+        if (ACP_DEBUG) {
+          console.error(`[acp/${agent}] ← ${trimmed}`);
+        }
+        this.dispatch(msg);
       } catch {
         console.error('[acp/client] failed to parse line:', trimmed);
       }
@@ -152,7 +165,9 @@ export class AcpClient {
   private dispatch(msg: RpcIncoming): void {
     // Server-to-client requests (have both id and method)
     if ('id' in msg && 'method' in msg) {
-      this.handleServerRequest(msg as RpcRequest);
+      this.handleServerRequest(msg as RpcRequest).catch((err) => {
+        console.error(`[acp/${this.agent}] handleServerRequest error:`, err);
+      });
       return;
     }
 
@@ -179,18 +194,49 @@ export class AcpClient {
     }
   }
 
-  private handleServerRequest(req: RpcRequest): void {
+  private async handleServerRequest(req: RpcRequest): Promise<void> {
     // Auto-approve all permission requests
     if (req.method === 'session/request_permission') {
       this.send({ jsonrpc: '2.0', id: req.id, result: { approved: true } });
       return;
     }
 
-    // Unknown server request → respond with method-not-found
+    // File system capabilities — agents use these to read/write files on the client
+    if (req.method === 'fs/read_text_file') {
+      const params = req.params as { path: string };
+      try {
+        const absPath = nodePath.isAbsolute(params.path)
+          ? params.path
+          : nodePath.resolve(this.cwd, params.path);
+        const content = await fsPromises.readFile(absPath, 'utf8');
+        this.send({ jsonrpc: '2.0', id: req.id, result: { content } });
+      } catch (err) {
+        this.send({ jsonrpc: '2.0', id: req.id, error: { code: -32603, message: String(err) } });
+      }
+      return;
+    }
+
+    if (req.method === 'fs/write_text_file') {
+      const params = req.params as { path: string; content: string };
+      try {
+        const absPath = nodePath.isAbsolute(params.path)
+          ? params.path
+          : nodePath.resolve(this.cwd, params.path);
+        await fsPromises.mkdir(nodePath.dirname(absPath), { recursive: true });
+        await fsPromises.writeFile(absPath, params.content, 'utf8');
+        this.send({ jsonrpc: '2.0', id: req.id, result: {} });
+      } catch (err) {
+        this.send({ jsonrpc: '2.0', id: req.id, error: { code: -32603, message: String(err) } });
+      }
+      return;
+    }
+
+    // Unknown server request → method-not-found
+    console.warn(`[acp/${this.agent}] unhandled server request: ${req.method}`);
     this.send({
       jsonrpc: '2.0',
       id: req.id,
-      error: { code: -32601, message: 'Method not found' },
+      error: { code: -32601, message: `Method not found: ${req.method}` },
     });
   }
 
@@ -201,6 +247,9 @@ export class AcpClient {
   async call<T>(method: string, params?: unknown): Promise<T> {
     if (this.closed) throw new Error('ACP client is closed');
     const id = randomUUID();
+    if (ACP_DEBUG) {
+      console.error(`[acp/${this.agent}] → ${JSON.stringify({ method, params })}`);
+    }
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, {
         resolve: (v) => resolve(v as T),

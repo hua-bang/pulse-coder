@@ -33,10 +33,12 @@ export async function runAcp(input: AcpRunnerInput): Promise<AcpRunnerResult> {
   const client = new AcpClient(input.agent, input.cwd);
 
   try {
-    // 1. Handshake
+    // 1. Handshake — declare fs capabilities so agents can read/write files via us
     const initResult = await client.call<InitializeResult>('initialize', {
       protocolVersion: 1,
-      clientCapabilities: {},
+      clientCapabilities: {
+        fs: { readTextFile: true, writeTextFile: true },
+      },
       clientInfo: { name: 'pulse-remote-server', title: 'Pulse Remote Server', version: '1.0.0' },
     });
 
@@ -70,6 +72,12 @@ export async function runAcp(input: AcpRunnerInput): Promise<AcpRunnerResult> {
     const textChunks: string[] = [];
     const unsub = client.onNotification((method, params) => {
       if (method !== 'session/update') return;
+
+      // Log raw notification to help diagnose field mapping issues
+      if (process.env.ACP_DEBUG === '1' || process.env.ACP_DEBUG === 'true') {
+        console.error('[acp/runner] session/update raw:', JSON.stringify(params));
+      }
+
       const notif = params as SessionUpdateNotification;
       const { update } = notif;
       if (!update) return;
