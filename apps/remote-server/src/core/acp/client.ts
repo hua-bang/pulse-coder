@@ -88,7 +88,7 @@ export interface PromptResult {
 
 const DEFAULT_CMDS: Record<AcpAgent, string> = {
   claude: 'claude-agent-acp',
-  codex: 'codex-acp',
+  codex: 'codex-acp',   // @zed-industries/codex-acp installs as 'codex-acp'
 };
 
 function resolveCmd(agent: AcpAgent): string {
