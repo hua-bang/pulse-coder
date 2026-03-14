@@ -1,6 +1,8 @@
 import type { ClarificationRequest } from './types.js';
 import type { CompactionEvent } from 'pulse-coder-engine';
 import { engine } from './engine-singleton.js';
+import { getAcpState } from './acp/state.js';
+import { runAcp } from './acp/runner.js';
 import { sessionStore } from './session-store.js';
 import { memoryIntegration, recordDailyLogFromSuccessPath } from './memory-integration.js';
 import { buildRemoteWorktreeRunContext, worktreeIntegration } from './worktree/integration.js';
@@ -233,6 +235,8 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
     callerSelectors: input.callerSelectors,
   });
 
+  const acpState = await getAcpState(input.platformKey);
+
   const resultText = await runWithAgentContexts(
     {
       platformKey: input.platformKey,
@@ -241,31 +245,50 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
       userText: input.userText,
       source: input.source,
     },
-    async () => engine.run(context, {
-      model: modelOverride,
-      runContext,
-      systemPrompt: (() => {
-        const channelPrompt = buildChannelSystemPrompt(input.platformKey);
-        return channelPrompt ? { append: `\n${channelPrompt}` } : undefined;
-      })(),
-      abortSignal: input.abortSignal,
-      onText: callbacks.onText,
-      onToolCall: callbacks.onToolCall,
-      onToolResult: callbacks.onToolResult,
-      onResponse: (messages) => {
-        for (const msg of messages) {
-          context.messages.push(msg);
-        }
-      },
-      onCompacted: (newMessages, event) => {
-        if (event) {
-          compactions.push(event);
-          callbacks.onCompactionEvent?.(event);
-        }
-        context.messages = newMessages;
-      },
-      onClarificationRequest: callbacks.onClarificationRequest,
-    }),
+    async () => {
+      if (acpState) {
+        const result = await runAcp({
+          platformKey: input.platformKey,
+          agent: acpState.agent,
+          cwd: acpState.cwd,
+          sessionId: acpState.sessionId,
+          userText: input.userText,
+          abortSignal: input.abortSignal,
+          callbacks: {
+            onText: callbacks.onText,
+            onToolCall: callbacks.onToolCall,
+            onToolResult: callbacks.onToolResult,
+          },
+        });
+        return result.text;
+      }
+
+      return engine.run(context, {
+        model: modelOverride,
+        runContext,
+        systemPrompt: (() => {
+          const channelPrompt = buildChannelSystemPrompt(input.platformKey);
+          return channelPrompt ? { append: `\n${channelPrompt}` } : undefined;
+        })(),
+        abortSignal: input.abortSignal,
+        onText: callbacks.onText,
+        onToolCall: callbacks.onToolCall,
+        onToolResult: callbacks.onToolResult,
+        onResponse: (messages) => {
+          for (const msg of messages) {
+            context.messages.push(msg);
+          }
+        },
+        onCompacted: (newMessages, event) => {
+          if (event) {
+            compactions.push(event);
+            callbacks.onCompactionEvent?.(event);
+          }
+          context.messages = newMessages;
+        },
+        onClarificationRequest: callbacks.onClarificationRequest,
+      });
+    },
   );
 
   await sessionStore.save(sessionId, context);

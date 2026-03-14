@@ -13,6 +13,7 @@ export const COMMANDS_ALLOWED_WHILE_RUNNING = new Set([
   'insight',
   'model',
   'soul',
+  'acp',
 ]);
 
 export const COMMAND_ALIASES: Record<string, string> = {
