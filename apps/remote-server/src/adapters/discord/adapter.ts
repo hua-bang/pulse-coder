@@ -7,7 +7,7 @@ import type { ClarificationRequest } from '../../core/types.js';
 import { clarificationQueue } from '../../core/clarification-queue.js';
 import { getActiveStreamId } from '../../core/active-run-store.js';
 import { extractGeminiImageResult } from '../feishu/image-result.js';
-import { DiscordClient, type DiscordMessageComponent } from './client.js';
+import { DiscordClient } from './client.js';
 import { buildDiscordMemoryKey, buildDiscordPlatformKey, isDiscordThreadChannelType } from './platform-key.js';
 
 interface DiscordInteraction {
@@ -22,45 +22,7 @@ interface DiscordInteraction {
   data?: {
     name?: string;
     options?: DiscordCommandOption[];
-    custom_id?: string;
   };
-}
-
-
-interface DiscordMessage {
-  id?: string;
-}
-
-interface DiscordInteractionMessageComponentData {
-  custom_id?: string;
-}
-
-interface DiscordInteractionMessage {
-  id?: string;
-}
-
-interface DiscordInteractionMember {
-  user?: {
-    id?: string;
-  };
-}
-
-interface DiscordInteractionResolved {
-  messages?: Record<string, DiscordMessage>;
-}
-
-interface DiscordInteractionMessageComponent {
-  id: string;
-  application_id: string;
-  token: string;
-  type: number;
-  channel_id?: string;
-  guild_id?: string;
-  member?: DiscordInteractionMember;
-  user?: { id?: string };
-  message?: DiscordInteractionMessage;
-  data?: DiscordInteractionMessageComponentData;
-  resolved?: DiscordInteractionResolved;
 }
 
 interface DiscordCommandOption {
@@ -69,13 +31,10 @@ interface DiscordCommandOption {
   options?: DiscordCommandOption[];
 }
 
-type DiscordInteractionPayload = DiscordInteraction | DiscordInteractionMessageComponent;
-
-enum DiscordInteractionType {
-  Ping = 1,
-  ApplicationCommand = 2,
-  MessageComponent = 3,
-}
+type DiscordAckPayload =
+  | { type: 1 }
+  | { type: 4; data: { content: string; flags?: number } }
+  | { type: 5 };
 
 interface DiscordInteractionStreamMeta {
   kind: 'interaction';
@@ -103,55 +62,22 @@ type DiscordStreamIo = {
   ) => Promise<void>;
 };
 
-interface DiscordClarificationInteractionPayload {
-  mode: 'interaction';
-  streamId: string;
-  request: ClarificationRequest;
-  applicationId: string;
-  interactionToken: string;
-}
-
-interface DiscordClarificationChannelPayload {
-  mode: 'channel';
-  streamId: string;
-  request: ClarificationRequest;
-  channelId: string;
-  isThread: boolean;
-}
-
-type DiscordClarificationPayload = DiscordClarificationInteractionPayload | DiscordClarificationChannelPayload;
-
-interface DiscordClarificationInteractionMeta {
-  streamId: string;
-  requestId: string;
-  question: string;
-}
-
-interface DiscordAckPayload {
-  type: 1 | 4 | 5 | 6;
-  data?: {
-    content: string;
-    flags?: number;
-    components?: DiscordMessageComponent[];
-  };
-}
-
-const DISCORD_COMPONENT_ACK = 6;
 const DISCORD_ACK_EPHEMERAL_FLAG = 1 << 6;
-const DISCORD_CLARIFICATION_PREFIX = 'clarify';
-const DISCORD_CLARIFICATION_ACTIONS_PER_ROW = 5;
+const DISCORD_PROGRESS_UPDATE_INTERVAL_MS = 5000;
+const DISCORD_MESSAGE_LIMIT = 2000;
+const DISCORD_PROGRESS_FOOTER_BASE = 'Pulse Agent 努力生成中';
+const DISCORD_PROGRESS_DOT_MIN = 1;
+const DISCORD_PROGRESS_DOT_MAX = 5;
 
 export class DiscordAdapter implements PlatformAdapter {
   name = 'discord';
 
   private readonly client = new DiscordClient();
   private readonly rawBodyByRequest = new WeakMap<HonoRequest, string>();
-  private readonly parsedByRequest = new WeakMap<HonoRequest, DiscordInteractionPayload>();
+  private readonly parsedByRequest = new WeakMap<HonoRequest, DiscordInteraction>();
   private readonly ackByRequest = new WeakMap<HonoRequest, DiscordAckPayload>();
   private readonly streamMetaByStreamId = new Map<string, DiscordStreamMeta>();
   private readonly streamMetaByPlatformKey = new Map<string, DiscordStreamMeta>();
-  private readonly clarificationPayloadByStreamId = new Map<string, DiscordClarificationPayload>();
-  private readonly clarificationMessageByStreamId = new Map<string, { channelId: string; messageId: string; isThread: boolean }>();
 
   async verifyRequest(req: HonoRequest): Promise<boolean> {
     const publicKeyHex = process.env.DISCORD_PUBLIC_KEY?.trim();
@@ -190,16 +116,12 @@ export class DiscordAdapter implements PlatformAdapter {
       return null;
     }
 
-    if (interaction.type === DiscordInteractionType.Ping) {
-      this.ackByRequest.set(req, { type: DiscordInteractionType.Ping });
+    if (interaction.type === 1) {
+      this.ackByRequest.set(req, { type: 1 });
       return null;
     }
 
-    if (interaction.type === DiscordInteractionType.MessageComponent) {
-      return this.parseMessageComponentInteraction(req, interaction);
-    }
-
-    if (interaction.type !== DiscordInteractionType.ApplicationCommand) {
+    if (interaction.type !== 2) {
       this.ackByRequest.set(req, this.buildEphemeralMessage('Unsupported interaction type.'));
       return null;
     }
@@ -294,13 +216,8 @@ export class DiscordAdapter implements PlatformAdapter {
       return false;
     }
 
-    const answer = this.parseClarificationAnswer(text, pending.request);
-    if (!answer) {
-      return false;
-    }
-
-    clarificationQueue.submitAnswer(activeStreamId, pending.request.id, answer);
-    await this.client.sendChannelMessage(channelId, `Got it: "${answer}"`, { assumeThread: isThread }).catch((err) => {
+    clarificationQueue.submitAnswer(activeStreamId, pending.request.id, text);
+    await this.client.sendChannelMessage(channelId, `Got it: "${text}"`, { assumeThread: isThread }).catch((err) => {
       console.error('[discord] Failed to send channel clarification ack:', err);
     });
     return true;
@@ -317,16 +234,13 @@ export class DiscordAdapter implements PlatformAdapter {
     this.streamMetaByPlatformKey.delete(incoming.platformKey);
 
     if (meta.kind === 'interaction') {
-      return this.createInteractionStreamHandle(meta, streamId);
+      return this.createInteractionStreamHandle(meta);
     }
 
-    return this.createChannelStreamHandle(meta, streamId);
+    return this.createChannelStreamHandle(meta);
   }
 
-  private async createInteractionStreamHandle(
-    meta: DiscordInteractionStreamMeta,
-    streamId: string,
-  ): Promise<StreamHandle> {
+  private async createInteractionStreamHandle(meta: DiscordInteractionStreamMeta): Promise<StreamHandle> {
     return this.createStreamingHandle({
       updatePrimary: (content) => this.client.editOriginalResponse(meta.applicationId, meta.interactionToken, content),
       sendExtraText: (content) => this.client.createFollowupMessage(meta.applicationId, meta.interactionToken, content),
@@ -338,10 +252,10 @@ export class DiscordAdapter implements PlatformAdapter {
         mimeType,
         content,
       ),
-    }, meta, streamId);
+    });
   }
 
-  private async createChannelStreamHandle(meta: DiscordChannelStreamMeta, streamId: string): Promise<StreamHandle> {
+  private async createChannelStreamHandle(meta: DiscordChannelStreamMeta): Promise<StreamHandle> {
     const initial = await this.client.sendChannelMessage(meta.channelId, 'Working on it...', {
       assumeThread: meta.isThread,
       replyToMessageId: meta.replyToMessageId,
@@ -362,10 +276,10 @@ export class DiscordAdapter implements PlatformAdapter {
         content,
         { assumeThread: meta.isThread },
       ),
-    }, { ...meta, replyToMessageId: initial.id }, streamId);
+    });
   }
 
-  private createStreamingHandle(io: DiscordStreamIo, ioMeta: DiscordStreamMeta | undefined, streamId: string): StreamHandle {
+  private createStreamingHandle(io: DiscordStreamIo): StreamHandle {
     const sentImagePaths = new Set<string>();
     let accumulatedText = '';
     let latestToolHint = '';
@@ -507,21 +421,6 @@ export class DiscordAdapter implements PlatformAdapter {
 
       async onClarification(req: ClarificationRequest) {
         const question = req.context ? `${req.question}\n\nContext: ${req.context}` : req.question;
-        if (isAcpPermissionClarification(req)) {
-          const payload = this.buildClarificationPayload(req, ioMeta);
-          if (payload) {
-            await this.sendAcpClarificationWithButtons(payload, question).catch((err) => {
-              console.error('[discord] Failed to send ACP clarification buttons:', err);
-            });
-            if (payload.mode === 'interaction') {
-              await this.client.deleteOriginalResponse(payload.applicationId, payload.interactionToken).catch((err) => {
-                console.error('[discord] Failed to delete original response:', err);
-              });
-            }
-            return;
-          }
-        }
-
         await io.sendExtraText(`Question: ${question}`);
       },
 
@@ -545,7 +444,6 @@ export class DiscordAdapter implements PlatformAdapter {
     };
   }
 
-
   private buildEphemeralMessage(content: string): DiscordAckPayload {
     return {
       type: 4,
@@ -554,196 +452,6 @@ export class DiscordAdapter implements PlatformAdapter {
         flags: DISCORD_ACK_EPHEMERAL_FLAG,
       },
     };
-  }
-
-  private parseMessageComponentInteraction(
-    req: HonoRequest,
-    interaction: DiscordInteractionMessageComponent,
-  ): IncomingMessage | null {
-    const customId = interaction.data?.custom_id?.trim();
-    if (!customId || !customId.startsWith(`${DISCORD_CLARIFICATION_PREFIX}:`)) {
-      this.ackByRequest.set(req, this.buildEphemeralMessage('Unsupported component interaction.'));
-      return null;
-    }
-
-    const payload = this.parseClarificationCustomId(customId);
-    if (!payload) {
-      this.ackByRequest.set(req, this.buildEphemeralMessage('Invalid clarification selection.'));
-      return null;
-    }
-
-    const pending = clarificationQueue.getPending(payload.streamId);
-    if (!pending || pending.request.id !== payload.requestId) {
-      this.ackByRequest.set(req, this.buildEphemeralMessage('This clarification has expired.'));
-      return null;
-    }
-
-    const answer = this.parseClarificationAnswer(payload.answer, pending.request);
-    if (!answer) {
-      this.ackByRequest.set(req, this.buildEphemeralMessage('Please reply with a valid option.'));
-      return null;
-    }
-
-    clarificationQueue.submitAnswer(payload.streamId, pending.request.id, answer);
-    const acknowledgement = this.clarificationPayloadByStreamId.get(payload.streamId);
-    if (acknowledgement) {
-      this.finalizeClarificationMessage(acknowledgement, answer);
-      this.clarificationPayloadByStreamId.delete(payload.streamId);
-    }
-
-    this.ackByRequest.set(req, { type: DISCORD_COMPONENT_ACK });
-    return null;
-  }
-
-  private parseClarificationAnswer(answer: string, request: ClarificationRequest): string | null {
-    const normalized = answer.trim();
-    if (!normalized) {
-      return null;
-    }
-
-    if (isAcpPermissionClarification(request)) {
-      const lower = normalized.toLowerCase();
-      if (['1', '2', '3', 'yes', 'no', 'allow', 'deny', 'reject', 'cancel'].includes(lower)) {
-        return lower;
-      }
-    }
-
-    return normalized;
-  }
-
-  private parseClarificationCustomId(customId: string): { streamId: string; requestId: string; answer: string } | null {
-    const parts = customId.split(':');
-    if (parts.length !== 4) {
-      return null;
-    }
-
-    const [prefix, streamId, requestId, answer] = parts;
-    if (prefix !== DISCORD_CLARIFICATION_PREFIX || !streamId || !requestId || !answer) {
-      return null;
-    }
-
-    return { streamId, requestId, answer };
-  }
-
-  private buildClarificationPayload(
-    request: ClarificationRequest,
-    ioMeta?: DiscordStreamMeta,
-  ): DiscordClarificationPayload | null {
-    if (ioMeta?.kind === 'interaction') {
-      return {
-        mode: 'interaction',
-        streamId: request.id,
-        request,
-        applicationId: ioMeta.applicationId,
-        interactionToken: ioMeta.interactionToken,
-      };
-    }
-
-    if (ioMeta?.kind === 'channel') {
-      return {
-        mode: 'channel',
-        streamId: request.id,
-        request,
-        channelId: ioMeta.channelId,
-        isThread: ioMeta.isThread,
-      };
-    }
-
-    return null;
-  }
-
-  private finalizeClarificationMessage(payload: DiscordClarificationPayload, answer: string): void {
-    const finalText = this.formatClarificationQuestion(payload.request, answer);
-
-    if (payload.mode === 'interaction') {
-      this.client
-        .createFollowupMessage(payload.applicationId, payload.interactionToken, finalText)
-        .catch((err) => {
-          console.error('[discord] Failed to finalize clarification followup:', err);
-        });
-      return;
-    }
-
-    const messageMeta = this.clarificationMessageByStreamId.get(payload.streamId);
-    if (!messageMeta) {
-      return;
-    }
-
-    this.clarificationMessageByStreamId.delete(payload.streamId);
-    this.client
-      .editChannelMessage(messageMeta.channelId, messageMeta.messageId, finalText, {
-        assumeThread: messageMeta.isThread,
-      })
-      .catch((err) => {
-        console.error('[discord] Failed to finalize clarification channel message:', err);
-      });
-  }
-
-  private buildClarificationComponents(meta: DiscordClarificationInteractionMeta): DiscordMessageComponent[] {
-    const labels = getAcpClarificationLabels(meta.question, meta.requestId);
-    if (labels.length === 0) {
-      return [];
-    }
-
-    const rows: DiscordMessageComponent[] = [];
-    let currentRow: DiscordMessageComponent | null = null;
-
-    labels.forEach((label, index) => {
-      if (!currentRow || currentRow.components.length >= DISCORD_CLARIFICATION_ACTIONS_PER_ROW) {
-        currentRow = { type: 1, components: [] };
-        rows.push(currentRow);
-      }
-
-      const answer = (index + 1).toString();
-      const customId = this.buildClarificationCustomId(meta.requestId, answer);
-      currentRow.components.push({
-        type: 2,
-        style: resolveDiscordButtonStyle(label),
-        label,
-        custom_id: customId,
-      });
-    });
-
-    return rows;
-  }
-
-  private buildClarificationCustomId(baseId: string, answer: string): string {
-    return `${DISCORD_CLARIFICATION_PREFIX}:${baseId}:${answer}`;
-  }
-
-  private formatClarificationQuestion(request: ClarificationRequest, answer?: string): string {
-    const question = request.context ? `${request.question}\n\nContext: ${request.context}` : request.question;
-    if (!answer) {
-      return `Question: ${question}`;
-    }
-
-    return `Question: ${question}\n\nSelected: ${answer}`;
-  }
-
-  private async sendAcpClarificationWithButtons(payload: DiscordClarificationPayload, question: string): Promise<void> {
-    const meta: DiscordClarificationInteractionMeta = {
-      streamId: payload.streamId,
-      requestId: payload.request.id,
-      question,
-    };
-    const components = this.buildClarificationComponents(meta);
-    const content = `Question: ${question}`;
-
-    if (payload.mode === 'interaction') {
-      await this.client.createFollowupMessage(payload.applicationId, payload.interactionToken, content, components);
-    } else {
-      const sent = await this.client.sendChannelMessage(payload.channelId, content, {
-        assumeThread: payload.isThread,
-        components,
-      });
-      this.clarificationMessageByStreamId.set(payload.streamId, {
-        channelId: payload.channelId,
-        messageId: sent.id,
-        isThread: payload.isThread,
-      });
-    }
-
-    this.clarificationPayloadByStreamId.set(payload.streamId, payload);
   }
 
   private async getRawBody(req: HonoRequest): Promise<string> {
@@ -921,39 +629,6 @@ function collectOptionValues(options: DiscordCommandOption[]): string[] {
   }
 
   return values;
-}
-
-function isAcpPermissionClarification(request: ClarificationRequest): boolean {
-  return request.id.startsWith('acp-permission-');
-}
-
-function getAcpClarificationLabels(question: string, requestId: string): string[] {
-  if (!question) {
-    return [];
-  }
-
-  const lines = question.split('\n');
-  const optionLines = lines.map((line) => line.trim()).filter((line) => /^\d+\./.test(line));
-  if (optionLines.length > 0) {
-    return optionLines.map((line) => line.replace(/^\d+\.\s*/, '').trim()).filter(Boolean);
-  }
-
-  if (requestId.startsWith('acp-permission-')) {
-    return ['Allow', 'Deny'];
-  }
-
-  return [];
-}
-
-function resolveDiscordButtonStyle(label: string): 1 | 2 | 3 | 4 | 5 {
-  const lowered = label.toLowerCase();
-  if (lowered.includes('allow') || lowered.includes('approve') || lowered.includes('yes')) {
-    return 3;
-  }
-  if (lowered.includes('deny') || lowered.includes('reject') || lowered.includes('cancel') || lowered.includes('no')) {
-    return 4;
-  }
-  return 1;
 }
 
 function formatDiscordToolHint(name: string, input: unknown): string {
