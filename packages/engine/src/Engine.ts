@@ -202,6 +202,7 @@ export class Engine {
       afterLLMCall: this.pluginManager.getHooks('afterLLMCall'),
       beforeToolCall: [...this.pluginManager.getHooks('beforeToolCall')],
       afterToolCall: [...this.pluginManager.getHooks('afterToolCall')],
+      onToolCall: this.pluginManager.getHooks('onToolCall'),
       onCompacted: this.pluginManager.getHooks('onCompacted'),
     };
 

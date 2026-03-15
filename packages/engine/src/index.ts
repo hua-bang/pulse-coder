@@ -13,6 +13,7 @@ export type {
   BeforeLLMCallResult,
   AfterRunInput,
   AfterLLMCallInput,
+  OnToolCallInput,
   BeforeToolCallInput,
   BeforeToolCallResult,
   AfterToolCallInput,

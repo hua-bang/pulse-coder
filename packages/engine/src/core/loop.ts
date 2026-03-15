@@ -18,6 +18,7 @@ export interface LoopHooks {
   afterLLMCall?: Array<EngineHookMap['afterLLMCall']>;
   beforeToolCall?: Array<EngineHookMap['beforeToolCall']>;
   afterToolCall?: Array<EngineHookMap['afterToolCall']>;
+  onToolCall?: Array<EngineHookMap['onToolCall']>;
   onCompacted?: Array<EngineHookMap['onCompacted']>;
 }
 
@@ -253,6 +254,12 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
           }
           if (chunk.type === 'tool-call') {
             options?.onToolCall?.(chunk);
+            const toolCallHooks = loopHooks.onToolCall ?? [];
+            if (toolCallHooks.length > 0) {
+              for (const hook of toolCallHooks) {
+                Promise.resolve(hook({ context, toolCall: chunk })).catch(() => undefined);
+              }
+            }
           }
           if (chunk.type === 'tool-result') {
             options?.onToolResult?.(chunk);

@@ -65,6 +65,13 @@ export interface AfterToolCallResult {
   output?: any;
 }
 
+// -- onToolCall --
+
+export interface OnToolCallInput {
+  context: Context;
+  toolCall: any;
+}
+
 // -- onCompacted --
 
 export interface OnCompactedEvent {
@@ -108,6 +115,9 @@ export interface EngineHookMap {
 
   /** Fires after each individual tool execution. Can modify output. */
   afterToolCall: (input: AfterToolCallInput) => Promisable<AfterToolCallResult | void>;
+
+  /** Fires when the LLM emits a tool-call chunk. Read-only. */
+  onToolCall: (input: OnToolCallInput) => Promisable<void>;
 
   /** Fires after context compaction produced a new message list. */
   onCompacted: (input: OnCompactedInput) => Promisable<void>;

@@ -519,6 +519,17 @@ export const devtoolsPlugin: EnginePlugin = {
       }
     });
 
+    context.registerHook('onToolCall', (input) => {
+      const runId = runIdByContext.get(input.context);
+      if (!runId) {
+        return;
+      }
+      const toolCall = input.toolCall ?? {};
+      const name = toolCall?.toolName ?? toolCall?.name ?? 'unknown';
+      const args = toolCall?.args ?? toolCall?.input ?? {};
+      devtoolsStore.recordToolCall(runId, name, args);
+    });
+
     context.registerHook('onCompacted', (input) => {
       const runId = runIdByContext.get(input.context);
       if (runId) {
