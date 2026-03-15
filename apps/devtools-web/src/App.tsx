@@ -23,8 +23,13 @@ interface LlmSpan {
   startedAt: number;
   endedAt?: number;
   durationMs?: number;
+  requestStartAt?: number;
   firstChunkAt?: number;
+  firstTextAt?: number;
+  enginePrepMs?: number;
+  ttfbMs?: number;
   ttftMs?: number;
+  ttftTextMs?: number;
   streamDurationMs?: number;
   finishReason?: string;
   textLength?: number;
@@ -366,12 +371,28 @@ export default function App() {
         const ttft =
           span.ttftMs ??
           (span.firstChunkAt && span.startedAt ? Math.max(0, span.firstChunkAt - span.startedAt) : undefined);
+        const enginePrep =
+          span.enginePrepMs ??
+          (span.requestStartAt && span.startedAt ? Math.max(0, span.requestStartAt - span.startedAt) : undefined);
+        const ttfb =
+          span.ttfbMs ??
+          (span.firstChunkAt
+            ? Math.max(0, span.firstChunkAt - (span.requestStartAt ?? span.startedAt))
+            : undefined);
+        const ttftText =
+          span.ttftTextMs ??
+          (span.firstTextAt
+            ? Math.max(0, span.firstTextAt - (span.requestStartAt ?? span.startedAt))
+            : undefined);
         const stream =
           span.streamDurationMs ??
           (span.firstChunkAt && span.endedAt ? Math.max(0, span.endedAt - span.firstChunkAt) : undefined);
         const toolTime = toolTimeForSpan(span);
         const toolWait = span.durationMs !== undefined ? Math.max(0, (span.durationMs ?? 0) - toolTime) : undefined;
         const tooltip = [
+          `Engine prep: ${formatMetric(enginePrep)}`,
+          `TTFB: ${formatMetric(ttfb)}`,
+          `TTFT (text): ${formatMetric(ttftText)}`,
           `TTFT: ${formatMetric(ttft)}`,
           `Stream: ${formatMetric(stream)}`,
           `Tool wait: ${formatMetric(toolWait)}`,
@@ -786,6 +807,7 @@ export default function App() {
                     <th>Index</th>
                     <th>Duration</th>
                     <th>TTFT</th>
+                    <th>TTFB</th>
                     <th>Stream</th>
                     <th>Tool Wait</th>
                     <th>Finish</th>
@@ -803,6 +825,11 @@ export default function App() {
                     const ttft =
                       span.ttftMs ??
                       (span.firstChunkAt && span.startedAt ? Math.max(0, span.firstChunkAt - span.startedAt) : undefined);
+                    const ttfb =
+                      span.ttfbMs ??
+                      (span.firstChunkAt
+                        ? Math.max(0, span.firstChunkAt - (span.requestStartAt ?? span.startedAt))
+                        : undefined);
                     const stream =
                       span.streamDurationMs ??
                       (span.firstChunkAt && span.endedAt ? Math.max(0, span.endedAt - span.firstChunkAt) : undefined);
@@ -815,6 +842,7 @@ export default function App() {
                       <td>#{span.index}</td>
                       <td>{formatDuration(span.durationMs)}</td>
                       <td>{ttft !== undefined ? formatDuration(ttft) : 'n/a'}</td>
+                      <td>{ttfb !== undefined ? formatDuration(ttfb) : 'n/a'}</td>
                       <td>{stream !== undefined ? formatDuration(stream) : 'n/a'}</td>
                       <td>{toolWait !== undefined ? formatDuration(toolWait) : 'n/a'}</td>
                       <td>{span.finishReason || 'n/a'}</td>

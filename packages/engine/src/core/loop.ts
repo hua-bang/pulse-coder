@@ -240,9 +240,12 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
         return 'Request aborted.';
       }
 
+      let requestStartAt: number | undefined;
       let firstChunkAt: number | undefined;
+      let firstTextAt: number | undefined;
       let lastChunkAt: number | undefined;
 
+      requestStartAt = Date.now();
       const result = streamTextAI(context.messages, tools, {
         abortSignal: options?.abortSignal,
         toolExecutionContext,
@@ -256,6 +259,9 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
           const chunkAt = Date.now();
           if (firstChunkAt === undefined) {
             firstChunkAt = chunkAt;
+          }
+          if (chunk.type === 'text-delta' && firstTextAt === undefined) {
+            firstTextAt = chunkAt;
           }
           lastChunkAt = chunkAt;
           if (chunk.type === 'text-delta') {
@@ -302,7 +308,9 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
             text,
             usage,
             timings: {
+              requestStartAt,
               firstChunkAt,
+              firstTextAt,
               lastChunkAt,
             },
           });

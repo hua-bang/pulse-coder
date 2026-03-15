@@ -28,8 +28,13 @@ export interface DevtoolsLlmSpan {
   startedAt: number;
   endedAt?: number;
   durationMs?: number;
+  requestStartAt?: number;
   firstChunkAt?: number;
+  firstTextAt?: number;
+  enginePrepMs?: number;
+  ttfbMs?: number;
   ttftMs?: number;
+  ttftTextMs?: number;
   streamDurationMs?: number;
   finishReason?: string;
   textLength?: number;
@@ -404,10 +409,19 @@ export class DevtoolsStore {
     }
     span.endedAt = timestamp;
     span.durationMs = Math.max(0, timestamp - span.startedAt);
+    if (timings?.requestStartAt && Number.isFinite(timings.requestStartAt)) {
+      span.requestStartAt = timings.requestStartAt;
+      span.enginePrepMs = Math.max(0, timings.requestStartAt - span.startedAt);
+    }
     if (timings?.firstChunkAt && Number.isFinite(timings.firstChunkAt)) {
       span.firstChunkAt = timings.firstChunkAt;
+      span.ttfbMs = Math.max(0, timings.firstChunkAt - (timings.requestStartAt ?? span.startedAt));
       span.ttftMs = Math.max(0, timings.firstChunkAt - span.startedAt);
       span.streamDurationMs = Math.max(0, timestamp - timings.firstChunkAt);
+    }
+    if (timings?.firstTextAt && Number.isFinite(timings.firstTextAt)) {
+      span.firstTextAt = timings.firstTextAt;
+      span.ttftTextMs = Math.max(0, timings.firstTextAt - (timings.requestStartAt ?? span.startedAt));
     }
     span.finishReason = finishReason;
     span.textLength = typeof text === 'string' ? text.length : undefined;
