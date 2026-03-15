@@ -41,6 +41,10 @@ export interface AfterLLMCallInput {
   finishReason: string;
   text: string;
   usage?: any;
+  timings?: {
+    firstChunkAt?: number;
+    lastChunkAt?: number;
+  };
 }
 
 // -- beforeToolCall --

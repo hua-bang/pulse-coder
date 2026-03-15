@@ -23,6 +23,9 @@ interface LlmSpan {
   startedAt: number;
   endedAt?: number;
   durationMs?: number;
+  firstChunkAt?: number;
+  ttftMs?: number;
+  streamDurationMs?: number;
   finishReason?: string;
   textLength?: number;
   toolCalls?: Array<{
@@ -256,6 +259,16 @@ export default function App() {
     const totalCacheWrite = selectedRun.llmSpans.reduce((sum, span) => sum + (span.cacheWriteTokens ?? 0), 0);
     const hasCacheRead = selectedRun.llmSpans.some((span) => span.cacheReadTokens !== undefined);
     const hasCacheWrite = selectedRun.llmSpans.some((span) => span.cacheWriteTokens !== undefined);
+
+    const toolTimeForSpan = (span: LlmSpan) => {
+      if (!span.startedAt || !span.endedAt) return 0;
+      return toolSpans.reduce((sum, tool) => {
+        if (!tool.startedAt || !tool.endedAt) return sum;
+        const overlaps = tool.startedAt >= span.startedAt && tool.endedAt <= span.endedAt;
+        if (!overlaps) return sum;
+        return sum + (tool.durationMs ?? Math.max(0, tool.endedAt - tool.startedAt));
+      }, 0);
+    };
 
     const slowestLlm = llmSpans.reduce<LlmSpan | null>((acc, span) => {
       if (!acc || (span.durationMs ?? 0) > (acc.durationMs ?? 0)) {
@@ -601,45 +614,63 @@ export default function App() {
               {selectedRun.llmSpans.length ? (
                 <div className="table-scroll">
                   <table>
-                    <thead>
-                      <tr>
-                        <th>Index</th>
-                        <th>Duration</th>
-                        <th>Finish</th>
-                        <th>Text Len</th>
-                        <th>Input Tok</th>
-                        <th>Output Tok</th>
-                        <th>Cache Read</th>
-                        <th>Cache Write</th>
-                        <th>Tools</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedRun.llmSpans.map((span) => (
-                        <tr key={span.index}>
-                          <td>#{span.index}</td>
-                          <td>{formatDuration(span.durationMs)}</td>
-                          <td>{span.finishReason || 'n/a'}</td>
-                          <td>{span.textLength ?? 'n/a'}</td>
-                          <td>{span.inputTokens ?? 'n/a'}</td>
-                          <td>{span.outputTokens ?? 'n/a'}</td>
-                          <td>{span.cacheReadTokens ?? 'n/a'}</td>
-                          <td>{span.cacheWriteTokens ?? 'n/a'}</td>
-                          <td>
-                            {span.toolCalls?.length
-                              ? span.toolCalls.map((call, idx) => (
-                                  <span key={`${call.name}-${idx}`} className="tool-chip" title={call.inputPreview || ''}>
-                                    {call.name}
-                                  </span>
-                                ))
-                              : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
+                <thead>
+                  <tr>
+                    <th>Index</th>
+                    <th>Duration</th>
+                    <th>TTFT</th>
+                    <th>Stream</th>
+                    <th>Tool Wait</th>
+                    <th>Finish</th>
+                    <th>Text Len</th>
+                    <th>Input Tok</th>
+                    <th>Output Tok</th>
+                    <th>Cache Read</th>
+                    <th>Cache Write</th>
+                    <th>Tools</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedRun.llmSpans.map((span) => {
+                    const ttft =
+                      span.ttftMs ??
+                      (span.firstChunkAt && span.startedAt ? Math.max(0, span.firstChunkAt - span.startedAt) : undefined);
+                    const stream =
+                      span.streamDurationMs ??
+                      (span.firstChunkAt && span.endedAt ? Math.max(0, span.endedAt - span.firstChunkAt) : undefined);
+                    const toolTime = toolTimeForSpan(span);
+                    const toolWait =
+                      span.durationMs !== undefined ? Math.max(0, (span.durationMs ?? 0) - toolTime) : undefined;
+
+                    return (
+                    <tr key={span.index}>
+                      <td>#{span.index}</td>
+                      <td>{formatDuration(span.durationMs)}</td>
+                      <td>{ttft !== undefined ? formatDuration(ttft) : 'n/a'}</td>
+                      <td>{stream !== undefined ? formatDuration(stream) : 'n/a'}</td>
+                      <td>{toolWait !== undefined ? formatDuration(toolWait) : 'n/a'}</td>
+                      <td>{span.finishReason || 'n/a'}</td>
+                      <td>{span.textLength ?? 'n/a'}</td>
+                      <td>{span.inputTokens ?? 'n/a'}</td>
+                      <td>{span.outputTokens ?? 'n/a'}</td>
+                      <td>{span.cacheReadTokens ?? 'n/a'}</td>
+                      <td>{span.cacheWriteTokens ?? 'n/a'}</td>
+                      <td>
+                        {span.toolCalls?.length
+                          ? span.toolCalls.map((call, idx) => (
+                              <span key={`${call.name}-${idx}`} className="tool-chip" title={call.inputPreview || ''}>
+                                {call.name}
+                              </span>
+                            ))
+                          : '—'}
+                      </td>
+                    </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
                 <div className="empty">No LLM spans.</div>
               )}
             </section>
