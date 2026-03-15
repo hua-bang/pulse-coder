@@ -77,12 +77,30 @@ export const streamTextAI = (messages: ModelMessage[], tools: Record<string, Cod
     ? wrapToolsWithContext(tools, options.toolExecutionContext)
     : tools;
 
-  const finalSystemPrompt = resolveSystemPrompt(options?.systemPrompt);
+  // Extract system-role messages from history and merge into system prompt.
+  // Anthropic does not allow multiple system messages interleaved with user/assistant turns.
+  const extraSystemParts: string[] = [];
+  const filteredMessages = messages.filter((m) => {
+    if (m.role !== 'system') return true;
+    const raw = m.content as unknown;
+    const text = typeof raw === 'string'
+      ? raw
+      : Array.isArray(raw)
+        ? (raw as any[]).filter((p) => p.type === 'text').map((p) => p.text).join('\n')
+        : '';
+    if (text) extraSystemParts.push(text);
+    return false;
+  });
+
+  const baseSystemPrompt = resolveSystemPrompt(options?.systemPrompt);
+  const finalSystemPrompt = extraSystemParts.length > 0
+    ? `${baseSystemPrompt}\n\n${extraSystemParts.join('\n\n')}`
+    : baseSystemPrompt;
 
   return streamText({
     model: provider(model),
     system: finalSystemPrompt,
-    messages,
+    messages: filteredMessages,
     tools: wrappedTools as Record<string, Tool>,
     providerOptions,
     abortSignal: options?.abortSignal,
