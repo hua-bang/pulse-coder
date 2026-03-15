@@ -115,6 +115,7 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'finished'>('all');
   const [sortBy, setSortBy] = useState<'recent' | 'duration' | 'lastEvent'>('recent');
   const [detailTab, setDetailTab] = useState<'llm' | 'plugins' | 'timeline'>('llm');
+  const [timelineRange, setTimelineRange] = useState({ from: 1, to: 1 });
 
   const apiBase = useMemo(() => sanitizeBaseUrl(baseUrl), [baseUrl]);
 
@@ -174,6 +175,15 @@ export default function App() {
       loadRunDetail(selectedId);
     }
   }, [selectedId, apiBase]);
+
+  useEffect(() => {
+    if (!selectedRun?.llmSpans?.length) {
+      setTimelineRange({ from: 1, to: 1 });
+      return;
+    }
+    const maxTurn = selectedRun.llmSpans.reduce((max, span) => Math.max(max, span.index), 1);
+    setTimelineRange({ from: 1, to: maxTurn });
+  }, [selectedRun?.runId]);
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -251,6 +261,9 @@ export default function App() {
     const toolSpans = selectedRun.toolSpans.filter((span) => span.durationMs !== undefined);
     const pluginHooks = selectedRun.pluginHooks ?? [];
     const compactionEvents = selectedRun.compactionEvents ?? [];
+    const maxTurn = selectedRun.llmSpans.reduce((max, span) => Math.max(max, span.index), 1);
+    const rangeFrom = Math.min(timelineRange.from, maxTurn);
+    const rangeTo = Math.max(rangeFrom, Math.min(timelineRange.to, maxTurn));
 
     const totalLlmTime = llmSpans.reduce((sum, span) => sum + (span.durationMs ?? 0), 0);
     const totalToolTime = toolSpans.reduce((sum, span) => sum + (span.durationMs ?? 0), 0);
@@ -400,6 +413,33 @@ export default function App() {
       if (a.start !== b.start) return a.start - b.start;
       return eventPriority(a) - eventPriority(b);
     });
+    const timelineAllFiltered = timelineAll.filter((event) => {
+      if (!event.turn || event.turn < 1) {
+        return rangeFrom <= 1;
+      }
+      return event.turn >= rangeFrom && event.turn <= rangeTo;
+    });
+
+    const groupedTimeline = new Map<number, typeof timelineAllFiltered>();
+    for (const event of timelineAllFiltered) {
+      const key = event.turn && event.turn > 0 ? event.turn : 0;
+      const bucket = groupedTimeline.get(key) ?? [];
+      bucket.push(event);
+      groupedTimeline.set(key, bucket);
+    }
+    const timelineRows: Array<
+      | { type: 'separator'; key: string; label: string }
+      | { type: 'event'; key: string; event: (typeof timelineAllFiltered)[number] }
+    > = [];
+    const turnKeys = Array.from(groupedTimeline.keys()).sort((a, b) => a - b);
+    for (const turnKey of turnKeys) {
+      const label = turnKey === 0 ? 'Pre-run' : `Turn T${turnKey}`;
+      timelineRows.push({ type: 'separator', key: `sep-${turnKey}`, label });
+      const events = groupedTimeline.get(turnKey) ?? [];
+      for (const event of events) {
+        timelineRows.push({ type: 'event', key: `${event.type}-${event.start}-${event.label}`, event });
+      }
+    }
 
     const gapEvents: Array<{
       start: number;
@@ -623,10 +663,7 @@ export default function App() {
                     const width = ((event.end - event.start) / runDuration) * 100;
                     return (
                       <div key={`${event.type}-${idx}`} className={`timeline-row ${event.type}`}>
-                        <div className="timeline-label">
-                          <span>{event.label}</span>
-                          {event.turn ? <span className="timeline-turn">T{event.turn}</span> : null}
-                        </div>
+                        <div className="timeline-label">{event.label}</div>
                         <div className="timeline-track" data-tooltip={event.tooltip}>
                           <div
                             className="timeline-bar"
@@ -788,17 +825,62 @@ export default function App() {
                   <span className="legend-swatch swatch-hook" /> Plugin Hook
                 </span>
               </div>
+              {maxTurn > 1 ? (
+                <div className="timeline-filter">
+                  <label>
+                    From
+                    <select
+                      value={rangeFrom}
+                      onChange={(event) =>
+                        setTimelineRange((current) => ({
+                          ...current,
+                          from: Number(event.target.value),
+                        }))
+                      }
+                    >
+                      {Array.from({ length: maxTurn }, (_, idx) => idx + 1).map((turn) => (
+                        <option key={`from-${turn}`} value={turn}>
+                          T{turn}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    To
+                    <select
+                      value={rangeTo}
+                      onChange={(event) =>
+                        setTimelineRange((current) => ({
+                          ...current,
+                          to: Number(event.target.value),
+                        }))
+                      }
+                    >
+                      {Array.from({ length: maxTurn }, (_, idx) => idx + 1).map((turn) => (
+                        <option key={`to-${turn}`} value={turn}>
+                          T{turn}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              ) : null}
               {timelineAll.length ? (
                 <div className="timeline">
-                  {timelineAll.map((event, idx) => {
+                  {timelineRows.map((row) => {
+                    if (row.type === 'separator') {
+                      return (
+                        <div key={row.key} className="timeline-divider">
+                          <span>{row.label}</span>
+                        </div>
+                      );
+                    }
+                    const event = row.event;
                     const left = ((event.start - runStart) / runDuration) * 100;
                     const width = ((event.end - event.start) / runDuration) * 100;
                     return (
-                      <div key={`${event.type}-${idx}`} className={`timeline-row ${event.type}`}>
-                        <div className="timeline-label">
-                          <span>{event.label}</span>
-                          {event.turn ? <span className="timeline-turn">T{event.turn}</span> : null}
-                        </div>
+                      <div key={row.key} className={`timeline-row ${event.type}`}>
+                        <div className="timeline-label">{event.label}</div>
                         <div className="timeline-track" data-tooltip={event.tooltip}>
                           <div
                             className="timeline-bar"
@@ -892,10 +974,7 @@ export default function App() {
                     const width = ((event.end - event.start) / runDuration) * 100;
                     return (
                       <div key={`${event.type}-${idx}`} className={`timeline-row ${event.type}`}>
-                        <div className="timeline-label">
-                          <span>{event.label}</span>
-                          {event.turn ? <span className="timeline-turn">T{event.turn}</span> : null}
-                        </div>
+                        <div className="timeline-label">{event.label}</div>
                         <div className="timeline-track">
                           <div
                             className="timeline-bar"

@@ -600,9 +600,6 @@ th {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .timeline-track {
@@ -613,13 +610,47 @@ th {
   overflow: hidden;
 }
 
-.timeline-turn {
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: #f3f2f0;
-  border: 1px solid var(--border);
+.timeline-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 6px;
   color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.timeline-divider::before,
+.timeline-divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--border);
+}
+
+.timeline-filter {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.timeline-filter label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.timeline-filter select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 8px;
+  background: #fff;
+  font-size: 12px;
+  color: var(--text);
 }
 
 .timeline-track[data-tooltip]::after {
