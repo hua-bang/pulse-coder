@@ -6,6 +6,7 @@ import { sessionStore } from './core/session-store.js';
 import { memoryIntegration } from './core/memory-integration.js';
 import { worktreeIntegration } from './core/worktree/integration.js';
 import { workspaceIntegration } from './core/workspace/integration.js';
+import { devtoolsStore } from './core/devtools.js';
 import { startDiscordGateway } from './adapters/discord/gateway-manager.js';
 import { registerDiscordApplicationCommands } from './adapters/discord/application-commands.js';
 
@@ -21,6 +22,8 @@ async function main() {
 
   // Initialize workspace binding state store
   await workspaceIntegration.initialize();
+
+  await devtoolsStore.initialize();
 
   await engine.initialize();
 
@@ -40,6 +43,8 @@ async function main() {
   console.log(`[remote-server] Listening on http://${host}:${port}`);
   console.log(`[remote-server] Endpoints:`);
   console.log(`  GET  /health`);
+  console.log(`  GET  /api/devtools/runs`);
+  console.log(`  GET  /api/devtools/runs/:runId`);
   // console.log(`  POST /api/chat`);
   // console.log(`  GET  /api/stream/:streamId`);
   // console.log(`  POST /api/clarify/:streamId`);

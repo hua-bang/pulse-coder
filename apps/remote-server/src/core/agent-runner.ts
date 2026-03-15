@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import type { CompactionEvent } from 'pulse-coder-engine';
 import type { ClarificationRequest } from './types.js';
 import { engine } from './engine-singleton.js';
@@ -32,6 +33,7 @@ export interface AgentTurnCallbacks {
 }
 
 export interface ExecuteAgentTurnInput {
+  runId?: string;
   platformKey: string;
   memoryKey: string;
   forceNewSession?: boolean;
@@ -44,6 +46,7 @@ export interface ExecuteAgentTurnInput {
 }
 
 export interface ExecuteAgentTurnResult {
+  runId: string;
   sessionId: string;
   resultText: string;
   compactions: CompactionSnapshot[];
@@ -90,6 +93,7 @@ function buildToolCallerContext(input: {
 }
 
 function buildRunContext(input: {
+  runId: string;
   sessionId: string;
   userText: string;
   platformKey: string;
@@ -104,6 +108,7 @@ function buildRunContext(input: {
   });
 
   return {
+    runId: input.runId,
     sessionId: input.sessionId,
     userText: input.userText,
     platformKey: input.platformKey,
@@ -223,6 +228,7 @@ function buildChannelSystemPrompt(platformKey: string): string | null {
 export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<ExecuteAgentTurnResult> {
   const session = await sessionStore.getOrCreate(input.platformKey, input.forceNewSession, input.memoryKey);
   const sessionId = session.sessionId;
+  const runId = input.runId ?? randomUUID();
   const context = session.context;
   const callbacks = input.callbacks ?? {};
   const compactions: CompactionSnapshot[] = [];
@@ -231,6 +237,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
   context.messages.push({ role: 'user', content: input.userText });
 
   const runContext = buildRunContext({
+    runId,
     sessionId,
     userText: input.userText,
     platformKey: input.platformKey,
@@ -307,6 +314,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
   });
 
   return {
+    runId,
     sessionId,
     resultText,
     compactions,

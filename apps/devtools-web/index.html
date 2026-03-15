@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pulse Devtools</title>
+    <style>
+      :root {
+        --bg: #0f1b22;
+        --bg-soft: #14242e;
+        --panel: #192e3a;
+        --panel-alt: #152833;
+        --accent: #ffa74e;
+        --accent-2: #7fe2ff;
+        --text: #e8f1f6;
+        --text-muted: #9db2bf;
+        --danger: #ff6b6b;
+        --success: #4cd37c;
+        --shadow: rgba(0, 0, 0, 0.28);
+        --radius: 18px;
+        --border: rgba(255, 255, 255, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 20% 20%, rgba(127, 226, 255, 0.15), transparent 40%),
+          radial-gradient(circle at 80% 0%, rgba(255, 167, 78, 0.2), transparent 45%),
+          linear-gradient(160deg, #0c171e 0%, #142533 55%, #10212a 100%);
+        min-height: 100vh;
+      }
+
+      .app {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        padding: 28px;
+      }
+
+      header {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        gap: 20px;
+        align-items: center;
+      }
+
+      .title-block h1 {
+        margin: 0 0 6px;
+        font-size: clamp(26px, 3vw, 36px);
+        letter-spacing: 0.02em;
+      }
+
+      .subtitle {
+        color: var(--text-muted);
+        font-size: 14px;
+      }
+
+      .controls {
+        display: grid;
+        grid-template-columns: 1.5fr auto auto;
+        gap: 12px;
+        align-items: center;
+        background: var(--panel);
+        border-radius: var(--radius);
+        padding: 14px 16px;
+        border: 1px solid var(--border);
+        box-shadow: 0 12px 30px var(--shadow);
+      }
+
+      .controls input {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        background: #0c1a22;
+        color: var(--text);
+        font-size: 14px;
+      }
+
+      .controls input:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+
+      .button {
+        border: none;
+        padding: 10px 16px;
+        border-radius: 999px;
+        background: linear-gradient(120deg, var(--accent), #ffcc7a);
+        color: #2b1a06;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-muted);
+        font-size: 13px;
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: 1fr 2fr;
+        gap: 20px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border-radius: var(--radius);
+        padding: 18px;
+        border: 1px solid var(--border);
+        box-shadow: 0 12px 30px var(--shadow);
+      }
+
+      .panel h2 {
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
+
+      .list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        max-height: 70vh;
+        overflow: auto;
+        padding-right: 6px;
+      }
+
+      .run-card {
+        border: 1px solid var(--border);
+        background: var(--panel-alt);
+        border-radius: 14px;
+        padding: 12px;
+        cursor: pointer;
+        display: grid;
+        gap: 6px;
+        transition: transform 0.2s ease, border 0.2s ease;
+      }
+
+      .run-card.active {
+        border-color: var(--accent-2);
+        transform: translateY(-2px);
+      }
+
+      .run-meta {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .status {
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .status.running {
+        color: var(--accent-2);
+      }
+
+      .status.finished {
+        color: var(--success);
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .detail-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px;
+      }
+
+      .detail-card {
+        background: #0f2029;
+        border-radius: 14px;
+        padding: 12px;
+        border: 1px solid var(--border);
+      }
+
+      .detail-card h3 {
+        margin: 0 0 6px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-muted);
+      }
+
+      .detail-card p {
+        margin: 0;
+        font-size: 14px;
+        word-break: break-word;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      th, td {
+        text-align: left;
+        padding: 8px 6px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      th {
+        color: var(--text-muted);
+        font-weight: 600;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .empty {
+        color: var(--text-muted);
+        font-size: 14px;
+      }
+
+      .error {
+        color: var(--danger);
+        font-size: 13px;
+      }
+
+      @media (max-width: 960px) {
+        header {
+          grid-template-columns: 1fr;
+        }
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <div class="title-block">
+          <h1>Pulse Devtools</h1>
+          <div class="subtitle">Run timing, tool spans, and compaction signals from remote-server.</div>
+        </div>
+        <div class="controls">
+          <input id="baseUrl" placeholder="http://localhost:3000/api/devtools" />
+          <button class="button" id="refreshBtn">Refresh</button>
+          <label class="toggle">
+            <input type="checkbox" id="autoRefresh" checked />
+            Auto refresh
+          </label>
+        </div>
+      </header>
+
+      <main>
+        <section class="panel">
+          <h2>Runs</h2>
+          <div class="list" id="runList"></div>
+          <div class="error" id="listError"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Details</h2>
+          <div id="detailContent" class="empty">Select a run to inspect.</div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const state = {
+        baseUrl: localStorage.getItem('devtoolsBaseUrl') || 'http://localhost:3000/api/devtools',
+        runs: [],
+        selectedId: null,
+        autoRefresh: true,
+        lastError: null,
+      };
+
+      const baseUrlInput = document.getElementById('baseUrl');
+      const refreshBtn = document.getElementById('refreshBtn');
+      const autoRefreshCheckbox = document.getElementById('autoRefresh');
+      const runListEl = document.getElementById('runList');
+      const detailContent = document.getElementById('detailContent');
+      const listError = document.getElementById('listError');
+
+      baseUrlInput.value = state.baseUrl;
+
+      function formatTime(ts) {
+        if (!ts) return 'n/a';
+        const date = new Date(ts);
+        return date.toLocaleTimeString();
+      }
+
+      function formatDuration(ms) {
+        if (ms === undefined || ms === null) return 'n/a';
+        if (ms < 1000) return `${ms} ms`;
+        const s = (ms / 1000).toFixed(2);
+        return `${s} s`;
+      }
+
+      function apiUrl(path) {
+        return `${state.baseUrl}${path}`;
+      }
+
+      async function fetchJson(path) {
+        const res = await fetch(apiUrl(path));
+        if (!res.ok) {
+          throw new Error(`Request failed: ${res.status}`);
+        }
+        return res.json();
+      }
+
+      function renderRunList() {
+        runListEl.innerHTML = '';
+        if (!state.runs.length) {
+          runListEl.innerHTML = '<div class="empty">No runs yet.</div>';
+          return;
+        }
+        state.runs.forEach((run) => {
+          const card = document.createElement('div');
+          card.className = `run-card ${run.runId === state.selectedId ? 'active' : ''}`;
+          card.innerHTML = `
+            <div class="run-meta">
+              <span class="status ${run.status}">${run.status}</span>
+              <span>${formatDuration(run.durationMs || (Date.now() - run.startedAt))}</span>
+            </div>
+            <div><strong>${run.userTextPreview || 'No user text'}</strong></div>
+            <div class="run-meta">
+              <span>Run ${run.runId.slice(0, 8)}</span>
+              <span>Last ${formatTime(run.lastEventAt)}</span>
+            </div>
+          `;
+          card.addEventListener('click', () => {
+            state.selectedId = run.runId;
+            renderRunList();
+            loadRunDetail(run.runId);
+          });
+          runListEl.appendChild(card);
+        });
+      }
+
+      function renderRunDetail(run) {
+        if (!run) {
+          detailContent.innerHTML = '<div class="empty">Run not found.</div>';
+          return;
+        }
+
+        const detailHtml = `
+          <div class="detail-grid">
+            <div class="detail-card">
+              <h3>Status</h3>
+              <p>${run.status}</p>
+            </div>
+            <div class="detail-card">
+              <h3>Duration</h3>
+              <p>${formatDuration(run.durationMs || (Date.now() - run.startedAt))}</p>
+            </div>
+            <div class="detail-card">
+              <h3>Platform</h3>
+              <p>${run.platformKey || 'n/a'}</p>
+            </div>
+            <div class="detail-card">
+              <h3>Session</h3>
+              <p>${run.sessionId || 'n/a'}</p>
+            </div>
+            <div class="detail-card">
+              <h3>LLM Calls</h3>
+              <p>${run.llmCalls}</p>
+            </div>
+            <div class="detail-card">
+              <h3>Tool Calls</h3>
+              <p>${run.toolCalls}</p>
+            </div>
+            <div class="detail-card">
+              <h3>Compactions</h3>
+              <p>${run.compactions}</p>
+            </div>
+            <div class="detail-card">
+              <h3>Last Event</h3>
+              <p>${formatTime(run.lastEventAt)}</p>
+            </div>
+          </div>
+          <div style="margin-top:16px">
+            <div class="pill">Run ID: ${run.runId}</div>
+          </div>
+          <div style="margin-top:16px">
+            <h2>LLM Spans</h2>
+            ${renderLlmTable(run.llmSpans)}
+          </div>
+          <div style="margin-top:16px">
+            <h2>Tool Spans</h2>
+            ${renderToolTable(run.toolSpans)}
+          </div>
+          <div style="margin-top:16px">
+            <h2>Compactions</h2>
+            ${renderCompactions(run.compactionEvents)}
+          </div>
+        `;
+
+        detailContent.innerHTML = detailHtml;
+      }
+
+      function renderLlmTable(spans) {
+        if (!spans || !spans.length) {
+          return '<div class="empty">No LLM spans.</div>';
+        }
+        const rows = spans.map((span) => `
+          <tr>
+            <td>#${span.index}</td>
+            <td>${formatDuration(span.durationMs)}</td>
+            <td>${span.finishReason || 'n/a'}</td>
+            <td>${span.textLength ?? 'n/a'}</td>
+          </tr>
+        `).join('');
+
+        return `
+          <table>
+            <thead>
+              <tr>
+                <th>Index</th>
+                <th>Duration</th>
+                <th>Finish</th>
+                <th>Text Len</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        `;
+      }
+
+      function renderToolTable(spans) {
+        if (!spans || !spans.length) {
+          return '<div class="empty">No tool spans.</div>';
+        }
+        const rows = spans.map((span) => `
+          <tr>
+            <td>#${span.index}</td>
+            <td>${span.name}</td>
+            <td>${formatDuration(span.durationMs)}</td>
+            <td>${span.inputSize ?? 'n/a'}</td>
+            <td>${span.outputSize ?? 'n/a'}</td>
+            <td>${span.error ? `<span class="error">${span.error}</span>` : 'ok'}</td>
+          </tr>
+        `).join('');
+
+        return `
+          <table>
+            <thead>
+              <tr>
+                <th>Index</th>
+                <th>Name</th>
+                <th>Duration</th>
+                <th>Input</th>
+                <th>Output</th>
+                <th>Error</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        `;
+      }
+
+      function renderCompactions(events) {
+        if (!events || !events.length) {
+          return '<div class="empty">No compactions.</div>';
+        }
+        const rows = events.map((event) => `
+          <tr>
+            <td>#${event.attempt}</td>
+            <td>${event.trigger}</td>
+            <td>${event.reason || event.strategy}</td>
+            <td>${event.beforeEstimatedTokens} -> ${event.afterEstimatedTokens}</td>
+            <td>${event.beforeMessageCount} -> ${event.afterMessageCount}</td>
+          </tr>
+        `).join('');
+
+        return `
+          <table>
+            <thead>
+              <tr>
+                <th>Attempt</th>
+                <th>Trigger</th>
+                <th>Reason</th>
+                <th>Tokens</th>
+                <th>Messages</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        `;
+      }
+
+      async function loadRuns() {
+        listError.textContent = '';
+        try {
+          const data = await fetchJson('/runs?limit=60');
+          state.runs = data.runs || [];
+          if (!state.selectedId && state.runs.length) {
+            state.selectedId = state.runs[0].runId;
+          }
+          renderRunList();
+          if (state.selectedId) {
+            loadRunDetail(state.selectedId);
+          }
+        } catch (error) {
+          listError.textContent = error.message;
+        }
+      }
+
+      async function loadRunDetail(runId) {
+        try {
+          const data = await fetchJson(`/runs/${runId}`);
+          renderRunDetail(data.run);
+        } catch (error) {
+          detailContent.innerHTML = `<div class="error">${error.message}</div>`;
+        }
+      }
+
+      function setBaseUrl(value) {
+        state.baseUrl = value.trim().replace(/\/$/, '');
+        localStorage.setItem('devtoolsBaseUrl', state.baseUrl);
+      }
+
+      refreshBtn.addEventListener('click', () => loadRuns());
+      baseUrlInput.addEventListener('change', (e) => {
+        setBaseUrl(e.target.value);
+        loadRuns();
+      });
+
+      autoRefreshCheckbox.addEventListener('change', (e) => {
+        state.autoRefresh = e.target.checked;
+      });
+
+      setBaseUrl(baseUrlInput.value);
+      loadRuns();
+
+      setInterval(() => {
+        if (state.autoRefresh) {
+          loadRuns();
+        }
+      }, 2000);
+    </script>
+  </body>
+</html>

@@ -119,6 +119,7 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
 
   // Use pre-allocated streamId if the adapter set one (e.g. Web adapter), else generate
   const streamId = incoming.streamId ?? randomUUID();
+  const runId = randomUUID();
   const ac = new AbortController();
   setActiveRun(platformKey, { streamId, ac, startedAt: Date.now() });
 
@@ -128,6 +129,7 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
     handle = await adapter.createStreamHandle(incoming, streamId);
 
     const turn = await executeAgentTurn({
+      runId,
       platformKey,
       memoryKey,
       forceNewSession,

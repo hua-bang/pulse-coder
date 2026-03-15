@@ -5,6 +5,7 @@ import { cors } from 'hono/cors';
 import { feishuRouter } from './routes/feishu.js';
 import { discordRouter } from './routes/discord.js';
 import { internalRouter } from './routes/internal.js';
+import { devtoolsRouter } from './routes/devtools.js';
 
 export function createApp(): Hono {
   const app = new Hono();
@@ -25,6 +26,7 @@ export function createApp(): Hono {
   app.route('/internal', internalRouter);
 
   // Web REST + SSE routes
+  app.route('/api/devtools', devtoolsRouter);
   // app.route('/api', apiRouter);
 
   // 404 fallback
