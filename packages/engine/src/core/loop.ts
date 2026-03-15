@@ -259,6 +259,7 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
         toolExecutionContext,
         provider: options?.provider ?? (options?.modelType ? buildProvider(options.modelType) : undefined),
         model: options?.model,
+        modelType: options?.modelType,
         systemPrompt,
         onStepFinish: (step) => {
           options?.onStepFinish?.(step);

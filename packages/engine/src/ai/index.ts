@@ -2,7 +2,7 @@ import { generateText, streamText, tool, type ModelMessage, type StepResult, typ
 import { CoderAI, DEFAULT_MODEL, COMPACT_SUMMARY_MAX_TOKENS, COMPACT_SUMMARY_MODEL, OPENAI_REASONING_EFFORT } from '../config';
 import z from 'zod';
 import { generateSystemPrompt } from '../prompt';
-import type { Tool as CoderTool, ToolExecutionContext, LLMProviderFactory, SystemPromptOption } from '../shared/types';
+import type { Tool as CoderTool, ToolExecutionContext, LLMProviderFactory, SystemPromptOption, ModelType } from '../shared/types';
 
 
 const providerOptions = { openai: { store: false, reasoningEffort: OPENAI_REASONING_EFFORT } }
@@ -42,6 +42,8 @@ export interface StreamOptions {
   provider?: LLMProviderFactory;
   /** Model name to pass to the provider. Falls back to DEFAULT_MODEL when not set. */
   model?: string;
+  /** Provider type hint. When set to 'claude', system messages in history are consolidated. */
+  modelType?: ModelType;
   /** Custom system prompt. See SystemPromptOption for the three supported forms. */
   systemPrompt?: SystemPromptOption;
 }
@@ -80,17 +82,19 @@ export const streamTextAI = (messages: ModelMessage[], tools: Record<string, Cod
   // Extract system-role messages from history and merge into system prompt.
   // Anthropic does not allow multiple system messages interleaved with user/assistant turns.
   const extraSystemParts: string[] = [];
-  const filteredMessages = messages.filter((m) => {
-    if (m.role !== 'system') return true;
-    const raw = m.content as unknown;
-    const text = typeof raw === 'string'
-      ? raw
-      : Array.isArray(raw)
-        ? (raw as any[]).filter((p) => p.type === 'text').map((p) => p.text).join('\n')
-        : '';
-    if (text) extraSystemParts.push(text);
-    return false;
-  });
+  const filteredMessages = options?.modelType === 'claude'
+    ? messages.filter((m) => {
+        if (m.role !== 'system') return true;
+        const raw = m.content as unknown;
+        const text = typeof raw === 'string'
+          ? raw
+          : Array.isArray(raw)
+            ? (raw as any[]).filter((p) => p.type === 'text').map((p) => p.text).join('\n')
+            : '';
+        if (text) extraSystemParts.push(text);
+        return false;
+      })
+    : messages;
 
   const baseSystemPrompt = resolveSystemPrompt(options?.systemPrompt);
   const finalSystemPrompt = extraSystemParts.length > 0
