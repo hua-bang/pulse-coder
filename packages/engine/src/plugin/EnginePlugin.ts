@@ -42,7 +42,9 @@ export interface AfterLLMCallInput {
   text: string;
   usage?: any;
   timings?: {
+    requestStartAt?: number;
     firstChunkAt?: number;
+    firstTextAt?: number;
     lastChunkAt?: number;
   };
 }
