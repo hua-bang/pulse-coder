@@ -210,6 +210,9 @@ export async function sendTextMessage(
       content: JSON.stringify({ text }),
     },
   });
+  if (typeof res.code === 'number' && res.code !== 0) {
+    throw new Error(`Feishu send text failed: ${res.code} ${res.msg ?? 'unknown error'}`);
+  }
   return res.data?.message_id ?? '';
 }
 /**
@@ -230,6 +233,9 @@ export async function sendCardMessage(
       content: JSON.stringify(card),
     },
   });
+  if (typeof res.code === 'number' && res.code !== 0) {
+    throw new Error(`Feishu send card failed: ${res.code} ${res.msg ?? 'unknown error'}`);
+  }
   return res.data?.message_id ?? '';
 }
 
@@ -241,10 +247,13 @@ export async function updateCardMessage(
   messageId: string,
   card: object,
 ): Promise<void> {
-  await client.im.message.patch({
+  const res = await client.im.message.patch({
     path: { message_id: messageId },
     data: { content: JSON.stringify(card) },
   });
+  if (typeof res.code === 'number' && res.code !== 0) {
+    throw new Error(`Feishu update card failed: ${res.code} ${res.msg ?? 'unknown error'}`);
+  }
 }
 
 // ─── Card builders ────────────────────────────────────────────────────────────

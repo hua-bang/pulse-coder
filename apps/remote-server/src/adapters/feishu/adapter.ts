@@ -171,12 +171,36 @@ export class FeishuAdapter implements PlatformAdapter {
     let lastProgressUpdateAt = 0;
     let updateChain: Promise<void> = Promise.resolve();
     let finalized = false;
+    let cardUpdateFailed = false;
 
-    const queueCardUpdate = (cardFactory: () => object) => {
-      if (!cardMessageId || finalized) return;
+    const markCardFailed = (reason: string, err: unknown) => {
+      if (!cardMessageId || cardUpdateFailed) return;
+      console.error(`[feishu] Card update failed (${reason}):`, err);
+      cardUpdateFailed = true;
+      clearProgressState();
+    };
+
+    const tryUpdateCard = async (
+      cardFactory: () => object,
+      reason: string,
+      options?: { allowFinal?: boolean },
+    ): Promise<boolean> => {
+      if (!cardMessageId || cardUpdateFailed) return false;
+      if (finalized && !options?.allowFinal) return false;
+      try {
+        await updateCardMessage(larkClient, cardMessageId, cardFactory());
+        return true;
+      } catch (err) {
+        markCardFailed(reason, err);
+        return false;
+      }
+    };
+
+    const queueCardUpdate = (cardFactory: () => object, reason = 'progress') => {
+      if (!cardMessageId || finalized || cardUpdateFailed) return;
       updateChain = updateChain.then(async () => {
-        if (!cardMessageId || finalized) return;
-        await updateCardMessage(larkClient, cardMessageId, cardFactory()).catch(console.error);
+        if (!cardMessageId || finalized || cardUpdateFailed) return;
+        await tryUpdateCard(cardFactory, reason);
       });
     };
 
@@ -214,7 +238,7 @@ export class FeishuAdapter implements PlatformAdapter {
     };
 
     const scheduleProgressUpdate = (force = false) => {
-      if (!cardMessageId || finalized) return;
+      if (!cardMessageId || finalized || cardUpdateFailed) return;
 
       const now = Date.now();
       const elapsed = now - lastProgressUpdateAt;
@@ -229,11 +253,11 @@ export class FeishuAdapter implements PlatformAdapter {
       }
 
       lastProgressUpdateAt = now;
-      queueCardUpdate(() => buildProgressCard(renderProgressText()));
+      queueCardUpdate(() => buildProgressCard(renderProgressText()), 'progress');
     };
 
     const startHeartbeat = () => {
-      if (!cardMessageId || finalized || heartbeatHandle) return;
+      if (!cardMessageId || finalized || cardUpdateFailed || heartbeatHandle) return;
       heartbeatHandle = setInterval(() => {
         scheduleProgressUpdate(true);
       }, HEARTBEAT_INTERVAL_MS);
@@ -304,7 +328,16 @@ export class FeishuAdapter implements PlatformAdapter {
         await updateChain;
 
         if (cardMessageId) {
-          await updateCardMessage(larkClient, cardMessageId, buildDoneCard(result)).catch(console.error);
+          if (!cardUpdateFailed) {
+            const ok = await tryUpdateCard(() => buildDoneCard(result), 'done', { allowFinal: true });
+            if (ok) {
+              return;
+            }
+          }
+
+          await sendCardMessage(larkClient, chatId, idType, buildDoneCard(result)).catch((err) => {
+            console.error('[feishu] Failed to send done card fallback:', err);
+          });
         } else {
           await sendTextMessage(larkClient, chatId, idType, result || '✅ Done').catch(console.error);
         }
@@ -322,7 +355,16 @@ export class FeishuAdapter implements PlatformAdapter {
         await updateChain;
 
         if (cardMessageId) {
-          await updateCardMessage(larkClient, cardMessageId, buildErrorCard(err.message)).catch(console.error);
+          if (!cardUpdateFailed) {
+            const ok = await tryUpdateCard(() => buildErrorCard(err.message), 'error', { allowFinal: true });
+            if (ok) {
+              return;
+            }
+          }
+
+          await sendCardMessage(larkClient, chatId, idType, buildErrorCard(err.message)).catch((sendErr) => {
+            console.error('[feishu] Failed to send error card fallback:', sendErr);
+          });
         } else {
           await sendTextMessage(larkClient, chatId, idType, `❌ ${err.message}`).catch(console.error);
         }
@@ -374,4 +416,3 @@ function trimFeishuToolInput(value: string): string {
 
 
 export const feishuAdapter = new FeishuAdapter();
-
