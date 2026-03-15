@@ -23,6 +23,9 @@ interface LlmSpan {
   startedAt: number;
   endedAt?: number;
   durationMs?: number;
+  firstChunkAt?: number;
+  ttftMs?: number;
+  streamDurationMs?: number;
   finishReason?: string;
   textLength?: number;
   toolCalls?: Array<{
@@ -111,6 +114,8 @@ export default function App() {
   const [groupBy, setGroupBy] = useState<'none' | 'session'>('none');
   const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'finished'>('all');
   const [sortBy, setSortBy] = useState<'recent' | 'duration' | 'lastEvent'>('recent');
+  const [detailTab, setDetailTab] = useState<'llm' | 'plugins' | 'timeline'>('llm');
+  const [timelineRange, setTimelineRange] = useState({ from: 1, to: 1 });
 
   const apiBase = useMemo(() => sanitizeBaseUrl(baseUrl), [baseUrl]);
 
@@ -170,6 +175,15 @@ export default function App() {
       loadRunDetail(selectedId);
     }
   }, [selectedId, apiBase]);
+
+  useEffect(() => {
+    if (!selectedRun?.llmSpans?.length) {
+      setTimelineRange({ from: 1, to: 1 });
+      return;
+    }
+    const maxTurn = selectedRun.llmSpans.reduce((max, span) => Math.max(max, span.index), 1);
+    setTimelineRange({ from: 1, to: maxTurn });
+  }, [selectedRun?.runId]);
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -246,6 +260,10 @@ export default function App() {
     const llmSpans = selectedRun.llmSpans.filter((span) => span.durationMs !== undefined);
     const toolSpans = selectedRun.toolSpans.filter((span) => span.durationMs !== undefined);
     const pluginHooks = selectedRun.pluginHooks ?? [];
+    const compactionEvents = selectedRun.compactionEvents ?? [];
+    const maxTurn = selectedRun.llmSpans.reduce((max, span) => Math.max(max, span.index), 1);
+    const rangeFrom = Math.min(timelineRange.from, maxTurn);
+    const rangeTo = Math.max(rangeFrom, Math.min(timelineRange.to, maxTurn));
 
     const totalLlmTime = llmSpans.reduce((sum, span) => sum + (span.durationMs ?? 0), 0);
     const totalToolTime = toolSpans.reduce((sum, span) => sum + (span.durationMs ?? 0), 0);
@@ -254,6 +272,54 @@ export default function App() {
     const totalCacheWrite = selectedRun.llmSpans.reduce((sum, span) => sum + (span.cacheWriteTokens ?? 0), 0);
     const hasCacheRead = selectedRun.llmSpans.some((span) => span.cacheReadTokens !== undefined);
     const hasCacheWrite = selectedRun.llmSpans.some((span) => span.cacheWriteTokens !== undefined);
+
+    const toolTimeForSpan = (span: LlmSpan) => {
+      if (!span.startedAt || !span.endedAt) return 0;
+      return toolSpans.reduce((sum, tool) => {
+        if (!tool.startedAt || !tool.endedAt) return sum;
+        const overlaps = tool.startedAt >= span.startedAt && tool.endedAt <= span.endedAt;
+        if (!overlaps) return sum;
+        return sum + (tool.durationMs ?? Math.max(0, tool.endedAt - tool.startedAt));
+      }, 0);
+    };
+
+    const formatMetric = (value?: number) => (value !== undefined ? formatDuration(value) : 'n/a');
+
+    const llmWindows = selectedRun.llmSpans.map((span) => ({
+      index: span.index,
+      start: span.startedAt,
+      end: span.endedAt ?? now,
+    }));
+
+    const resolveTurn = (timestamp: number) => {
+      for (const span of llmWindows) {
+        if (timestamp >= span.start && timestamp <= span.end) {
+          return span.index;
+        }
+      }
+      const fallback = [...llmWindows].reverse().find((span) => timestamp >= span.start);
+      return fallback?.index;
+    };
+
+    const hookPriority = (hookName?: string) => {
+      if (!hookName) return 35;
+      if (hookName.startsWith('beforeRun')) return 0;
+      if (hookName.startsWith('onCompacted')) return 5;
+      if (hookName.startsWith('beforeLLMCall')) return 10;
+      if (hookName.startsWith('onToolCall')) return 25;
+      if (hookName.startsWith('beforeToolCall')) return 30;
+      if (hookName.startsWith('afterToolCall')) return 50;
+      if (hookName.startsWith('afterLLMCall')) return 60;
+      if (hookName.startsWith('afterRun')) return 70;
+      return 35;
+    };
+
+    const eventPriority = (event: { type: string; hookName?: string }) => {
+      if (event.type === 'llm') return 20;
+      if (event.type === 'tool') return 40;
+      if (event.type === 'hook') return hookPriority(event.hookName);
+      return 45;
+    };
 
     const slowestLlm = llmSpans.reduce<LlmSpan | null>((acc, span) => {
       if (!acc || (span.durationMs ?? 0) > (acc.durationMs ?? 0)) {
@@ -293,31 +359,103 @@ export default function App() {
     const runStart = selectedRun.startedAt;
     const runEnd = selectedRun.endedAt ?? now;
     const runDuration = Math.max(1, runEnd - runStart);
-    const timelineEvents = [
-      ...selectedRun.llmSpans.map((span) => ({
-        type: 'llm' as const,
-        label: `LLM #${span.index}`,
-        start: span.startedAt,
-        end: span.endedAt ?? now,
-        duration: span.durationMs ?? Math.max(0, now - span.startedAt),
-      })),
+    const timelineLlmTool = [
+      ...selectedRun.llmSpans.map((span) => {
+        const ttft =
+          span.ttftMs ??
+          (span.firstChunkAt && span.startedAt ? Math.max(0, span.firstChunkAt - span.startedAt) : undefined);
+        const stream =
+          span.streamDurationMs ??
+          (span.firstChunkAt && span.endedAt ? Math.max(0, span.endedAt - span.firstChunkAt) : undefined);
+        const toolTime = toolTimeForSpan(span);
+        const toolWait = span.durationMs !== undefined ? Math.max(0, (span.durationMs ?? 0) - toolTime) : undefined;
+        const tooltip = [
+          `TTFT: ${formatMetric(ttft)}`,
+          `Stream: ${formatMetric(stream)}`,
+          `Tool wait: ${formatMetric(toolWait)}`,
+          `Tool exec: ${formatMetric(toolTime)}`,
+        ].join('\n');
+
+        return {
+          type: 'llm' as const,
+          label: `LLM #${span.index}`,
+          start: span.startedAt,
+          end: span.endedAt ?? now,
+          duration: span.durationMs ?? Math.max(0, now - span.startedAt),
+          turn: span.index,
+          tooltip,
+          priority: 20,
+        };
+      }),
       ...selectedRun.toolSpans.map((span) => ({
         type: 'tool' as const,
         label: span.name,
         start: span.startedAt,
         end: span.endedAt ?? now,
         duration: span.durationMs ?? Math.max(0, now - span.startedAt),
+        turn: resolveTurn(span.startedAt),
+        priority: 40,
       })),
-      ...pluginHooks.map((hook, idx) => ({
+    ]
+      .filter((event) => Number.isFinite(event.start) && Number.isFinite(event.end))
+      .sort((a, b) => (a.start !== b.start ? a.start - b.start : (a.priority ?? 0) - (b.priority ?? 0)));
+
+    const timelineHooks = pluginHooks
+      .map((hook, idx) => ({
         type: 'hook' as const,
         label: `${hook.pluginName}.${hook.hookName} #${idx + 1}`,
         start: hook.startedAt,
         end: hook.startedAt + hook.durationMs,
         duration: hook.durationMs,
-      })),
-    ]
+        turn: resolveTurn(hook.startedAt),
+        hookName: hook.hookName,
+        priority: hookPriority(hook.hookName),
+      }))
       .filter((event) => Number.isFinite(event.start) && Number.isFinite(event.end))
-      .sort((a, b) => a.start - b.start);
+      .sort((a, b) => (a.start !== b.start ? a.start - b.start : (a.priority ?? 0) - (b.priority ?? 0)));
+
+    const timelineAll = [...timelineLlmTool, ...timelineHooks].sort((a, b) => {
+      if (a.start !== b.start) return a.start - b.start;
+      return eventPriority(a) - eventPriority(b);
+    });
+    const filterByTurn = <T extends { turn?: number }>(events: T[]) =>
+      events.filter((event) => {
+        if (!event.turn || event.turn < 1) {
+          return rangeFrom <= 1;
+        }
+        return event.turn >= rangeFrom && event.turn <= rangeTo;
+      });
+
+    const buildTimelineRows = <T extends { turn?: number; type: string; start: number; label: string }>(events: T[]) => {
+      const grouped = new Map<number, T[]>();
+      for (const event of events) {
+        const key = event.turn && event.turn > 0 ? event.turn : 0;
+        const bucket = grouped.get(key) ?? [];
+        bucket.push(event);
+        grouped.set(key, bucket);
+      }
+      const rows: Array<
+        | { type: 'separator'; key: string; label: string }
+        | { type: 'event'; key: string; event: T }
+      > = [];
+      const turnKeys = Array.from(grouped.keys()).sort((a, b) => a - b);
+      for (const turnKey of turnKeys) {
+        const label = turnKey === 0 ? 'Pre-run' : `Turn T${turnKey}`;
+        rows.push({ type: 'separator', key: `sep-${turnKey}`, label });
+        const bucket = grouped.get(turnKey) ?? [];
+        for (const event of bucket) {
+          rows.push({ type: 'event', key: `${event.type}-${event.start}-${event.label}`, event });
+        }
+      }
+      return rows;
+    };
+
+    const timelineAllFiltered = filterByTurn(timelineAll);
+    const timelineRows = buildTimelineRows(timelineAllFiltered);
+    const timelineLlmToolFiltered = filterByTurn(timelineLlmTool);
+    const timelineLlmToolRows = buildTimelineRows(timelineLlmToolFiltered);
+    const timelineHooksFiltered = filterByTurn(timelineHooks);
+    const timelineHookRows = buildTimelineRows(timelineHooksFiltered);
 
     const gapEvents: Array<{
       start: number;
@@ -328,7 +466,7 @@ export default function App() {
     }> = [];
     let lastEnd = runStart;
     let lastLabel = 'Run start';
-    for (const event of timelineEvents) {
+    for (const event of timelineLlmTool) {
       if (event.start > lastEnd) {
         gapEvents.push({
           start: lastEnd,
@@ -358,7 +496,42 @@ export default function App() {
     const totalGapTime = gapEvents.reduce((sum, gap) => sum + gap.duration, 0);
     const largestGap = topGaps[0];
 
-    return (
+    const gapAllEvents: Array<{
+      start: number;
+      end: number;
+      duration: number;
+      before: string;
+      after: string;
+    }> = [];
+    let lastAllEnd = runStart;
+    let lastAllLabel = 'Run start';
+    for (const event of timelineAll) {
+      if (event.start > lastAllEnd) {
+        gapAllEvents.push({
+          start: lastAllEnd,
+          end: event.start,
+          duration: event.start - lastAllEnd,
+          before: lastAllLabel,
+          after: event.label,
+        });
+      }
+      if (event.end > lastAllEnd) {
+        lastAllEnd = event.end;
+        lastAllLabel = event.label;
+      }
+    }
+    if (runEnd > lastAllEnd) {
+      gapAllEvents.push({
+        start: lastAllEnd,
+        end: runEnd,
+        duration: runEnd - lastAllEnd,
+        before: lastAllLabel,
+        after: 'Run end',
+      });
+    }
+    const topAllGaps = [...gapAllEvents].sort((a, b) => b.duration - a.duration).slice(0, 5);
+
+      return (
       <div className="detail">
         <div className="detail-grid">
           <InfoCard label="Status" value={selectedRun.status} />
@@ -384,191 +557,235 @@ export default function App() {
           ) : null}
         </div>
 
-        <section className="section">
-          <h2>Bottlenecks</h2>
-          <div className="hot-grid">
-            <div className="hot-card">
-              <div className="hot-label">Slowest LLM span</div>
-              <div className="hot-value">
-                {slowestLlm ? `#${slowestLlm.index} · ${formatDuration(slowestLlm.durationMs)}` : 'n/a'}
-              </div>
-            </div>
-            <div className="hot-card">
-              <div className="hot-label">Slowest tool call</div>
-              <div className="hot-value">
-                {slowestTool ? `${slowestTool.name} · ${formatDuration(slowestTool.durationMs)}` : 'n/a'}
-              </div>
-            </div>
-            <div className="hot-card">
-              <div className="hot-label">Total LLM time</div>
-              <div className="hot-value">{formatDuration(totalLlmTime)}</div>
-            </div>
-            <div className="hot-card">
-              <div className="hot-label">Total tool time</div>
-              <div className="hot-value">{formatDuration(totalToolTime)}</div>
-            </div>
-            <div className="hot-card">
-              <div className="hot-label">Slowest hook</div>
-              <div className="hot-value">
-                {slowestHook ? `${slowestHook.pluginName}.${slowestHook.hookName} · ${formatDuration(slowestHook.durationMs)}` : 'n/a'}
-              </div>
-            </div>
-            <div className="hot-card">
-              <div className="hot-label">Total hook time</div>
-              <div className="hot-value">{formatDuration(totalHookTime)}</div>
-            </div>
-            <div className="hot-card">
-              <div className="hot-label">Idle gaps total</div>
-              <div className="hot-value">{formatDuration(totalGapTime)}</div>
-            </div>
-            <div className="hot-card">
-              <div className="hot-label">Largest idle gap</div>
-              <div className="hot-value">
-                {largestGap ? `${formatDuration(largestGap.duration)} · ${formatTime(largestGap.start)}` : 'n/a'}
-              </div>
-            </div>
-          </div>
+        <div className="detail-tabs">
+          <button
+            className={`tab-button ${detailTab === 'llm' ? 'active' : ''}`}
+            onClick={() => setDetailTab('llm')}
+          >
+            LLM & Tools
+          </button>
+          <button
+            className={`tab-button ${detailTab === 'timeline' ? 'active' : ''}`}
+            onClick={() => setDetailTab('timeline')}
+          >
+            Timeline
+          </button>
+          <button
+            className={`tab-button ${detailTab === 'plugins' ? 'active' : ''}`}
+            onClick={() => setDetailTab('plugins')}
+          >
+            Engine Plugins
+          </button>
+        </div>
 
-          <div className="bar-block">
-            <div className="bar-title">Top LLM spans</div>
-            {topLlm.length ? (
-              topLlm.map((span) => (
-                <div key={`llm-${span.index}`} className="bar-row">
-                  <div className="bar-label">LLM #{span.index}</div>
-                  <div className="bar-track">
-                    <div
-                      className="bar-fill"
-                      style={{ width: `${Math.max(6, ((span.durationMs ?? 0) / (maxLlm || 1)) * 100)}%` }}
-                    />
+        {detailTab === 'llm' ? (
+          <>
+            <section className="section">
+              <h2>Bottlenecks</h2>
+              <div className="hot-grid">
+                <div className="hot-card">
+                  <div className="hot-label">Slowest LLM span</div>
+                  <div className="hot-value">
+                    {slowestLlm ? `#${slowestLlm.index} · ${formatDuration(slowestLlm.durationMs)}` : 'n/a'}
                   </div>
-                  <div className="bar-value">{formatDuration(span.durationMs)}</div>
                 </div>
-              ))
-            ) : (
-              <div className="empty">No LLM spans yet.</div>
-            )}
-          </div>
-
-          <div className="bar-block">
-            <div className="bar-title">Top tool calls</div>
-            {topTool.length ? (
-              topTool.map((span) => (
-                <div key={`tool-${span.index}`} className="bar-row">
-                  <div className="bar-label">{span.name}</div>
-                  <div className="bar-track">
-                    <div
-                      className="bar-fill"
-                      style={{ width: `${Math.max(6, ((span.durationMs ?? 0) / (maxTool || 1)) * 100)}%` }}
-                    />
+                <div className="hot-card">
+                  <div className="hot-label">Slowest tool call</div>
+                  <div className="hot-value">
+                    {slowestTool ? `${slowestTool.name} · ${formatDuration(slowestTool.durationMs)}` : 'n/a'}
                   </div>
-                  <div className="bar-value">{formatDuration(span.durationMs)}</div>
                 </div>
-              ))
-            ) : (
-              <div className="empty">No tool calls yet.</div>
-            )}
-          </div>
-
-          <div className="bar-block">
-            <div className="bar-title">Top plugin hooks</div>
-            {topHooks.length ? (
-              topHooks.map((hook, idx) => (
-                <div key={`hook-${idx}`} className="bar-row">
-                  <div className="bar-label">{hook.pluginName}.{hook.hookName}</div>
-                  <div className="bar-track">
-                    <div
-                      className="bar-fill"
-                      style={{ width: `${Math.max(6, (hook.durationMs / (maxHook || 1)) * 100)}%` }}
-                    />
+                <div className="hot-card">
+                  <div className="hot-label">Total LLM time</div>
+                  <div className="hot-value">{formatDuration(totalLlmTime)}</div>
+                </div>
+                <div className="hot-card">
+                  <div className="hot-label">Total tool time</div>
+                  <div className="hot-value">{formatDuration(totalToolTime)}</div>
+                </div>
+                <div className="hot-card">
+                  <div className="hot-label">Idle gaps total</div>
+                  <div className="hot-value">{formatDuration(totalGapTime)}</div>
+                </div>
+                <div className="hot-card">
+                  <div className="hot-label">Largest idle gap</div>
+                  <div className="hot-value">
+                    {largestGap ? `${formatDuration(largestGap.duration)} · ${formatTime(largestGap.start)}` : 'n/a'}
                   </div>
-                  <div className="bar-value">{formatDuration(hook.durationMs)}</div>
                 </div>
-              ))
-            ) : (
-              <div className="empty">No hook timings yet.</div>
-            )}
-          </div>
-        </section>
+              </div>
 
-        {selectedRun.userText ? (
-          <section className="section">
-            <h2>User Text</h2>
-            <div className="mono-block">{selectedRun.userText}</div>
-          </section>
-        ) : null}
-
-        {selectedRun.resultTextPreview ? (
-          <section className="section">
-            <h2>Result Preview</h2>
-            <div className="mono-block">{selectedRun.resultTextPreview}</div>
-          </section>
-        ) : null}
-
-        <section className="section">
-          <h2>Timeline</h2>
-          {timelineEvents.length ? (
-            <div className="timeline">
-              {timelineEvents.map((event, idx) => {
-                const left = ((event.start - runStart) / runDuration) * 100;
-                const width = ((event.end - event.start) / runDuration) * 100;
-                return (
-                  <div key={`${event.type}-${idx}`} className={`timeline-row ${event.type}`}>
-                    <div className="timeline-label">{event.label}</div>
-                    <div className="timeline-track">
-                      <div
-                        className="timeline-bar"
-                        style={{ left: `${Math.max(0, left)}%`, width: `${Math.max(2, width)}%` }}
-                      />
+              <div className="bar-block">
+                <div className="bar-title">Top LLM spans</div>
+                {topLlm.length ? (
+                  topLlm.map((span) => (
+                    <div key={`llm-${span.index}`} className="bar-row">
+                      <div className="bar-label">LLM #{span.index}</div>
+                      <div className="bar-track">
+                        <div
+                          className="bar-fill"
+                          style={{ width: `${Math.max(6, ((span.durationMs ?? 0) / (maxLlm || 1)) * 100)}%` }}
+                        />
+                      </div>
+                      <div className="bar-value">{formatDuration(span.durationMs)}</div>
                     </div>
-                    <div className="timeline-value">{formatDuration(event.duration)}</div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="empty">No timeline data yet.</div>
-          )}
-        </section>
+                  ))
+                ) : (
+                  <div className="empty">No LLM spans yet.</div>
+                )}
+              </div>
 
-        <section className="section">
-          <h2>Stall Analysis</h2>
-          {topGaps.length ? (
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Gap</th>
-                    <th>Start</th>
-                    <th>Between</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topGaps.map((gap, idx) => (
-                    <tr key={`${gap.start}-${idx}`}>
-                      <td>{formatDuration(gap.duration)}</td>
-                      <td>{formatTime(gap.start)}</td>
-                      <td>
-                        {gap.before} → {gap.after}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="empty">No idle gaps detected.</div>
-          )}
-        </section>
+              <div className="bar-block">
+                <div className="bar-title">Top tool calls</div>
+                {topTool.length ? (
+                  topTool.map((span) => (
+                    <div key={`tool-${span.index}`} className="bar-row">
+                      <div className="bar-label">{span.name}</div>
+                      <div className="bar-track">
+                        <div
+                          className="bar-fill"
+                          style={{ width: `${Math.max(6, ((span.durationMs ?? 0) / (maxTool || 1)) * 100)}%` }}
+                        />
+                      </div>
+                      <div className="bar-value">{formatDuration(span.durationMs)}</div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="empty">No tool calls yet.</div>
+                )}
+              </div>
+            </section>
 
-        <section className="section">
-          <h2>LLM Spans</h2>
-          {selectedRun.llmSpans.length ? (
-            <div className="table-scroll">
-              <table>
+            {selectedRun.userText ? (
+              <section className="section">
+                <h2>User Text</h2>
+                <div className="mono-block">{selectedRun.userText}</div>
+              </section>
+            ) : null}
+
+            {selectedRun.resultTextPreview ? (
+              <section className="section">
+                <h2>Result Preview</h2>
+                <div className="mono-block">{selectedRun.resultTextPreview}</div>
+              </section>
+            ) : null}
+
+            <section className="section">
+              <h2>Timeline</h2>
+              {maxTurn > 1 ? (
+                <div className="timeline-filter">
+                  <label>
+                    From
+                    <select
+                      value={rangeFrom}
+                      onChange={(event) =>
+                        setTimelineRange((current) => ({
+                          ...current,
+                          from: Number(event.target.value),
+                        }))
+                      }
+                    >
+                      {Array.from({ length: maxTurn }, (_, idx) => idx + 1).map((turn) => (
+                        <option key={`llm-from-${turn}`} value={turn}>
+                          T{turn}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    To
+                    <select
+                      value={rangeTo}
+                      onChange={(event) =>
+                        setTimelineRange((current) => ({
+                          ...current,
+                          to: Number(event.target.value),
+                        }))
+                      }
+                    >
+                      {Array.from({ length: maxTurn }, (_, idx) => idx + 1).map((turn) => (
+                        <option key={`llm-to-${turn}`} value={turn}>
+                          T{turn}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              ) : null}
+              {timelineLlmToolFiltered.length ? (
+                <div className="timeline">
+                  {timelineLlmToolRows.map((row) => {
+                    if (row.type === 'separator') {
+                      return (
+                        <div key={row.key} className="timeline-divider">
+                          <span>{row.label}</span>
+                        </div>
+                      );
+                    }
+                    const event = row.event;
+                    const left = ((event.start - runStart) / runDuration) * 100;
+                    const width = ((event.end - event.start) / runDuration) * 100;
+                    return (
+                      <div key={row.key} className={`timeline-row ${event.type}`}>
+                        <div className="timeline-label">{event.label}</div>
+                        <div className="timeline-track" data-tooltip={event.tooltip}>
+                          <div
+                            className="timeline-bar"
+                            style={{ left: `${Math.max(0, left)}%`, width: `${Math.max(2, width)}%` }}
+                          />
+                        </div>
+                        <div className="timeline-value">{formatDuration(event.duration)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="empty">No timeline data yet.</div>
+              )}
+            </section>
+
+            <section className="section">
+              <h2>Stall Analysis</h2>
+              {topGaps.length ? (
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Gap</th>
+                        <th>Start</th>
+                        <th>Between</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {topGaps.map((gap, idx) => (
+                        <tr key={`${gap.start}-${idx}`}>
+                          <td>{formatDuration(gap.duration)}</td>
+                          <td>{formatTime(gap.start)}</td>
+                          <td>
+                            {gap.before} → {gap.after}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="empty">No idle gaps detected.</div>
+              )}
+            </section>
+
+            <section className="section">
+              <h2>LLM Spans</h2>
+              {selectedRun.llmSpans.length ? (
+                <div className="table-scroll">
+                  <table>
                 <thead>
                   <tr>
                     <th>Index</th>
                     <th>Duration</th>
+                    <th>TTFT</th>
+                    <th>Stream</th>
+                    <th>Tool Wait</th>
                     <th>Finish</th>
                     <th>Text Len</th>
                     <th>Input Tok</th>
@@ -579,10 +796,24 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedRun.llmSpans.map((span) => (
+                  {selectedRun.llmSpans.map((span) => {
+                    const ttft =
+                      span.ttftMs ??
+                      (span.firstChunkAt && span.startedAt ? Math.max(0, span.firstChunkAt - span.startedAt) : undefined);
+                    const stream =
+                      span.streamDurationMs ??
+                      (span.firstChunkAt && span.endedAt ? Math.max(0, span.endedAt - span.firstChunkAt) : undefined);
+                    const toolTime = toolTimeForSpan(span);
+                    const toolWait =
+                      span.durationMs !== undefined ? Math.max(0, (span.durationMs ?? 0) - toolTime) : undefined;
+
+                    return (
                     <tr key={span.index}>
                       <td>#{span.index}</td>
                       <td>{formatDuration(span.durationMs)}</td>
+                      <td>{ttft !== undefined ? formatDuration(ttft) : 'n/a'}</td>
+                      <td>{stream !== undefined ? formatDuration(stream) : 'n/a'}</td>
+                      <td>{toolWait !== undefined ? formatDuration(toolWait) : 'n/a'}</td>
                       <td>{span.finishReason || 'n/a'}</td>
                       <td>{span.textLength ?? 'n/a'}</td>
                       <td>{span.inputTokens ?? 'n/a'}</td>
@@ -599,114 +830,346 @@ export default function App() {
                           : '—'}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           ) : (
-            <div className="empty">No LLM spans.</div>
-          )}
-        </section>
+                <div className="empty">No LLM spans.</div>
+              )}
+            </section>
 
-        <section className="section">
-          <h2>Tool Spans</h2>
-          {selectedRun.toolSpans.length ? (
+            <section className="section">
+              <h2>Tool Spans</h2>
+              {selectedRun.toolSpans.length ? (
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Index</th>
+                        <th>Name</th>
+                        <th>Duration</th>
+                        <th>Input</th>
+                        <th>Output</th>
+                        <th>Error</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedRun.toolSpans.map((span) => (
+                        <tr key={span.index}>
+                          <td>#{span.index}</td>
+                          <td>{span.name}</td>
+                          <td>{formatDuration(span.durationMs)}</td>
+                          <td>{span.inputSize ?? 'n/a'}</td>
+                          <td>{span.outputSize ?? 'n/a'}</td>
+                          <td>{span.error ? <span className="error">{span.error}</span> : 'ok'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="empty">No tool spans.</div>
+              )}
+            </section>
+          </>
+        ) : detailTab === 'timeline' ? (
+          <>
+            <section className="section">
+              <h2>Summary Timeline</h2>
+              <div className="legend">
+                <span className="legend-item">
+                  <span className="legend-swatch swatch-llm" /> LLM
+                </span>
+                <span className="legend-item">
+                  <span className="legend-swatch swatch-tool" /> Tool
+                </span>
+                <span className="legend-item">
+                  <span className="legend-swatch swatch-hook" /> Plugin Hook
+                </span>
+              </div>
+              {maxTurn > 1 ? (
+                <div className="timeline-filter">
+                  <label>
+                    From
+                    <select
+                      value={rangeFrom}
+                      onChange={(event) =>
+                        setTimelineRange((current) => ({
+                          ...current,
+                          from: Number(event.target.value),
+                        }))
+                      }
+                    >
+                      {Array.from({ length: maxTurn }, (_, idx) => idx + 1).map((turn) => (
+                        <option key={`from-${turn}`} value={turn}>
+                          T{turn}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    To
+                    <select
+                      value={rangeTo}
+                      onChange={(event) =>
+                        setTimelineRange((current) => ({
+                          ...current,
+                          to: Number(event.target.value),
+                        }))
+                      }
+                    >
+                      {Array.from({ length: maxTurn }, (_, idx) => idx + 1).map((turn) => (
+                        <option key={`to-${turn}`} value={turn}>
+                          T{turn}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              ) : null}
+              {timelineAll.length ? (
+                <div className="timeline">
+                  {timelineRows.map((row) => {
+                    if (row.type === 'separator') {
+                      return (
+                        <div key={row.key} className="timeline-divider">
+                          <span>{row.label}</span>
+                        </div>
+                      );
+                    }
+                    const event = row.event;
+                    const left = ((event.start - runStart) / runDuration) * 100;
+                    const width = ((event.end - event.start) / runDuration) * 100;
+                    return (
+                      <div key={row.key} className={`timeline-row ${event.type}`}>
+                        <div className="timeline-label">{event.label}</div>
+                        <div className="timeline-track" data-tooltip={event.tooltip}>
+                          <div
+                            className="timeline-bar"
+                            style={{ left: `${Math.max(0, left)}%`, width: `${Math.max(2, width)}%` }}
+                          />
+                        </div>
+                        <div className="timeline-value">{formatDuration(event.duration)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="empty">No timeline data yet.</div>
+              )}
+            </section>
+
+            <section className="section">
+              <h2>Idle Gaps (All)</h2>
+              {topAllGaps.length ? (
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Gap</th>
+                        <th>Start</th>
+                        <th>Between</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {topAllGaps.map((gap, idx) => (
+                        <tr key={`${gap.start}-${idx}`}>
+                          <td>{formatDuration(gap.duration)}</td>
+                          <td>{formatTime(gap.start)}</td>
+                          <td>
+                            {gap.before} → {gap.after}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="empty">No idle gaps detected.</div>
+              )}
+            </section>
+          </>
+        ) : (
+          <>
+            <section className="section">
+              <h2>Plugin Bottlenecks</h2>
+              <div className="hot-grid">
+                <div className="hot-card">
+                  <div className="hot-label">Slowest hook</div>
+                  <div className="hot-value">
+                    {slowestHook ? `${slowestHook.pluginName}.${slowestHook.hookName} · ${formatDuration(slowestHook.durationMs)}` : 'n/a'}
+                  </div>
+                </div>
+                <div className="hot-card">
+                  <div className="hot-label">Total hook time</div>
+                  <div className="hot-value">{formatDuration(totalHookTime)}</div>
+                </div>
+              </div>
+
+              <div className="bar-block">
+                <div className="bar-title">Top plugin hooks</div>
+                {topHooks.length ? (
+                  topHooks.map((hook, idx) => (
+                    <div key={`hook-${idx}`} className="bar-row">
+                      <div className="bar-label">{hook.pluginName}.{hook.hookName}</div>
+                      <div className="bar-track">
+                        <div
+                          className="bar-fill"
+                          style={{ width: `${Math.max(6, (hook.durationMs / (maxHook || 1)) * 100)}%` }}
+                        />
+                      </div>
+                      <div className="bar-value">{formatDuration(hook.durationMs)}</div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="empty">No hook timings yet.</div>
+                )}
+              </div>
+            </section>
+
+            <section className="section">
+              <h2>Hook Timeline</h2>
+              {maxTurn > 1 ? (
+                <div className="timeline-filter">
+                  <label>
+                    From
+                    <select
+                      value={rangeFrom}
+                      onChange={(event) =>
+                        setTimelineRange((current) => ({
+                          ...current,
+                          from: Number(event.target.value),
+                        }))
+                      }
+                    >
+                      {Array.from({ length: maxTurn }, (_, idx) => idx + 1).map((turn) => (
+                        <option key={`hook-from-${turn}`} value={turn}>
+                          T{turn}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    To
+                    <select
+                      value={rangeTo}
+                      onChange={(event) =>
+                        setTimelineRange((current) => ({
+                          ...current,
+                          to: Number(event.target.value),
+                        }))
+                      }
+                    >
+                      {Array.from({ length: maxTurn }, (_, idx) => idx + 1).map((turn) => (
+                        <option key={`hook-to-${turn}`} value={turn}>
+                          T{turn}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              ) : null}
+              {timelineHooksFiltered.length ? (
+                <div className="timeline">
+                  {timelineHookRows.map((row) => {
+                    if (row.type === 'separator') {
+                      return (
+                        <div key={row.key} className="timeline-divider">
+                          <span>{row.label}</span>
+                        </div>
+                      );
+                    }
+                    const event = row.event;
+                    const left = ((event.start - runStart) / runDuration) * 100;
+                    const width = ((event.end - event.start) / runDuration) * 100;
+                    return (
+                      <div key={row.key} className={`timeline-row ${event.type}`}>
+                        <div className="timeline-label">{event.label}</div>
+                        <div className="timeline-track">
+                          <div
+                            className="timeline-bar"
+                            style={{ left: `${Math.max(0, left)}%`, width: `${Math.max(2, width)}%` }}
+                          />
+                        </div>
+                        <div className="timeline-value">{formatDuration(event.duration)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="empty">No hook timeline data yet.</div>
+              )}
+            </section>
+
+            <section className="section">
+              <h2>Plugin Hooks</h2>
+          {pluginHooks.length ? (
             <div className="table-scroll">
               <table>
-                <thead>
-                  <tr>
-                    <th>Index</th>
-                    <th>Name</th>
-                    <th>Duration</th>
-                    <th>Input</th>
-                    <th>Output</th>
-                    <th>Error</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedRun.toolSpans.map((span) => (
-                    <tr key={span.index}>
-                      <td>#{span.index}</td>
-                      <td>{span.name}</td>
-                      <td>{formatDuration(span.durationMs)}</td>
-                      <td>{span.inputSize ?? 'n/a'}</td>
-                      <td>{span.outputSize ?? 'n/a'}</td>
-                      <td>{span.error ? <span className="error">{span.error}</span> : 'ok'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="empty">No tool spans.</div>
-          )}
-        </section>
-
-        <section className="section">
-          <h2>Plugin Hooks</h2>
-          {selectedRun.pluginHooks.length ? (
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Plugin</th>
-                    <th>Hook</th>
-                    <th>Duration</th>
-                    <th>Start</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedRun.pluginHooks.map((hook, idx) => (
+                    <thead>
+                      <tr>
+                        <th>Plugin</th>
+                        <th>Hook</th>
+                        <th>Duration</th>
+                        <th>Start</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                  {pluginHooks.map((hook, idx) => (
                     <tr key={`${hook.pluginName}-${hook.hookName}-${idx}`}>
                       <td>{hook.pluginName}</td>
                       <td>{hook.hookName}</td>
-                      <td>{formatDuration(hook.durationMs)}</td>
-                      <td>{formatTime(hook.startedAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="empty">No plugin hooks.</div>
-          )}
-        </section>
+                          <td>{formatDuration(hook.durationMs)}</td>
+                          <td>{formatTime(hook.startedAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="empty">No plugin hooks.</div>
+              )}
+            </section>
 
-        <section className="section">
-          <h2>Compactions</h2>
-          {selectedRun.compactionEvents.length ? (
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Attempt</th>
-                    <th>Trigger</th>
-                    <th>Reason</th>
-                    <th>Tokens</th>
-                    <th>Messages</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedRun.compactionEvents.map((event) => (
-                    <tr key={`${event.attempt}-${event.at}`}>
-                      <td>#{event.attempt}</td>
-                      <td>{event.trigger}</td>
-                      <td>{event.reason || event.strategy}</td>
-                      <td>
-                        {event.beforeEstimatedTokens} → {event.afterEstimatedTokens}
-                      </td>
-                      <td>
-                        {event.beforeMessageCount} → {event.afterMessageCount}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="empty">No compactions.</div>
-          )}
-        </section>
+          <section className="section">
+              <h2>Compactions</h2>
+              {compactionEvents.length ? (
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Attempt</th>
+                        <th>Trigger</th>
+                        <th>Reason</th>
+                        <th>Tokens</th>
+                        <th>Messages</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {compactionEvents.map((event) => (
+                        <tr key={`${event.attempt}-${event.at}`}>
+                          <td>#{event.attempt}</td>
+                          <td>{event.trigger}</td>
+                          <td>{event.reason || event.strategy}</td>
+                          <td>
+                            {event.beforeEstimatedTokens} → {event.afterEstimatedTokens}
+                          </td>
+                          <td>
+                            {event.beforeMessageCount} → {event.afterMessageCount}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="empty">No compactions.</div>
+              )}
+            </section>
+          </>
+        )}
       </div>
     );
   };
@@ -863,7 +1326,7 @@ export default function App() {
           {listError ? <div className="error">{listError}</div> : null}
         </section>
 
-        <section className="panel">
+        <section className="panel panel-detail">
           <h2>Details</h2>
           {renderDetail()}
         </section>

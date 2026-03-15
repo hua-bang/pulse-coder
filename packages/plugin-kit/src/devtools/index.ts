@@ -28,6 +28,9 @@ export interface DevtoolsLlmSpan {
   startedAt: number;
   endedAt?: number;
   durationMs?: number;
+  firstChunkAt?: number;
+  ttftMs?: number;
+  streamDurationMs?: number;
   finishReason?: string;
   textLength?: number;
   inputTokens?: number;
@@ -381,7 +384,13 @@ export class DevtoolsStore {
     this.touch(record, timestamp);
   }
 
-  recordLLMEnd(runId: string, finishReason?: string, text?: string, usage?: any): void {
+  recordLLMEnd(
+    runId: string,
+    finishReason?: string,
+    text?: string,
+    usage?: any,
+    timings?: { firstChunkAt?: number; lastChunkAt?: number },
+  ): void {
     const record = this.runs.get(runId);
     if (!record) {
       return;
@@ -393,6 +402,11 @@ export class DevtoolsStore {
     }
     span.endedAt = timestamp;
     span.durationMs = Math.max(0, timestamp - span.startedAt);
+    if (timings?.firstChunkAt && Number.isFinite(timings.firstChunkAt)) {
+      span.firstChunkAt = timings.firstChunkAt;
+      span.ttftMs = Math.max(0, timings.firstChunkAt - span.startedAt);
+      span.streamDurationMs = Math.max(0, timestamp - timings.firstChunkAt);
+    }
     span.finishReason = finishReason;
     span.textLength = typeof text === 'string' ? text.length : undefined;
     const usageTokens = extractUsageTokens(usage);
@@ -736,7 +750,7 @@ export function createDevtoolsIntegration(options: DevtoolsIntegrationOptions = 
       context.registerHook('afterLLMCall', (input) => {
         const runId = runIdByContext.get(input.context);
         if (runId) {
-          store.recordLLMEnd(runId, input.finishReason, input.text, input.usage);
+          store.recordLLMEnd(runId, input.finishReason, input.text, input.usage, input.timings);
         }
       });
 
