@@ -14,6 +14,8 @@ export interface DevtoolsRunSummary {
   updatedAt: number;
   lastEventAt: number;
   durationMs?: number;
+  pluginName?: string;
+  pluginVersion?: string;
   sessionId?: string;
   platformKey?: string;
   caller?: string;
@@ -97,6 +99,8 @@ export interface DevtoolsPluginHookSpan {
 
 interface DevtoolsRunCreateInput {
   runId: string;
+  pluginName?: string;
+  pluginVersion?: string;
   sessionId?: string;
   platformKey?: string;
   caller?: string;
@@ -336,6 +340,8 @@ export class DevtoolsStore {
       startedAt: timestamp,
       updatedAt: timestamp,
       lastEventAt: timestamp,
+      pluginName: input.pluginName,
+      pluginVersion: input.pluginVersion,
       sessionId: input.sessionId,
       platformKey: input.platformKey,
       caller: input.caller,
@@ -575,6 +581,8 @@ export class DevtoolsStore {
       updatedAt: record.updatedAt,
       lastEventAt: record.lastEventAt,
       durationMs: record.durationMs,
+      pluginName: record.pluginName,
+      pluginVersion: record.pluginVersion,
       sessionId: record.sessionId,
       platformKey: record.platformKey,
       caller: record.caller,
@@ -748,7 +756,10 @@ export function createDevtoolsIntegration(options: DevtoolsIntegrationOptions = 
       context.registerHook('beforeRun', (input) => {
         const runId = resolveRunId(input);
         runIdByContext.set(input.context, runId);
-        store.startRun(extractRunMeta(runId, input.runContext, options.saveUserText !== false));
+        const meta = extractRunMeta(runId, input.runContext, options.saveUserText !== false);
+        meta.pluginName = options.pluginName ?? 'devtools';
+        meta.pluginVersion = options.pluginVersion ?? '0.1.0';
+        store.startRun(meta);
         return { tools: wrapTools(input.tools, store) };
       });
 

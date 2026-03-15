@@ -9,6 +9,8 @@ interface RunSummary {
   updatedAt: number;
   lastEventAt: number;
   durationMs?: number;
+  pluginName?: string;
+  pluginVersion?: string;
   sessionId?: string;
   platformKey?: string;
   caller?: string;
@@ -554,12 +556,13 @@ export default function App() {
     }
     const topAllGaps = [...gapAllEvents].sort((a, b) => b.duration - a.duration).slice(0, 5);
 
-      return (
+    return (
       <div className="detail">
         <div className="detail-grid">
           <InfoCard label="Status" value={selectedRun.status} />
           <InfoCard label="Duration" value={formatDuration(selectedRun.durationMs || Date.now() - selectedRun.startedAt)} />
           <InfoCard label="Platform" value={selectedRun.platformKey || 'n/a'} />
+          <InfoCard label="Devtools" value={selectedRun.pluginVersion || 'n/a'} />
           <InfoCard label="Session" value={selectedRun.sessionId || 'n/a'} copyValue={selectedRun.sessionId} />
           <InfoCard label="LLM Calls" value={String(selectedRun.llmCalls)} />
           <InfoCard label="Tool Calls" value={String(selectedRun.toolCalls)} />
