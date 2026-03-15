@@ -195,6 +195,40 @@ main {
   box-shadow: var(--shadow);
 }
 
+.legend {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.swatch-llm {
+  background: rgba(15, 123, 108, 0.55);
+}
+
+.swatch-tool {
+  background: rgba(33, 105, 185, 0.45);
+}
+
+.swatch-hook {
+  background: rgba(176, 132, 52, 0.45);
+}
+
 .filter-row {
   display: grid;
   grid-template-columns: 1fr;

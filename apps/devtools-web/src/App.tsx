@@ -111,7 +111,7 @@ export default function App() {
   const [groupBy, setGroupBy] = useState<'none' | 'session'>('none');
   const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'finished'>('all');
   const [sortBy, setSortBy] = useState<'recent' | 'duration' | 'lastEvent'>('recent');
-  const [detailTab, setDetailTab] = useState<'llm' | 'plugins'>('llm');
+  const [detailTab, setDetailTab] = useState<'llm' | 'plugins' | 'timeline'>('llm');
 
   const apiBase = useMemo(() => sanitizeBaseUrl(baseUrl), [baseUrl]);
 
@@ -324,6 +324,8 @@ export default function App() {
       .filter((event) => Number.isFinite(event.start) && Number.isFinite(event.end))
       .sort((a, b) => a.start - b.start);
 
+    const timelineAll = [...timelineLlmTool, ...timelineHooks].sort((a, b) => a.start - b.start);
+
     const gapEvents: Array<{
       start: number;
       end: number;
@@ -363,6 +365,41 @@ export default function App() {
     const totalGapTime = gapEvents.reduce((sum, gap) => sum + gap.duration, 0);
     const largestGap = topGaps[0];
 
+    const gapAllEvents: Array<{
+      start: number;
+      end: number;
+      duration: number;
+      before: string;
+      after: string;
+    }> = [];
+    let lastAllEnd = runStart;
+    let lastAllLabel = 'Run start';
+    for (const event of timelineAll) {
+      if (event.start > lastAllEnd) {
+        gapAllEvents.push({
+          start: lastAllEnd,
+          end: event.start,
+          duration: event.start - lastAllEnd,
+          before: lastAllLabel,
+          after: event.label,
+        });
+      }
+      if (event.end > lastAllEnd) {
+        lastAllEnd = event.end;
+        lastAllLabel = event.label;
+      }
+    }
+    if (runEnd > lastAllEnd) {
+      gapAllEvents.push({
+        start: lastAllEnd,
+        end: runEnd,
+        duration: runEnd - lastAllEnd,
+        before: lastAllLabel,
+        after: 'Run end',
+      });
+    }
+    const topAllGaps = [...gapAllEvents].sort((a, b) => b.duration - a.duration).slice(0, 5);
+
       return (
       <div className="detail">
         <div className="detail-grid">
@@ -395,6 +432,12 @@ export default function App() {
             onClick={() => setDetailTab('llm')}
           >
             LLM & Tools
+          </button>
+          <button
+            className={`tab-button ${detailTab === 'timeline' ? 'active' : ''}`}
+            onClick={() => setDetailTab('timeline')}
+          >
+            Timeline
           </button>
           <button
             className={`tab-button ${detailTab === 'plugins' ? 'active' : ''}`}
@@ -631,6 +674,75 @@ export default function App() {
                 </div>
               ) : (
                 <div className="empty">No tool spans.</div>
+              )}
+            </section>
+          </>
+        ) : detailTab === 'timeline' ? (
+          <>
+            <section className="section">
+              <h2>Summary Timeline</h2>
+              <div className="legend">
+                <span className="legend-item">
+                  <span className="legend-swatch swatch-llm" /> LLM
+                </span>
+                <span className="legend-item">
+                  <span className="legend-swatch swatch-tool" /> Tool
+                </span>
+                <span className="legend-item">
+                  <span className="legend-swatch swatch-hook" /> Plugin Hook
+                </span>
+              </div>
+              {timelineAll.length ? (
+                <div className="timeline">
+                  {timelineAll.map((event, idx) => {
+                    const left = ((event.start - runStart) / runDuration) * 100;
+                    const width = ((event.end - event.start) / runDuration) * 100;
+                    return (
+                      <div key={`${event.type}-${idx}`} className={`timeline-row ${event.type}`}>
+                        <div className="timeline-label">{event.label}</div>
+                        <div className="timeline-track">
+                          <div
+                            className="timeline-bar"
+                            style={{ left: `${Math.max(0, left)}%`, width: `${Math.max(2, width)}%` }}
+                          />
+                        </div>
+                        <div className="timeline-value">{formatDuration(event.duration)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="empty">No timeline data yet.</div>
+              )}
+            </section>
+
+            <section className="section">
+              <h2>Idle Gaps (All)</h2>
+              {topAllGaps.length ? (
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Gap</th>
+                        <th>Start</th>
+                        <th>Between</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {topAllGaps.map((gap, idx) => (
+                        <tr key={`${gap.start}-${idx}`}>
+                          <td>{formatDuration(gap.duration)}</td>
+                          <td>{formatTime(gap.start)}</td>
+                          <td>
+                            {gap.before} → {gap.after}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="empty">No idle gaps detected.</div>
               )}
             </section>
           </>
