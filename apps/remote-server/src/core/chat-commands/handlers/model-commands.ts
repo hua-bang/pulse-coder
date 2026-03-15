@@ -1,4 +1,4 @@
-import { clearModelOverride, getModelStatus, writeModelConfig } from '../../model-config.js';
+import { clearModelOverride, getModelStatus, resolveModelOption, writeModelConfig } from '../../model-config.js';
 import type { CommandResult } from '../types.js';
 
 export async function handleModelCommand(args: string[]): Promise<CommandResult> {
@@ -26,10 +26,15 @@ export async function handleModelCommand(args: string[]): Promise<CommandResult>
 
   const model = raw;
   try {
-    const result = await writeModelConfig({ current_model: model });
+    const option = await resolveModelOption(model);
+    const next = option
+      ? { current_model: option.name, provider_type: option.provider_type }
+      : { current_model: model };
+    const result = await writeModelConfig(next);
+    const providerHint = option?.provider_type ? ` (${option.provider_type})` : '';
     return {
       type: 'handled',
-      message: `✅ 已更新模型为 ${model}\nConfig: ${result.path}`,
+      message: `✅ 已更新模型为 ${model}${providerHint}\nConfig: ${result.path}`,
     };
   } catch (error) {
     console.error('[model-config] failed to update model config:', error);
@@ -52,7 +57,8 @@ async function renderModelStatus(): Promise<CommandResult> {
 
     const lines = ['🧠 当前模型信息：', `- Config: ${status.path}`];
     if (status.currentModel) {
-      lines.push(`- current_model: ${status.currentModel}`);
+      const providerHint = status.providerType ? ` (${status.providerType})` : '';
+      lines.push(`- current_model: ${status.currentModel}${providerHint}`);
     } else {
       lines.push('- current_model: (未设置)');
     }
@@ -61,7 +67,13 @@ async function renderModelStatus(): Promise<CommandResult> {
     } else {
       lines.push('- resolved_model: (未解析到)');
     }
-    if (status.models && status.models.length > 0) {
+    if (status.options && status.options.length > 0) {
+      lines.push('- options:');
+      for (const opt of status.options) {
+        const providerLabel = opt.provider_type ? ` [${opt.provider_type}]` : '';
+        lines.push(`  • ${opt.name}${providerLabel}`);
+      }
+    } else if (status.models && status.models.length > 0) {
       lines.push(`- models: ${status.models.join(', ')}`);
     }
     return {

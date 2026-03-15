@@ -2,9 +2,15 @@ import { promises as fs } from 'fs';
 import { homedir } from 'os';
 import { join, resolve, dirname } from 'path';
 
+type ModelOption = {
+  name: string;
+  provider_type?: 'openai' | 'claude';
+};
+
 type ModelConfig = {
   current_model?: string;
   provider_type?: 'openai' | 'claude';
+  options?: ModelOption[];
   models?: Array<{
     name?: string;
   }>;
@@ -18,7 +24,9 @@ type ModelConfigWriteResult = {
 type ModelStatus = {
   path: string | null;
   currentModel?: string;
+  providerType?: 'openai' | 'claude';
   resolvedModel?: string;
+  options?: ModelOption[];
   models?: string[];
 };
 
@@ -184,9 +192,32 @@ export async function getModelStatus(): Promise<ModelStatus> {
   return {
     path,
     currentModel: normalizeModel(data?.current_model) ?? undefined,
+    providerType: data?.provider_type,
     resolvedModel: resolvedModel ?? undefined,
+    options: Array.isArray(data?.options) && data.options.length > 0 ? data.options : undefined,
     models: models && models.length > 0 ? models : undefined,
   };
+}
+
+export async function resolveModelOption(name: string): Promise<ModelOption | null> {
+  const envPath = process.env.PULSE_CODER_MODEL_CONFIG?.trim();
+  const configPath = await findConfigPath();
+  const path = envPath || configPath || null;
+  if (!path) return null;
+
+  try {
+    const stat = await fs.stat(path);
+    let data: ModelConfig | null;
+    if (cachedConfig && cachedConfig.path === path && cachedConfig.mtimeMs === stat.mtimeMs) {
+      data = cachedConfig.data;
+    } else {
+      data = await loadConfigFromPath(path, { warn: true });
+      if (data) cachedConfig = { path, mtimeMs: stat.mtimeMs, data };
+    }
+    return data?.options?.find((o) => o.name === name) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function resolveModelForRun(_platformKey: string): Promise<{ model?: string; modelType?: 'openai' | 'claude' }> {
