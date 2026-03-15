@@ -1,4 +1,4 @@
-import type { Context, Tool, LLMProviderFactory, SystemPromptOption, ToolHooks, ILogger, PulseEngineInstance } from './shared/types';
+import type { Context, Tool, LLMProviderFactory, SystemPromptOption, ToolHooks, ILogger, PulseEngineInstance, ModelType } from './shared/types';
 import type { LoopOptions, LoopHooks } from './core/loop';
 import type { EnginePluginLoadOptions } from './plugin/EnginePlugin.js';
 import type { UserConfigPluginLoadOptions } from './plugin/UserConfigPlugin.js';
@@ -9,6 +9,7 @@ import { maybeCompactContext } from './context/index.js';
 import { BuiltinToolsMap } from './tools/index.js';
 import { PluginManager } from './plugin/PluginManager.js';
 import { builtInPlugins } from './built-in/index.js';
+import { buildProvider } from './config/index.js';
 
 /**
  * 引擎配置选项
@@ -39,6 +40,15 @@ export interface EngineOptions {
    * });
    */
   llmProvider?: LLMProviderFactory;
+
+  /**
+   * Named provider type. Convenience alternative to `llmProvider` — engine will construct
+   * the SDK adapter from environment variables automatically.
+   * Ignored when `llmProvider` is set explicitly.
+   * - `'openai'` → OPENAI_API_KEY / OPENAI_API_URL
+   * - `'claude'` → ANTHROPIC_API_KEY / ANTHROPIC_API_URL
+   */
+  modelType?: ModelType;
 
   /**
    * 模型名称，传递给 llmProvider。未设置时使用 DEFAULT_MODEL。
@@ -253,7 +263,10 @@ export class Engine {
     const resultText = await loop(context, {
       ...options,
       tools,
-      provider: options?.provider ?? this.options.llmProvider,
+      provider: options?.provider
+        ?? (options?.modelType ? buildProvider(options.modelType) : undefined)
+        ?? this.options.llmProvider
+        ?? (this.options.modelType ? buildProvider(this.options.modelType) : undefined),
       model: options?.model ?? this.options.model,
       systemPrompt,
       hooks: loopHooks,

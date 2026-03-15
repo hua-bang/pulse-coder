@@ -1,8 +1,18 @@
 {
-  "models": [
-    {
-      "name": "gpt-5.2-codex"
-    }
-  ],
-  "current_model": "gpt-5.3-codex"
+  "current_model": "gpt-5.2-codex",
+  "provider_type": "openai",
+  "options": [
+    { "name": "gpt-5-codex", "provider_type": "openai" },
+    { "name": "gpt-5.1", "provider_type": "openai" },
+    { "name": "gpt-5.1-codex", "provider_type": "openai" },
+    { "name": "gpt-5.1-codex-mini", "provider_type": "openai" },
+    { "name": "gpt-5.1-codex-max", "provider_type": "openai" },
+    { "name": "gpt-5", "provider_type": "openai" },
+    { "name": "gpt-5.2", "provider_type": "openai" },
+    { "name": "gpt-5.2-codex", "provider_type": "openai" },
+    { "name": "gpt-5.3-codex", "provider_type": "openai" },
+    { "name": "gpt-5.4", "provider_type": "openai" },
+    { "name": "claude-opus-4-6", "provider_type": "claude" },
+    { "name": "claude-sonnet-4-6", "provider_type": "claude" }
+  ]
 }

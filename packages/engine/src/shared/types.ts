@@ -15,6 +15,15 @@ import type { FlexibleSchema, ModelMessage, LanguageModel } from "ai";
 export type LLMProviderFactory = (model: string) => LanguageModel;
 
 /**
+ * Named LLM provider type. Used to select a built-in provider from environment variables
+ * without needing to import or construct the SDK adapter manually.
+ *
+ * - `'openai'` — uses OPENAI_API_KEY / OPENAI_API_URL
+ * - `'claude'` — uses ANTHROPIC_API_KEY / ANTHROPIC_API_URL
+ */
+export type ModelType = 'openai' | 'claude';
+
+/**
  * System prompt customization.
  * - `string` — replaces the built-in prompt entirely.
  * - `() => string` — factory evaluated on every request (supports dynamic prompts).

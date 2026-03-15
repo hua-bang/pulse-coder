@@ -1,12 +1,13 @@
 import { ToolSet, type StepResult, type ModelMessage } from "ai";
-import type { Context, ClarificationRequest, Tool, LLMProviderFactory, SystemPromptOption } from "../shared/types";
+import type { Context, ClarificationRequest, Tool, LLMProviderFactory, SystemPromptOption, ModelType } from "../shared/types";
 import type { EngineHookMap, OnCompactedEvent } from "../plugin/EnginePlugin.js";
 import { streamTextAI } from "../ai";
 import { maybeCompactContext, type CompactStats } from "../context";
 import {
   MAX_COMPACTION_ATTEMPTS,
   MAX_ERROR_COUNT,
-  MAX_STEPS
+  MAX_STEPS,
+  buildProvider,
 } from "../config/index.js";
 
 /**
@@ -43,6 +44,13 @@ export interface LoopOptions {
 
   /** Custom LLM provider factory. Overrides the default provider when set. */
   provider?: LLMProviderFactory;
+  /**
+   * Named provider type. Used to construct a provider from env vars without importing the SDK.
+   * Ignored when `provider` is set explicitly.
+   * - `'openai'` → OPENAI_API_KEY / OPENAI_API_URL
+   * - `'claude'` → ANTHROPIC_API_KEY / ANTHROPIC_API_URL
+   */
+  modelType?: ModelType;
   /** Model name passed to the provider. Overrides DEFAULT_MODEL when set. */
   model?: string;
   /** Custom system prompt. See SystemPromptOption for the three supported forms. */
@@ -249,7 +257,7 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
       const result = streamTextAI(context.messages, tools, {
         abortSignal: options?.abortSignal,
         toolExecutionContext,
-        provider: options?.provider,
+        provider: options?.provider ?? (options?.modelType ? buildProvider(options.modelType) : undefined),
         model: options?.model,
         systemPrompt,
         onStepFinish: (step) => {

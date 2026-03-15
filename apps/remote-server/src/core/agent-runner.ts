@@ -232,7 +232,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
   const context = session.context;
   const callbacks = input.callbacks ?? {};
   const compactions: CompactionSnapshot[] = [];
-  const modelOverride = await resolveModelForRun(input.platformKey);
+  const { model: modelOverride, modelType } = await resolveModelForRun(input.platformKey);
 
   context.messages.push({ role: 'user', content: input.userText });
 
@@ -278,6 +278,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
 
       return engine.run(context, {
         model: modelOverride,
+        modelType,
         runContext,
         systemPrompt: (() => {
           const channelPrompt = buildChannelSystemPrompt(input.platformKey);

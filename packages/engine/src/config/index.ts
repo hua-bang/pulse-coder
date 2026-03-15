@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { LanguageModel } from "ai";
+import type { ModelType, LLMProviderFactory } from '../shared/types.js';
 
 dotenv.config();
 
@@ -14,6 +15,24 @@ export const CoderAI = (process.env.USE_ANTHROPIC
     apiKey: process.env.OPENAI_API_KEY || '',
     baseURL: process.env.OPENAI_API_URL || 'https://api.openai.com/v1'
   }).responses) as (model: string) => LanguageModel;
+
+/**
+ * Construct a LLMProviderFactory from a named ModelType using environment variables.
+ * - 'claude' → ANTHROPIC_API_KEY / ANTHROPIC_API_URL
+ * - 'openai' → OPENAI_API_KEY / OPENAI_API_URL
+ */
+export function buildProvider(type: ModelType): LLMProviderFactory {
+  if (type === 'claude') {
+    return createAnthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY || '',
+      baseURL: process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com/v1',
+    }) as LLMProviderFactory;
+  }
+  return createOpenAI({
+    apiKey: process.env.OPENAI_API_KEY || '',
+    baseURL: process.env.OPENAI_API_URL || 'https://api.openai.com/v1',
+  }).responses as LLMProviderFactory;
+}
 
 export const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || process.env.OPENAI_MODEL || 'novita/deepseek/deepseek_v3';
 
