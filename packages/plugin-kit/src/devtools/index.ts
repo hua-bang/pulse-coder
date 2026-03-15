@@ -248,9 +248,13 @@ function extractUsageTokens(usage: any): {
     'cacheReadInputTokens',
     'cache_read_input_tokens',
     'cache_read_tokens',
+    'cachedInputTokens',
   ]) ?? pickNumberDeep(usage, [
+    ['inputTokenDetails', 'cacheReadTokens'],
+    ['inputTokenDetails', 'cachedTokens'],
     ['prompt_tokens_details', 'cached_tokens'],
     ['promptTokensDetails', 'cachedTokens'],
+    ['raw', 'input_tokens_details', 'cached_tokens'],
   ]);
 
   const cacheWriteTokens = pickNumber(usage, [
