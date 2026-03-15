@@ -8,6 +8,7 @@ import { jinaAiReadTool } from './tools/jina-ai.js';
 import { sessionSummaryTool } from './tools/session-summary.js';
 import { twitterListTweetsTool } from './tools/twitter-list-tweets.js';
 import { ptcDemoTools } from './tools/ptc-demo.js';
+import { devtoolsPlugin } from './devtools.js';
 
 /**
  * Single Engine instance shared across all platform adapters.
@@ -20,6 +21,7 @@ export const engine = new Engine({
       memoryIntegration.enginePlugin,
       worktreeIntegration.enginePlugin,
       workspaceIntegration.enginePlugin,
+      devtoolsPlugin,
     ],
   },
   tools: {

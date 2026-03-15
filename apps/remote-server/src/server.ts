@@ -5,12 +5,14 @@ import { cors } from 'hono/cors';
 import { feishuRouter } from './routes/feishu.js';
 import { discordRouter } from './routes/discord.js';
 import { internalRouter } from './routes/internal.js';
+import { devtoolsRouter } from './routes/devtools.js';
 
 export function createApp(): Hono {
   const app = new Hono();
 
   // CORS for web clients
   const origins = (process.env.CORS_ORIGINS ?? 'http://localhost:5173').split(',').map(s => s.trim());
+  app.use('/api/devtools/*', cors({ origin: '*', allowMethods: ['GET', 'POST', 'DELETE'] }));
   app.use('/api/*', cors({ origin: origins, allowMethods: ['GET', 'POST', 'DELETE'] }));
 
   // Health check
@@ -25,6 +27,7 @@ export function createApp(): Hono {
   app.route('/internal', internalRouter);
 
   // Web REST + SSE routes
+  app.route('/api/devtools', devtoolsRouter);
   // app.route('/api', apiRouter);
 
   // 404 fallback

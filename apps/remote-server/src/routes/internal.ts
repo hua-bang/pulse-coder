@@ -134,6 +134,7 @@ internalRouter.post('/agent/run', async (c) => {
 
   try {
     const turn = await executeAgentTurn({
+      runId,
       platformKey,
       memoryKey: platformKey,
       forceNewSession,
