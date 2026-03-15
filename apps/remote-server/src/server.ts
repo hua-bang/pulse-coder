@@ -12,6 +12,7 @@ export function createApp(): Hono {
 
   // CORS for web clients
   const origins = (process.env.CORS_ORIGINS ?? 'http://localhost:5173').split(',').map(s => s.trim());
+  app.use('/api/devtools/*', cors({ origin: '*', allowMethods: ['GET', 'POST', 'DELETE'] }));
   app.use('/api/*', cors({ origin: origins, allowMethods: ['GET', 'POST', 'DELETE'] }));
 
   // Health check
