@@ -600,6 +600,9 @@ th {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .timeline-track {
@@ -608,6 +611,54 @@ th {
   background: #f1f0ed;
   border-radius: 999px;
   overflow: hidden;
+}
+
+.timeline-turn {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #f3f2f0;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.timeline-track[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 10px;
+  top: -8px;
+  transform: translateY(-100%);
+  background: #fff;
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  border-radius: 10px;
+  padding: 6px 8px;
+  font-size: 11px;
+  white-space: pre-line;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 2;
+}
+
+.timeline-track[data-tooltip]::before {
+  content: "";
+  position: absolute;
+  left: 18px;
+  top: -8px;
+  transform: translateY(-100%);
+  border: 6px solid transparent;
+  border-top-color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 1;
+}
+
+.timeline-track[data-tooltip]:hover::after,
+.timeline-track[data-tooltip]:hover::before {
+  opacity: 1;
 }
 
 .timeline-row.llm .timeline-bar {

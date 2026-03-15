@@ -270,6 +270,24 @@ export default function App() {
       }, 0);
     };
 
+    const formatMetric = (value?: number) => (value !== undefined ? formatDuration(value) : 'n/a');
+
+    const llmWindows = selectedRun.llmSpans.map((span) => ({
+      index: span.index,
+      start: span.startedAt,
+      end: span.endedAt ?? now,
+    }));
+
+    const resolveTurn = (timestamp: number) => {
+      for (const span of llmWindows) {
+        if (timestamp >= span.start && timestamp <= span.end) {
+          return span.index;
+        }
+      }
+      const fallback = [...llmWindows].reverse().find((span) => timestamp >= span.start);
+      return fallback?.index;
+    };
+
     const slowestLlm = llmSpans.reduce<LlmSpan | null>((acc, span) => {
       if (!acc || (span.durationMs ?? 0) > (acc.durationMs ?? 0)) {
         return span;
@@ -309,19 +327,34 @@ export default function App() {
     const runEnd = selectedRun.endedAt ?? now;
     const runDuration = Math.max(1, runEnd - runStart);
     const timelineLlmTool = [
-      ...selectedRun.llmSpans.map((span) => ({
+      ...selectedRun.llmSpans.map((span) => {
+        const ttft =
+          span.ttftMs ??
+          (span.firstChunkAt && span.startedAt ? Math.max(0, span.firstChunkAt - span.startedAt) : undefined);
+        const stream =
+          span.streamDurationMs ??
+          (span.firstChunkAt && span.endedAt ? Math.max(0, span.endedAt - span.firstChunkAt) : undefined);
+        const toolTime = toolTimeForSpan(span);
+        const toolWait = span.durationMs !== undefined ? Math.max(0, (span.durationMs ?? 0) - toolTime) : undefined;
+        const tooltip = `TTFT: ${formatMetric(ttft)}\nStream: ${formatMetric(stream)}\nTool wait: ${formatMetric(toolWait)}`;
+
+        return {
         type: 'llm' as const,
         label: `LLM #${span.index}`,
         start: span.startedAt,
         end: span.endedAt ?? now,
         duration: span.durationMs ?? Math.max(0, now - span.startedAt),
-      })),
+        turn: span.index,
+        tooltip,
+      };
+      }),
       ...selectedRun.toolSpans.map((span) => ({
         type: 'tool' as const,
         label: span.name,
         start: span.startedAt,
         end: span.endedAt ?? now,
         duration: span.durationMs ?? Math.max(0, now - span.startedAt),
+        turn: resolveTurn(span.startedAt),
       })),
     ]
       .filter((event) => Number.isFinite(event.start) && Number.isFinite(event.end))
@@ -334,6 +367,7 @@ export default function App() {
         start: hook.startedAt,
         end: hook.startedAt + hook.durationMs,
         duration: hook.durationMs,
+        turn: resolveTurn(hook.startedAt),
       }))
       .filter((event) => Number.isFinite(event.start) && Number.isFinite(event.end))
       .sort((a, b) => a.start - b.start);
@@ -562,8 +596,11 @@ export default function App() {
                     const width = ((event.end - event.start) / runDuration) * 100;
                     return (
                       <div key={`${event.type}-${idx}`} className={`timeline-row ${event.type}`}>
-                        <div className="timeline-label">{event.label}</div>
-                        <div className="timeline-track">
+                        <div className="timeline-label">
+                          <span>{event.label}</span>
+                          {event.turn ? <span className="timeline-turn">T{event.turn}</span> : null}
+                        </div>
+                        <div className="timeline-track" data-tooltip={event.tooltip}>
                           <div
                             className="timeline-bar"
                             style={{ left: `${Math.max(0, left)}%`, width: `${Math.max(2, width)}%` }}
@@ -731,8 +768,11 @@ export default function App() {
                     const width = ((event.end - event.start) / runDuration) * 100;
                     return (
                       <div key={`${event.type}-${idx}`} className={`timeline-row ${event.type}`}>
-                        <div className="timeline-label">{event.label}</div>
-                        <div className="timeline-track">
+                        <div className="timeline-label">
+                          <span>{event.label}</span>
+                          {event.turn ? <span className="timeline-turn">T{event.turn}</span> : null}
+                        </div>
+                        <div className="timeline-track" data-tooltip={event.tooltip}>
                           <div
                             className="timeline-bar"
                             style={{ left: `${Math.max(0, left)}%`, width: `${Math.max(2, width)}%` }}
@@ -825,7 +865,10 @@ export default function App() {
                     const width = ((event.end - event.start) / runDuration) * 100;
                     return (
                       <div key={`${event.type}-${idx}`} className={`timeline-row ${event.type}`}>
-                        <div className="timeline-label">{event.label}</div>
+                        <div className="timeline-label">
+                          <span>{event.label}</span>
+                          {event.turn ? <span className="timeline-turn">T{event.turn}</span> : null}
+                        </div>
                         <div className="timeline-track">
                           <div
                             className="timeline-bar"
