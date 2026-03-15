@@ -63,7 +63,7 @@ interface RunDetail extends RunSummary {
   resultTextPreview?: string;
 }
 
-const DEFAULT_BASE_URL = 'http://localhost:3000/api/devtools';
+const DEFAULT_BASE_URL = '/api/devtools';
 
 function formatTime(value?: number): string {
   if (!value) return 'n/a';
