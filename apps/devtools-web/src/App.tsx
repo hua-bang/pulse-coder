@@ -817,7 +817,7 @@ export default function App() {
                     <th>Text Len</th>
                     <th>Input Tok</th>
                     <th>Output Tok</th>
-                    <th>Cache Read</th>
+                    <th>Cached Tok</th>
                     <th>Cache Write</th>
                     <th>Usage</th>
                     <th>Tools</th>
