@@ -97,6 +97,10 @@ export default function App() {
   const [listError, setListError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [sessionFilter, setSessionFilter] = useState('');
+  const [groupBy, setGroupBy] = useState<'none' | 'session'>('none');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'finished'>('all');
+  const [sortBy, setSortBy] = useState<'recent' | 'duration' | 'lastEvent'>('recent');
 
   const apiBase = useMemo(() => sanitizeBaseUrl(baseUrl), [baseUrl]);
 
@@ -114,14 +118,16 @@ export default function App() {
       const data = await fetchJson('/runs?limit=60');
       const list = (data.runs || []) as RunSummary[];
       setRuns(list);
-      if (!list.length) {
-        setSelectedId(null);
-        setSelectedRun(null);
-        return;
-      }
-      if (!selectedId || !list.some((item) => item.runId === selectedId)) {
-        setSelectedId(list[0].runId);
-      }
+      setSelectedId((current) => {
+        if (!list.length) {
+          setSelectedRun(null);
+          return null;
+        }
+        if (current && list.some((item) => item.runId === current)) {
+          return current;
+        }
+        return list[0].runId;
+      });
     } catch (error) {
       setListError(error instanceof Error ? error.message : String(error));
     }
@@ -163,6 +169,56 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [autoRefresh, apiBase]);
 
+  const filteredRuns = useMemo(() => {
+    let list = runs;
+    if (statusFilter !== 'all') {
+      list = list.filter((run) => run.status === statusFilter);
+    }
+    if (sessionFilter.trim()) {
+      const needle = sessionFilter.trim().toLowerCase();
+      list = list.filter((run) => (run.sessionId ?? '').toLowerCase().includes(needle));
+    }
+    const now = Date.now();
+    const sorted = [...list].sort((a, b) => {
+      if (sortBy === 'duration') {
+        const aDur = a.durationMs ?? now - a.startedAt;
+        const bDur = b.durationMs ?? now - b.startedAt;
+        return bDur - aDur;
+      }
+      if (sortBy === 'lastEvent') {
+        return b.lastEventAt - a.lastEventAt;
+      }
+      return b.startedAt - a.startedAt;
+    });
+    return sorted;
+  }, [runs, sessionFilter, statusFilter, sortBy]);
+
+  useEffect(() => {
+    if (!filteredRuns.length) {
+      setSelectedId(null);
+      setSelectedRun(null);
+      return;
+    }
+    if (selectedId && filteredRuns.some((run) => run.runId === selectedId)) {
+      return;
+    }
+    setSelectedId(filteredRuns[0].runId);
+  }, [filteredRuns, selectedId]);
+
+  const groupedRuns = useMemo(() => {
+    if (groupBy !== 'session') {
+      return null;
+    }
+    return filteredRuns.reduce<Record<string, RunSummary[]>>((acc, run) => {
+      const key = run.sessionId ?? 'unknown';
+      if (!acc[key]) {
+        acc[key] = [];
+      }
+      acc[key].push(run);
+      return acc;
+    }, {});
+  }, [filteredRuns, groupBy]);
+
   const renderDetail = () => {
     if (detailError) {
       return <div className="error">{detailError}</div>;
@@ -171,13 +227,47 @@ export default function App() {
       return <div className="empty">Select a run to inspect.</div>;
     }
 
+    const now = Date.now();
+    const isRunning = selectedRun.status === 'running';
+    const lastEventAgo = now - selectedRun.lastEventAt;
+    const stallThresholdMs = 30000;
+    const isStalled = isRunning && lastEventAgo > stallThresholdMs;
+
+    const llmSpans = selectedRun.llmSpans.filter((span) => span.durationMs !== undefined);
+    const toolSpans = selectedRun.toolSpans.filter((span) => span.durationMs !== undefined);
+
+    const totalLlmTime = llmSpans.reduce((sum, span) => sum + (span.durationMs ?? 0), 0);
+    const totalToolTime = toolSpans.reduce((sum, span) => sum + (span.durationMs ?? 0), 0);
+
+    const slowestLlm = llmSpans.reduce<LlmSpan | null>((acc, span) => {
+      if (!acc || (span.durationMs ?? 0) > (acc.durationMs ?? 0)) {
+        return span;
+      }
+      return acc;
+    }, null);
+    const slowestTool = toolSpans.reduce<ToolSpan | null>((acc, span) => {
+      if (!acc || (span.durationMs ?? 0) > (acc.durationMs ?? 0)) {
+        return span;
+      }
+      return acc;
+    }, null);
+
+    const topLlm = [...llmSpans]
+      .sort((a, b) => (b.durationMs ?? 0) - (a.durationMs ?? 0))
+      .slice(0, 5);
+    const topTool = [...toolSpans]
+      .sort((a, b) => (b.durationMs ?? 0) - (a.durationMs ?? 0))
+      .slice(0, 5);
+    const maxLlm = topLlm[0]?.durationMs ?? 0;
+    const maxTool = topTool[0]?.durationMs ?? 0;
+
     return (
       <div className="detail">
         <div className="detail-grid">
           <InfoCard label="Status" value={selectedRun.status} />
           <InfoCard label="Duration" value={formatDuration(selectedRun.durationMs || Date.now() - selectedRun.startedAt)} />
           <InfoCard label="Platform" value={selectedRun.platformKey || 'n/a'} />
-          <InfoCard label="Session" value={selectedRun.sessionId || 'n/a'} />
+          <InfoCard label="Session" value={selectedRun.sessionId || 'n/a'} copyValue={selectedRun.sessionId} />
           <InfoCard label="LLM Calls" value={String(selectedRun.llmCalls)} />
           <InfoCard label="Tool Calls" value={String(selectedRun.toolCalls)} />
           <InfoCard label="Compactions" value={String(selectedRun.compactions)} />
@@ -185,9 +275,81 @@ export default function App() {
         </div>
 
         <div className="pill-row">
-          <span className="pill">Run ID: {selectedRun.runId}</span>
+          <span className="pill">
+            Run ID: {selectedRun.runId}
+            <CopyButton value={selectedRun.runId} />
+          </span>
           {selectedRun.caller ? <span className="pill">Caller: {selectedRun.caller}</span> : null}
+          {isStalled ? (
+            <span className="pill pill-warn">Stalled {Math.round(lastEventAgo / 1000)}s</span>
+          ) : null}
         </div>
+
+        <section className="section">
+          <h2>Bottlenecks</h2>
+          <div className="hot-grid">
+            <div className="hot-card">
+              <div className="hot-label">Slowest LLM span</div>
+              <div className="hot-value">
+                {slowestLlm ? `#${slowestLlm.index} · ${formatDuration(slowestLlm.durationMs)}` : 'n/a'}
+              </div>
+            </div>
+            <div className="hot-card">
+              <div className="hot-label">Slowest tool call</div>
+              <div className="hot-value">
+                {slowestTool ? `${slowestTool.name} · ${formatDuration(slowestTool.durationMs)}` : 'n/a'}
+              </div>
+            </div>
+            <div className="hot-card">
+              <div className="hot-label">Total LLM time</div>
+              <div className="hot-value">{formatDuration(totalLlmTime)}</div>
+            </div>
+            <div className="hot-card">
+              <div className="hot-label">Total tool time</div>
+              <div className="hot-value">{formatDuration(totalToolTime)}</div>
+            </div>
+          </div>
+
+          <div className="bar-block">
+            <div className="bar-title">Top LLM spans</div>
+            {topLlm.length ? (
+              topLlm.map((span) => (
+                <div key={`llm-${span.index}`} className="bar-row">
+                  <div className="bar-label">LLM #{span.index}</div>
+                  <div className="bar-track">
+                    <div
+                      className="bar-fill"
+                      style={{ width: `${Math.max(6, ((span.durationMs ?? 0) / (maxLlm || 1)) * 100)}%` }}
+                    />
+                  </div>
+                  <div className="bar-value">{formatDuration(span.durationMs)}</div>
+                </div>
+              ))
+            ) : (
+              <div className="empty">No LLM spans yet.</div>
+            )}
+          </div>
+
+          <div className="bar-block">
+            <div className="bar-title">Top tool calls</div>
+            {topTool.length ? (
+              topTool.map((span) => (
+                <div key={`tool-${span.index}`} className="bar-row">
+                  <div className="bar-label">{span.name}</div>
+                  <div className="bar-track">
+                    <div
+                      className="bar-fill"
+                      style={{ width: `${Math.max(6, ((span.durationMs ?? 0) / (maxTool || 1)) * 100)}%` }}
+                    />
+                  </div>
+                  <div className="bar-value">{formatDuration(span.durationMs)}</div>
+                </div>
+              ))
+            ) : (
+              <div className="empty">No tool calls yet.</div>
+            )}
+          </div>
+        </section>
 
         {selectedRun.userText ? (
           <section className="section">
@@ -206,36 +368,38 @@ export default function App() {
         <section className="section">
           <h2>LLM Spans</h2>
           {selectedRun.llmSpans.length ? (
-            <table>
-              <thead>
-                <tr>
-                  <th>Index</th>
-                  <th>Duration</th>
-                  <th>Finish</th>
-                  <th>Text Len</th>
-                  <th>Tools</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedRun.llmSpans.map((span) => (
-                  <tr key={span.index}>
-                    <td>#{span.index}</td>
-                    <td>{formatDuration(span.durationMs)}</td>
-                    <td>{span.finishReason || 'n/a'}</td>
-                    <td>{span.textLength ?? 'n/a'}</td>
-                    <td>
-                      {span.toolCalls?.length
-                        ? span.toolCalls.map((call, idx) => (
-                            <span key={`${call.name}-${idx}`} className="tool-chip" title={call.inputPreview || ''}>
-                              {call.name}
-                            </span>
-                          ))
-                        : '—'}
-                    </td>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Index</th>
+                    <th>Duration</th>
+                    <th>Finish</th>
+                    <th>Text Len</th>
+                    <th>Tools</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {selectedRun.llmSpans.map((span) => (
+                    <tr key={span.index}>
+                      <td>#{span.index}</td>
+                      <td>{formatDuration(span.durationMs)}</td>
+                      <td>{span.finishReason || 'n/a'}</td>
+                      <td>{span.textLength ?? 'n/a'}</td>
+                      <td>
+                        {span.toolCalls?.length
+                          ? span.toolCalls.map((call, idx) => (
+                              <span key={`${call.name}-${idx}`} className="tool-chip" title={call.inputPreview || ''}>
+                                {call.name}
+                              </span>
+                            ))
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <div className="empty">No LLM spans.</div>
           )}
@@ -244,30 +408,32 @@ export default function App() {
         <section className="section">
           <h2>Tool Spans</h2>
           {selectedRun.toolSpans.length ? (
-            <table>
-              <thead>
-                <tr>
-                  <th>Index</th>
-                  <th>Name</th>
-                  <th>Duration</th>
-                  <th>Input</th>
-                  <th>Output</th>
-                  <th>Error</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedRun.toolSpans.map((span) => (
-                  <tr key={span.index}>
-                    <td>#{span.index}</td>
-                    <td>{span.name}</td>
-                    <td>{formatDuration(span.durationMs)}</td>
-                    <td>{span.inputSize ?? 'n/a'}</td>
-                    <td>{span.outputSize ?? 'n/a'}</td>
-                    <td>{span.error ? <span className="error">{span.error}</span> : 'ok'}</td>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Index</th>
+                    <th>Name</th>
+                    <th>Duration</th>
+                    <th>Input</th>
+                    <th>Output</th>
+                    <th>Error</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {selectedRun.toolSpans.map((span) => (
+                    <tr key={span.index}>
+                      <td>#{span.index}</td>
+                      <td>{span.name}</td>
+                      <td>{formatDuration(span.durationMs)}</td>
+                      <td>{span.inputSize ?? 'n/a'}</td>
+                      <td>{span.outputSize ?? 'n/a'}</td>
+                      <td>{span.error ? <span className="error">{span.error}</span> : 'ok'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <div className="empty">No tool spans.</div>
           )}
@@ -276,32 +442,34 @@ export default function App() {
         <section className="section">
           <h2>Compactions</h2>
           {selectedRun.compactionEvents.length ? (
-            <table>
-              <thead>
-                <tr>
-                  <th>Attempt</th>
-                  <th>Trigger</th>
-                  <th>Reason</th>
-                  <th>Tokens</th>
-                  <th>Messages</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedRun.compactionEvents.map((event) => (
-                  <tr key={`${event.attempt}-${event.at}`}>
-                    <td>#{event.attempt}</td>
-                    <td>{event.trigger}</td>
-                    <td>{event.reason || event.strategy}</td>
-                    <td>
-                      {event.beforeEstimatedTokens} → {event.afterEstimatedTokens}
-                    </td>
-                    <td>
-                      {event.beforeMessageCount} → {event.afterMessageCount}
-                    </td>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Attempt</th>
+                    <th>Trigger</th>
+                    <th>Reason</th>
+                    <th>Tokens</th>
+                    <th>Messages</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {selectedRun.compactionEvents.map((event) => (
+                    <tr key={`${event.attempt}-${event.at}`}>
+                      <td>#{event.attempt}</td>
+                      <td>{event.trigger}</td>
+                      <td>{event.reason || event.strategy}</td>
+                      <td>
+                        {event.beforeEstimatedTokens} → {event.afterEstimatedTokens}
+                      </td>
+                      <td>
+                        {event.beforeMessageCount} → {event.afterMessageCount}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <div className="empty">No compactions.</div>
           )}
@@ -356,30 +524,105 @@ export default function App() {
             <h2>Runs</h2>
             <span className="pill">{runs.length} total</span>
           </div>
-          <div className="list">
-            {runs.length ? (
-              runs.map((run, index) => (
+          <div className="filter-row">
+            <input
+              className="filter-input"
+              placeholder="Filter by session_id"
+              value={sessionFilter}
+              onChange={(event) => setSessionFilter(event.target.value)}
+            />
+            <div className="status-tabs">
+              {(['all', 'running', 'finished'] as const).map((status) => (
                 <button
-                  key={run.runId}
-                  className={`run-card ${run.runId === selectedId ? 'active' : ''}`}
-                  data-status={run.status}
-                  style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}
-                  onClick={() => setSelectedId(run.runId)}
+                  key={status}
+                  className={`tab-button ${statusFilter === status ? 'active' : ''}`}
+                  onClick={() => setStatusFilter(status)}
                 >
-                  <div className="run-meta">
-                    <span className={`status ${run.status}`}>
-                      <span className="status-dot" />
-                      {run.status}
-                    </span>
-                    <span>{formatDuration(run.durationMs || Date.now() - run.startedAt)}</span>
-                  </div>
-                  <strong>{run.userTextPreview || 'No user text'}</strong>
-                  <div className="run-meta">
-                    <span>Run {run.runId.slice(0, 8)}</span>
-                    <span>Last {formatTime(run.lastEventAt)}</span>
-                  </div>
+                  {status}
                 </button>
-              ))
+              ))}
+            </div>
+            <select
+              className="filter-select"
+              value={groupBy}
+              onChange={(event) => setGroupBy(event.target.value as 'none' | 'session')}
+            >
+              <option value="none">No group</option>
+              <option value="session">Group by session</option>
+            </select>
+            <select
+              className="filter-select"
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value as 'recent' | 'duration' | 'lastEvent')}
+            >
+              <option value="recent">Sort: recent</option>
+              <option value="duration">Sort: duration</option>
+              <option value="lastEvent">Sort: last event</option>
+            </select>
+          </div>
+          <div className="list">
+            {filteredRuns.length ? (
+              groupBy === 'session' && groupedRuns ? (
+                Object.entries(groupedRuns).map(([sessionId, items]) => (
+                  <div className="group-block" key={sessionId}>
+                    <div className="group-title">
+                      <span>Session {sessionId}</span>
+                      {sessionId !== 'unknown' ? <CopyButton value={sessionId} /> : null}
+                    </div>
+                    {items.map((run, index) => (
+                      <button
+                        key={run.runId}
+                        className={`run-card ${run.runId === selectedId ? 'active' : ''}`}
+                        data-status={run.status}
+                        style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}
+                        onClick={() => setSelectedId(run.runId)}
+                      >
+                        <div className="run-meta">
+                          <span className={`status ${run.status}`}>
+                            <span className="status-dot" />
+                            {run.status}
+                          </span>
+                          <span>{formatDuration(run.durationMs || Date.now() - run.startedAt)}</span>
+                        </div>
+                        <strong>{run.userTextPreview || 'No user text'}</strong>
+                        <div className="run-meta">
+                          <span className="run-id-line">
+                            Run {run.runId.slice(0, 8)}
+                            <CopyButton value={run.runId} />
+                          </span>
+                          <span>Last {formatTime(run.lastEventAt)}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ))
+              ) : (
+                filteredRuns.map((run, index) => (
+                  <button
+                    key={run.runId}
+                    className={`run-card ${run.runId === selectedId ? 'active' : ''}`}
+                    data-status={run.status}
+                    style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}
+                    onClick={() => setSelectedId(run.runId)}
+                  >
+                    <div className="run-meta">
+                      <span className={`status ${run.status}`}>
+                        <span className="status-dot" />
+                        {run.status}
+                      </span>
+                      <span>{formatDuration(run.durationMs || Date.now() - run.startedAt)}</span>
+                    </div>
+                    <strong>{run.userTextPreview || 'No user text'}</strong>
+                    <div className="run-meta">
+                      <span className="run-id-line">
+                        Run {run.runId.slice(0, 8)}
+                        <CopyButton value={run.runId} />
+                      </span>
+                      <span>Last {formatTime(run.lastEventAt)}</span>
+                    </div>
+                  </button>
+                ))
+              )
             ) : (
               <div className="empty">No runs yet.</div>
             )}
@@ -396,11 +639,44 @@ export default function App() {
   );
 }
 
-function InfoCard({ label, value }: { label: string; value: string }) {
+function InfoCard({ label, value, copyValue }: { label: string; value: string; copyValue?: string }) {
   return (
     <div className="detail-card">
       <h3>{label}</h3>
-      <p>{value}</p>
+      <p className="detail-line">
+        <span>{value}</span>
+        {copyValue ? <CopyButton value={copyValue} /> : null}
+      </p>
     </div>
+  );
+}
+
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    }
+  };
+
+  return (
+    <button className={`copy-button ${copied ? 'copied' : ''}`} onClick={copy} type="button">
+      {copied ? 'Copied' : 'Copy'}
+    </button>
   );
 }
