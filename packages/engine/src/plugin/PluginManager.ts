@@ -184,7 +184,26 @@ export class PluginManager {
         },
 
         registerHook: (hookName, handler) => {
-          this.hooks[hookName].push(handler as any);
+          const wrapped = async (input: any) => {
+            const start = Date.now();
+            try {
+              return await (handler as any)(input);
+            } finally {
+              const payload = {
+                hookName,
+                pluginName: plugin.name,
+                durationMs: Date.now() - start,
+                at: start,
+                context: input?.context,
+              };
+              try {
+                this.events.emit('hookTiming', payload);
+              } catch {
+                // best-effort only
+              }
+            }
+          };
+          this.hooks[hookName].push(wrapped as any);
           this.logger.debug(`Plugin "${plugin.name}" registered hook: ${hookName}`);
         },
 

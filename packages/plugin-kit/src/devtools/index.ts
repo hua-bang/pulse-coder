@@ -30,6 +30,10 @@ export interface DevtoolsLlmSpan {
   durationMs?: number;
   finishReason?: string;
   textLength?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   toolCalls?: Array<{
     name: string;
     inputSize?: number;
@@ -70,7 +74,15 @@ export interface DevtoolsRunRecord extends DevtoolsRunSummary {
   llmSpans: DevtoolsLlmSpan[];
   toolSpans: DevtoolsToolSpan[];
   compactionEvents: DevtoolsCompactionEvent[];
+  pluginHooks: DevtoolsPluginHookSpan[];
   resultTextPreview?: string;
+}
+
+export interface DevtoolsPluginHookSpan {
+  pluginName: string;
+  hookName: string;
+  startedAt: number;
+  durationMs: number;
 }
 
 interface DevtoolsRunCreateInput {
@@ -139,6 +151,110 @@ function buildPreview(value: unknown, limit = 180): string {
     return text;
   }
   return `${text.slice(0, limit)}...`;
+}
+
+function estimateTokensFromText(text: string): number {
+  if (!text) {
+    return 0;
+  }
+  return Math.ceil(text.length / 4);
+}
+
+function estimateTokensFromMessages(messages: Array<{ role?: string; content?: any }>): number {
+  let totalChars = 0;
+  for (const message of messages) {
+    totalChars += (message.role ?? '').length;
+    if (typeof message.content === 'string') {
+      totalChars += message.content.length;
+    } else if (message.content !== undefined) {
+      totalChars += safeStringify(message.content).length;
+    }
+  }
+  return Math.ceil(totalChars / 4);
+}
+
+function pickNumber(source: any, keys: string[]): number | undefined {
+  if (!source || typeof source !== 'object') {
+    return undefined;
+  }
+  for (const key of keys) {
+    const value = (source as any)[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function pickNumberDeep(source: any, paths: string[][]): number | undefined {
+  if (!source || typeof source !== 'object') {
+    return undefined;
+  }
+  for (const path of paths) {
+    let cursor: any = source;
+    for (const key of path) {
+      if (!cursor || typeof cursor !== 'object') {
+        cursor = undefined;
+        break;
+      }
+      cursor = cursor[key];
+    }
+    if (typeof cursor === 'number' && Number.isFinite(cursor)) {
+      return cursor;
+    }
+  }
+  return undefined;
+}
+
+function extractUsageTokens(usage: any): {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+} {
+  if (!usage) {
+    return {};
+  }
+
+  const inputTokens = pickNumber(usage, [
+    'inputTokens',
+    'promptTokens',
+    'input_tokens',
+    'prompt_tokens',
+  ]);
+
+  const outputTokens = pickNumber(usage, [
+    'outputTokens',
+    'completionTokens',
+    'output_tokens',
+    'completion_tokens',
+  ]);
+
+  const cacheReadTokens = pickNumber(usage, [
+    'cacheReadInputTokens',
+    'cache_read_input_tokens',
+    'cache_read_tokens',
+  ]) ?? pickNumberDeep(usage, [
+    ['prompt_tokens_details', 'cached_tokens'],
+    ['promptTokensDetails', 'cachedTokens'],
+  ]);
+
+  const cacheWriteTokens = pickNumber(usage, [
+    'cacheWriteInputTokens',
+    'cache_creation_input_tokens',
+    'cache_create_input_tokens',
+    'cache_write_tokens',
+  ]) ?? pickNumberDeep(usage, [
+    ['prompt_tokens_details', 'cache_creation_tokens'],
+    ['promptTokensDetails', 'cacheCreationTokens'],
+  ]);
+
+  return {
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+  };
 }
 
 export class DevtoolsStore {
@@ -222,6 +338,7 @@ export class DevtoolsStore {
       llmSpans: [],
       toolSpans: [],
       compactionEvents: [],
+      pluginHooks: [],
     };
 
     this.runs.set(input.runId, record);
@@ -249,7 +366,7 @@ export class DevtoolsStore {
     this.scheduleIndexFlush();
   }
 
-  recordLLMStart(runId: string): void {
+  recordLLMStart(runId: string, inputTokens?: number): void {
     const record = this.runs.get(runId);
     if (!record) {
       return;
@@ -259,11 +376,12 @@ export class DevtoolsStore {
     record.llmSpans.push({
       index: record.llmCalls,
       startedAt: timestamp,
+      inputTokens,
     });
     this.touch(record, timestamp);
   }
 
-  recordLLMEnd(runId: string, finishReason?: string, text?: string): void {
+  recordLLMEnd(runId: string, finishReason?: string, text?: string, usage?: any): void {
     const record = this.runs.get(runId);
     if (!record) {
       return;
@@ -277,7 +395,31 @@ export class DevtoolsStore {
     span.durationMs = Math.max(0, timestamp - span.startedAt);
     span.finishReason = finishReason;
     span.textLength = typeof text === 'string' ? text.length : undefined;
+    const usageTokens = extractUsageTokens(usage);
+    if (usageTokens.inputTokens !== undefined) {
+      span.inputTokens = usageTokens.inputTokens;
+    }
+    if (usageTokens.outputTokens !== undefined) {
+      span.outputTokens = usageTokens.outputTokens;
+    } else if (typeof text === 'string') {
+      span.outputTokens = estimateTokensFromText(text);
+    }
+    if (usageTokens.cacheReadTokens !== undefined) {
+      span.cacheReadTokens = usageTokens.cacheReadTokens;
+    }
+    if (usageTokens.cacheWriteTokens !== undefined) {
+      span.cacheWriteTokens = usageTokens.cacheWriteTokens;
+    }
     this.touch(record, timestamp);
+  }
+
+  recordPluginHook(runId: string, hook: DevtoolsPluginHookSpan): void {
+    const record = this.runs.get(runId);
+    if (!record) {
+      return;
+    }
+    record.pluginHooks.push(hook);
+    this.touch(record);
   }
 
   recordToolCall(runId: string, name: string, input: unknown): void {
@@ -572,7 +714,21 @@ export function createDevtoolsIntegration(options: DevtoolsIntegrationOptions = 
       context.registerHook('beforeLLMCall', (input) => {
         const runId = runIdByContext.get(input.context);
         if (runId) {
-          store.recordLLMStart(runId);
+          const messageTokens = estimateTokensFromMessages(input.context?.messages ?? []);
+          let systemPromptTokens = 0;
+          if (typeof input.systemPrompt === 'string') {
+            systemPromptTokens = estimateTokensFromText(input.systemPrompt);
+          } else if (typeof input.systemPrompt === 'function') {
+            try {
+              systemPromptTokens = estimateTokensFromText(input.systemPrompt());
+            } catch {
+              systemPromptTokens = 0;
+            }
+          } else if (input.systemPrompt && typeof input.systemPrompt.append === 'string') {
+            systemPromptTokens = estimateTokensFromText(input.systemPrompt.append);
+          }
+          const inputTokens = messageTokens + systemPromptTokens;
+          store.recordLLMStart(runId, inputTokens);
         }
         return { tools: wrapTools(input.tools, store) };
       });
@@ -580,7 +736,7 @@ export function createDevtoolsIntegration(options: DevtoolsIntegrationOptions = 
       context.registerHook('afterLLMCall', (input) => {
         const runId = runIdByContext.get(input.context);
         if (runId) {
-          store.recordLLMEnd(runId, input.finishReason, input.text);
+          store.recordLLMEnd(runId, input.finishReason, input.text, input.usage);
         }
       });
 
@@ -608,6 +764,19 @@ export function createDevtoolsIntegration(options: DevtoolsIntegrationOptions = 
           store.finishRun(runId, input.result);
           runIdByContext.delete(input.context);
         }
+      });
+
+      context.events.on('hookTiming', (payload: any) => {
+        const runId = payload?.context ? runIdByContext.get(payload.context) : undefined;
+        if (!runId) {
+          return;
+        }
+        store.recordPluginHook(runId, {
+          pluginName: String(payload.pluginName ?? 'unknown'),
+          hookName: String(payload.hookName ?? 'unknown'),
+          startedAt: Number(payload.at ?? now()),
+          durationMs: Number(payload.durationMs ?? 0),
+        });
       });
     },
   };

@@ -30,6 +30,10 @@ interface LlmSpan {
     inputSize?: number;
     inputPreview?: string;
   }>;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 }
 
 interface ToolSpan {
@@ -65,6 +69,12 @@ interface RunDetail extends RunSummary {
   llmSpans: LlmSpan[];
   toolSpans: ToolSpan[];
   compactionEvents: CompactionEvent[];
+  pluginHooks: Array<{
+    pluginName: string;
+    hookName: string;
+    startedAt: number;
+    durationMs: number;
+  }>;
   resultTextPreview?: string;
 }
 
@@ -235,9 +245,15 @@ export default function App() {
 
     const llmSpans = selectedRun.llmSpans.filter((span) => span.durationMs !== undefined);
     const toolSpans = selectedRun.toolSpans.filter((span) => span.durationMs !== undefined);
+    const pluginHooks = selectedRun.pluginHooks ?? [];
 
     const totalLlmTime = llmSpans.reduce((sum, span) => sum + (span.durationMs ?? 0), 0);
     const totalToolTime = toolSpans.reduce((sum, span) => sum + (span.durationMs ?? 0), 0);
+    const totalHookTime = pluginHooks.reduce((sum, hook) => sum + (hook.durationMs ?? 0), 0);
+    const totalCacheRead = selectedRun.llmSpans.reduce((sum, span) => sum + (span.cacheReadTokens ?? 0), 0);
+    const totalCacheWrite = selectedRun.llmSpans.reduce((sum, span) => sum + (span.cacheWriteTokens ?? 0), 0);
+    const hasCacheRead = selectedRun.llmSpans.some((span) => span.cacheReadTokens !== undefined);
+    const hasCacheWrite = selectedRun.llmSpans.some((span) => span.cacheWriteTokens !== undefined);
 
     const slowestLlm = llmSpans.reduce<LlmSpan | null>((acc, span) => {
       if (!acc || (span.durationMs ?? 0) > (acc.durationMs ?? 0)) {
@@ -251,6 +267,15 @@ export default function App() {
       }
       return acc;
     }, null);
+    const slowestHook = pluginHooks.reduce<{ pluginName: string; hookName: string; durationMs: number } | null>(
+      (acc, hook) => {
+        if (!acc || hook.durationMs > acc.durationMs) {
+          return hook;
+        }
+        return acc;
+      },
+      null,
+    );
 
     const topLlm = [...llmSpans]
       .sort((a, b) => (b.durationMs ?? 0) - (a.durationMs ?? 0))
@@ -258,8 +283,80 @@ export default function App() {
     const topTool = [...toolSpans]
       .sort((a, b) => (b.durationMs ?? 0) - (a.durationMs ?? 0))
       .slice(0, 5);
+    const topHooks = [...pluginHooks]
+      .sort((a, b) => b.durationMs - a.durationMs)
+      .slice(0, 5);
     const maxLlm = topLlm[0]?.durationMs ?? 0;
     const maxTool = topTool[0]?.durationMs ?? 0;
+    const maxHook = topHooks[0]?.durationMs ?? 0;
+
+    const runStart = selectedRun.startedAt;
+    const runEnd = selectedRun.endedAt ?? now;
+    const runDuration = Math.max(1, runEnd - runStart);
+    const timelineEvents = [
+      ...selectedRun.llmSpans.map((span) => ({
+        type: 'llm' as const,
+        label: `LLM #${span.index}`,
+        start: span.startedAt,
+        end: span.endedAt ?? now,
+        duration: span.durationMs ?? Math.max(0, now - span.startedAt),
+      })),
+      ...selectedRun.toolSpans.map((span) => ({
+        type: 'tool' as const,
+        label: span.name,
+        start: span.startedAt,
+        end: span.endedAt ?? now,
+        duration: span.durationMs ?? Math.max(0, now - span.startedAt),
+      })),
+      ...pluginHooks.map((hook, idx) => ({
+        type: 'hook' as const,
+        label: `${hook.pluginName}.${hook.hookName} #${idx + 1}`,
+        start: hook.startedAt,
+        end: hook.startedAt + hook.durationMs,
+        duration: hook.durationMs,
+      })),
+    ]
+      .filter((event) => Number.isFinite(event.start) && Number.isFinite(event.end))
+      .sort((a, b) => a.start - b.start);
+
+    const gapEvents: Array<{
+      start: number;
+      end: number;
+      duration: number;
+      before: string;
+      after: string;
+    }> = [];
+    let lastEnd = runStart;
+    let lastLabel = 'Run start';
+    for (const event of timelineEvents) {
+      if (event.start > lastEnd) {
+        gapEvents.push({
+          start: lastEnd,
+          end: event.start,
+          duration: event.start - lastEnd,
+          before: lastLabel,
+          after: event.label,
+        });
+      }
+      if (event.end > lastEnd) {
+        lastEnd = event.end;
+        lastLabel = event.label;
+      }
+    }
+    if (runEnd > lastEnd) {
+      gapEvents.push({
+        start: lastEnd,
+        end: runEnd,
+        duration: runEnd - lastEnd,
+        before: lastLabel,
+        after: 'Run end',
+      });
+    }
+
+    const sortedGaps = [...gapEvents].sort((a, b) => b.duration - a.duration);
+    const topGaps = sortedGaps.slice(0, 5);
+    const totalGapTime = gapEvents.reduce((sum, gap) => sum + gap.duration, 0);
+    const largestGap = topGaps[0];
 
     return (
       <div className="detail">
@@ -272,6 +369,8 @@ export default function App() {
           <InfoCard label="Tool Calls" value={String(selectedRun.toolCalls)} />
           <InfoCard label="Compactions" value={String(selectedRun.compactions)} />
           <InfoCard label="Last Event" value={formatTime(selectedRun.lastEventAt)} />
+          <InfoCard label="Cache Read" value={hasCacheRead ? String(totalCacheRead) : 'n/a'} />
+          <InfoCard label="Cache Write" value={hasCacheWrite ? String(totalCacheWrite) : 'n/a'} />
         </div>
 
         <div className="pill-row">
@@ -307,6 +406,26 @@ export default function App() {
             <div className="hot-card">
               <div className="hot-label">Total tool time</div>
               <div className="hot-value">{formatDuration(totalToolTime)}</div>
+            </div>
+            <div className="hot-card">
+              <div className="hot-label">Slowest hook</div>
+              <div className="hot-value">
+                {slowestHook ? `${slowestHook.pluginName}.${slowestHook.hookName} · ${formatDuration(slowestHook.durationMs)}` : 'n/a'}
+              </div>
+            </div>
+            <div className="hot-card">
+              <div className="hot-label">Total hook time</div>
+              <div className="hot-value">{formatDuration(totalHookTime)}</div>
+            </div>
+            <div className="hot-card">
+              <div className="hot-label">Idle gaps total</div>
+              <div className="hot-value">{formatDuration(totalGapTime)}</div>
+            </div>
+            <div className="hot-card">
+              <div className="hot-label">Largest idle gap</div>
+              <div className="hot-value">
+                {largestGap ? `${formatDuration(largestGap.duration)} · ${formatTime(largestGap.start)}` : 'n/a'}
+              </div>
             </div>
           </div>
 
@@ -349,6 +468,26 @@ export default function App() {
               <div className="empty">No tool calls yet.</div>
             )}
           </div>
+
+          <div className="bar-block">
+            <div className="bar-title">Top plugin hooks</div>
+            {topHooks.length ? (
+              topHooks.map((hook, idx) => (
+                <div key={`hook-${idx}`} className="bar-row">
+                  <div className="bar-label">{hook.pluginName}.{hook.hookName}</div>
+                  <div className="bar-track">
+                    <div
+                      className="bar-fill"
+                      style={{ width: `${Math.max(6, (hook.durationMs / (maxHook || 1)) * 100)}%` }}
+                    />
+                  </div>
+                  <div className="bar-value">{formatDuration(hook.durationMs)}</div>
+                </div>
+              ))
+            ) : (
+              <div className="empty">No hook timings yet.</div>
+            )}
+          </div>
         </section>
 
         {selectedRun.userText ? (
@@ -366,6 +505,62 @@ export default function App() {
         ) : null}
 
         <section className="section">
+          <h2>Timeline</h2>
+          {timelineEvents.length ? (
+            <div className="timeline">
+              {timelineEvents.map((event, idx) => {
+                const left = ((event.start - runStart) / runDuration) * 100;
+                const width = ((event.end - event.start) / runDuration) * 100;
+                return (
+                  <div key={`${event.type}-${idx}`} className={`timeline-row ${event.type}`}>
+                    <div className="timeline-label">{event.label}</div>
+                    <div className="timeline-track">
+                      <div
+                        className="timeline-bar"
+                        style={{ left: `${Math.max(0, left)}%`, width: `${Math.max(2, width)}%` }}
+                      />
+                    </div>
+                    <div className="timeline-value">{formatDuration(event.duration)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="empty">No timeline data yet.</div>
+          )}
+        </section>
+
+        <section className="section">
+          <h2>Stall Analysis</h2>
+          {topGaps.length ? (
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Gap</th>
+                    <th>Start</th>
+                    <th>Between</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topGaps.map((gap, idx) => (
+                    <tr key={`${gap.start}-${idx}`}>
+                      <td>{formatDuration(gap.duration)}</td>
+                      <td>{formatTime(gap.start)}</td>
+                      <td>
+                        {gap.before} → {gap.after}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="empty">No idle gaps detected.</div>
+          )}
+        </section>
+
+        <section className="section">
           <h2>LLM Spans</h2>
           {selectedRun.llmSpans.length ? (
             <div className="table-scroll">
@@ -376,6 +571,10 @@ export default function App() {
                     <th>Duration</th>
                     <th>Finish</th>
                     <th>Text Len</th>
+                    <th>Input Tok</th>
+                    <th>Output Tok</th>
+                    <th>Cache Read</th>
+                    <th>Cache Write</th>
                     <th>Tools</th>
                   </tr>
                 </thead>
@@ -386,6 +585,10 @@ export default function App() {
                       <td>{formatDuration(span.durationMs)}</td>
                       <td>{span.finishReason || 'n/a'}</td>
                       <td>{span.textLength ?? 'n/a'}</td>
+                      <td>{span.inputTokens ?? 'n/a'}</td>
+                      <td>{span.outputTokens ?? 'n/a'}</td>
+                      <td>{span.cacheReadTokens ?? 'n/a'}</td>
+                      <td>{span.cacheWriteTokens ?? 'n/a'}</td>
                       <td>
                         {span.toolCalls?.length
                           ? span.toolCalls.map((call, idx) => (
@@ -436,6 +639,36 @@ export default function App() {
             </div>
           ) : (
             <div className="empty">No tool spans.</div>
+          )}
+        </section>
+
+        <section className="section">
+          <h2>Plugin Hooks</h2>
+          {selectedRun.pluginHooks.length ? (
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Plugin</th>
+                    <th>Hook</th>
+                    <th>Duration</th>
+                    <th>Start</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedRun.pluginHooks.map((hook, idx) => (
+                    <tr key={`${hook.pluginName}-${hook.hookName}-${idx}`}>
+                      <td>{hook.pluginName}</td>
+                      <td>{hook.hookName}</td>
+                      <td>{formatDuration(hook.durationMs)}</td>
+                      <td>{formatTime(hook.startedAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="empty">No plugin hooks.</div>
           )}
         </section>
 

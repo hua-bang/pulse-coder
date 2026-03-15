@@ -57,6 +57,7 @@ function wrapToolsWithHooks(
   tools: Record<string, Tool>,
   beforeHooks: Array<EngineHookMap['beforeToolCall']>,
   afterHooks: Array<EngineHookMap['afterToolCall']>,
+  context: Context,
 ): Record<string, Tool> {
   const wrapped: Record<string, Tool> = {};
   for (const [name, t] of Object.entries(tools)) {
@@ -66,7 +67,7 @@ function wrapToolsWithHooks(
         // Run all beforeToolCall hooks sequentially
         let finalInput = input;
         for (const hook of beforeHooks) {
-          const result = await hook({ name, input: finalInput });
+          const result = await hook({ context, name, input: finalInput });
           if (result && 'input' in result) {
             finalInput = result.input;
           }
@@ -77,7 +78,7 @@ function wrapToolsWithHooks(
         // Run all afterToolCall hooks sequentially
         let finalOutput = output;
         for (const hook of afterHooks) {
-          const result = await hook({ name, input: finalInput, output: finalOutput });
+          const result = await hook({ context, name, input: finalInput, output: finalOutput });
           if (result && 'output' in result) {
             finalOutput = result.output;
           }
@@ -225,7 +226,7 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
       const beforeToolHooks = loopHooks.beforeToolCall ?? [];
       const afterToolHooks = loopHooks.afterToolCall ?? [];
       if (beforeToolHooks.length || afterToolHooks.length) {
-        tools = wrapToolsWithHooks(tools, beforeToolHooks, afterToolHooks);
+        tools = wrapToolsWithHooks(tools, beforeToolHooks, afterToolHooks, context);
       }
 
       // Prepare tool execution context
@@ -267,10 +268,12 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
         },
       });
 
-      const [text, steps, finishReason] = await Promise.all([
+      const usagePromise = (result as any).usage;
+      const [text, steps, finishReason, usage] = await Promise.all([
         result.text,
         result.steps,
         result.finishReason,
+        usagePromise ? Promise.resolve(usagePromise) : Promise.resolve(undefined),
       ]);
 
       totalSteps += steps.length;
@@ -285,7 +288,7 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
       // --- afterLLMCall hooks ---
       if (loopHooks.afterLLMCall?.length) {
         for (const hook of loopHooks.afterLLMCall) {
-          await hook({ context, finishReason, text });
+          await hook({ context, finishReason, text, usage });
         }
       }
 

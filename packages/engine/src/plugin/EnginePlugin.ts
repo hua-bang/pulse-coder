@@ -40,11 +40,13 @@ export interface AfterLLMCallInput {
   context: Context;
   finishReason: string;
   text: string;
+  usage?: any;
 }
 
 // -- beforeToolCall --
 
 export interface BeforeToolCallInput {
+  context?: Context;
   name: string;
   input: any;
 }
@@ -56,6 +58,7 @@ export interface BeforeToolCallResult {
 // -- afterToolCall --
 
 export interface AfterToolCallInput {
+  context?: Context;
   name: string;
   input: any;
   output: any;

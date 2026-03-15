@@ -523,9 +523,64 @@ th {
   text-align: right;
 }
 
+.timeline {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.timeline-row {
+  display: grid;
+  grid-template-columns: 160px 1fr 80px;
+  gap: 10px;
+  align-items: center;
+}
+
+.timeline-label {
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.timeline-track {
+  position: relative;
+  height: 10px;
+  background: #f1f0ed;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.timeline-row.llm .timeline-bar {
+  background: rgba(15, 123, 108, 0.55);
+}
+
+.timeline-row.tool .timeline-bar {
+  background: rgba(33, 105, 185, 0.45);
+}
+
+.timeline-row.hook .timeline-bar {
+  background: rgba(176, 132, 52, 0.45);
+}
+
+.timeline-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+}
+
+.timeline-value {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
 .table-scroll {
   max-height: 240px;
   overflow-y: auto;
+  overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #fff;
@@ -533,6 +588,7 @@ th {
 
 .table-scroll table {
   border-collapse: collapse;
+  min-width: 720px;
 }
 
 .table-scroll th,
@@ -558,6 +614,12 @@ th {
     gap: 6px;
   }
   .bar-value {
+    text-align: left;
+  }
+  .timeline-row {
+    grid-template-columns: 1fr;
+  }
+  .timeline-value {
     text-align: left;
   }
 }
