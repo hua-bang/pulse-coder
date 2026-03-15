@@ -97,6 +97,8 @@ export default function App() {
   const [listError, setListError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [sessionFilter, setSessionFilter] = useState('');
+  const [groupBy, setGroupBy] = useState<'none' | 'session'>('none');
 
   const apiBase = useMemo(() => sanitizeBaseUrl(baseUrl), [baseUrl]);
 
@@ -114,14 +116,16 @@ export default function App() {
       const data = await fetchJson('/runs?limit=60');
       const list = (data.runs || []) as RunSummary[];
       setRuns(list);
-      if (!list.length) {
-        setSelectedId(null);
-        setSelectedRun(null);
-        return;
-      }
-      if (!selectedId || !list.some((item) => item.runId === selectedId)) {
-        setSelectedId(list[0].runId);
-      }
+      setSelectedId((current) => {
+        if (!list.length) {
+          setSelectedRun(null);
+          return null;
+        }
+        if (current && list.some((item) => item.runId === current)) {
+          return current;
+        }
+        return list[0].runId;
+      });
     } catch (error) {
       setListError(error instanceof Error ? error.message : String(error));
     }
@@ -162,6 +166,40 @@ export default function App() {
     }, 2000);
     return () => window.clearInterval(timer);
   }, [autoRefresh, apiBase]);
+
+  const filteredRuns = useMemo(() => {
+    if (!sessionFilter.trim()) {
+      return runs;
+    }
+    const needle = sessionFilter.trim().toLowerCase();
+    return runs.filter((run) => (run.sessionId ?? '').toLowerCase().includes(needle));
+  }, [runs, sessionFilter]);
+
+  useEffect(() => {
+    if (!filteredRuns.length) {
+      setSelectedId(null);
+      setSelectedRun(null);
+      return;
+    }
+    if (selectedId && filteredRuns.some((run) => run.runId === selectedId)) {
+      return;
+    }
+    setSelectedId(filteredRuns[0].runId);
+  }, [filteredRuns, selectedId]);
+
+  const groupedRuns = useMemo(() => {
+    if (groupBy !== 'session') {
+      return null;
+    }
+    return filteredRuns.reduce<Record<string, RunSummary[]>>((acc, run) => {
+      const key = run.sessionId ?? 'unknown';
+      if (!acc[key]) {
+        acc[key] = [];
+      }
+      acc[key].push(run);
+      return acc;
+    }, {});
+  }, [filteredRuns, groupBy]);
 
   const renderDetail = () => {
     if (detailError) {
@@ -206,36 +244,38 @@ export default function App() {
         <section className="section">
           <h2>LLM Spans</h2>
           {selectedRun.llmSpans.length ? (
-            <table>
-              <thead>
-                <tr>
-                  <th>Index</th>
-                  <th>Duration</th>
-                  <th>Finish</th>
-                  <th>Text Len</th>
-                  <th>Tools</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedRun.llmSpans.map((span) => (
-                  <tr key={span.index}>
-                    <td>#{span.index}</td>
-                    <td>{formatDuration(span.durationMs)}</td>
-                    <td>{span.finishReason || 'n/a'}</td>
-                    <td>{span.textLength ?? 'n/a'}</td>
-                    <td>
-                      {span.toolCalls?.length
-                        ? span.toolCalls.map((call, idx) => (
-                            <span key={`${call.name}-${idx}`} className="tool-chip" title={call.inputPreview || ''}>
-                              {call.name}
-                            </span>
-                          ))
-                        : '—'}
-                    </td>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Index</th>
+                    <th>Duration</th>
+                    <th>Finish</th>
+                    <th>Text Len</th>
+                    <th>Tools</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {selectedRun.llmSpans.map((span) => (
+                    <tr key={span.index}>
+                      <td>#{span.index}</td>
+                      <td>{formatDuration(span.durationMs)}</td>
+                      <td>{span.finishReason || 'n/a'}</td>
+                      <td>{span.textLength ?? 'n/a'}</td>
+                      <td>
+                        {span.toolCalls?.length
+                          ? span.toolCalls.map((call, idx) => (
+                              <span key={`${call.name}-${idx}`} className="tool-chip" title={call.inputPreview || ''}>
+                                {call.name}
+                              </span>
+                            ))
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <div className="empty">No LLM spans.</div>
           )}
@@ -244,30 +284,32 @@ export default function App() {
         <section className="section">
           <h2>Tool Spans</h2>
           {selectedRun.toolSpans.length ? (
-            <table>
-              <thead>
-                <tr>
-                  <th>Index</th>
-                  <th>Name</th>
-                  <th>Duration</th>
-                  <th>Input</th>
-                  <th>Output</th>
-                  <th>Error</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedRun.toolSpans.map((span) => (
-                  <tr key={span.index}>
-                    <td>#{span.index}</td>
-                    <td>{span.name}</td>
-                    <td>{formatDuration(span.durationMs)}</td>
-                    <td>{span.inputSize ?? 'n/a'}</td>
-                    <td>{span.outputSize ?? 'n/a'}</td>
-                    <td>{span.error ? <span className="error">{span.error}</span> : 'ok'}</td>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Index</th>
+                    <th>Name</th>
+                    <th>Duration</th>
+                    <th>Input</th>
+                    <th>Output</th>
+                    <th>Error</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {selectedRun.toolSpans.map((span) => (
+                    <tr key={span.index}>
+                      <td>#{span.index}</td>
+                      <td>{span.name}</td>
+                      <td>{formatDuration(span.durationMs)}</td>
+                      <td>{span.inputSize ?? 'n/a'}</td>
+                      <td>{span.outputSize ?? 'n/a'}</td>
+                      <td>{span.error ? <span className="error">{span.error}</span> : 'ok'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <div className="empty">No tool spans.</div>
           )}
@@ -276,32 +318,34 @@ export default function App() {
         <section className="section">
           <h2>Compactions</h2>
           {selectedRun.compactionEvents.length ? (
-            <table>
-              <thead>
-                <tr>
-                  <th>Attempt</th>
-                  <th>Trigger</th>
-                  <th>Reason</th>
-                  <th>Tokens</th>
-                  <th>Messages</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedRun.compactionEvents.map((event) => (
-                  <tr key={`${event.attempt}-${event.at}`}>
-                    <td>#{event.attempt}</td>
-                    <td>{event.trigger}</td>
-                    <td>{event.reason || event.strategy}</td>
-                    <td>
-                      {event.beforeEstimatedTokens} → {event.afterEstimatedTokens}
-                    </td>
-                    <td>
-                      {event.beforeMessageCount} → {event.afterMessageCount}
-                    </td>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Attempt</th>
+                    <th>Trigger</th>
+                    <th>Reason</th>
+                    <th>Tokens</th>
+                    <th>Messages</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {selectedRun.compactionEvents.map((event) => (
+                    <tr key={`${event.attempt}-${event.at}`}>
+                      <td>#{event.attempt}</td>
+                      <td>{event.trigger}</td>
+                      <td>{event.reason || event.strategy}</td>
+                      <td>
+                        {event.beforeEstimatedTokens} → {event.afterEstimatedTokens}
+                      </td>
+                      <td>
+                        {event.beforeMessageCount} → {event.afterMessageCount}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <div className="empty">No compactions.</div>
           )}
@@ -356,30 +400,76 @@ export default function App() {
             <h2>Runs</h2>
             <span className="pill">{runs.length} total</span>
           </div>
+          <div className="filter-row">
+            <input
+              className="filter-input"
+              placeholder="Filter by session_id"
+              value={sessionFilter}
+              onChange={(event) => setSessionFilter(event.target.value)}
+            />
+            <select
+              className="filter-select"
+              value={groupBy}
+              onChange={(event) => setGroupBy(event.target.value as 'none' | 'session')}
+            >
+              <option value="none">No group</option>
+              <option value="session">Group by session</option>
+            </select>
+          </div>
           <div className="list">
-            {runs.length ? (
-              runs.map((run, index) => (
-                <button
-                  key={run.runId}
-                  className={`run-card ${run.runId === selectedId ? 'active' : ''}`}
-                  data-status={run.status}
-                  style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}
-                  onClick={() => setSelectedId(run.runId)}
-                >
-                  <div className="run-meta">
-                    <span className={`status ${run.status}`}>
-                      <span className="status-dot" />
-                      {run.status}
-                    </span>
-                    <span>{formatDuration(run.durationMs || Date.now() - run.startedAt)}</span>
+            {filteredRuns.length ? (
+              groupBy === 'session' && groupedRuns ? (
+                Object.entries(groupedRuns).map(([sessionId, items]) => (
+                  <div className="group-block" key={sessionId}>
+                    <div className="group-title">Session {sessionId}</div>
+                    {items.map((run, index) => (
+                      <button
+                        key={run.runId}
+                        className={`run-card ${run.runId === selectedId ? 'active' : ''}`}
+                        data-status={run.status}
+                        style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}
+                        onClick={() => setSelectedId(run.runId)}
+                      >
+                        <div className="run-meta">
+                          <span className={`status ${run.status}`}>
+                            <span className="status-dot" />
+                            {run.status}
+                          </span>
+                          <span>{formatDuration(run.durationMs || Date.now() - run.startedAt)}</span>
+                        </div>
+                        <strong>{run.userTextPreview || 'No user text'}</strong>
+                        <div className="run-meta">
+                          <span>Run {run.runId.slice(0, 8)}</span>
+                          <span>Last {formatTime(run.lastEventAt)}</span>
+                        </div>
+                      </button>
+                    ))}
                   </div>
-                  <strong>{run.userTextPreview || 'No user text'}</strong>
-                  <div className="run-meta">
-                    <span>Run {run.runId.slice(0, 8)}</span>
-                    <span>Last {formatTime(run.lastEventAt)}</span>
-                  </div>
-                </button>
-              ))
+                ))
+              ) : (
+                filteredRuns.map((run, index) => (
+                  <button
+                    key={run.runId}
+                    className={`run-card ${run.runId === selectedId ? 'active' : ''}`}
+                    data-status={run.status}
+                    style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}
+                    onClick={() => setSelectedId(run.runId)}
+                  >
+                    <div className="run-meta">
+                      <span className={`status ${run.status}`}>
+                        <span className="status-dot" />
+                        {run.status}
+                      </span>
+                      <span>{formatDuration(run.durationMs || Date.now() - run.startedAt)}</span>
+                    </div>
+                    <strong>{run.userTextPreview || 'No user text'}</strong>
+                    <div className="run-meta">
+                      <span>Run {run.runId.slice(0, 8)}</span>
+                      <span>Last {formatTime(run.lastEventAt)}</span>
+                    </div>
+                  </button>
+                ))
+              )
             ) : (
               <div className="empty">No runs yet.</div>
             )}
