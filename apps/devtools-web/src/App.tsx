@@ -247,6 +247,7 @@ export default function App() {
     const llmSpans = selectedRun.llmSpans.filter((span) => span.durationMs !== undefined);
     const toolSpans = selectedRun.toolSpans.filter((span) => span.durationMs !== undefined);
     const pluginHooks = selectedRun.pluginHooks ?? [];
+    const compactionEvents = selectedRun.compactionEvents ?? [];
 
     const totalLlmTime = llmSpans.reduce((sum, span) => sum + (span.durationMs ?? 0), 0);
     const totalToolTime = toolSpans.reduce((sum, span) => sum + (span.durationMs ?? 0), 0);
@@ -812,9 +813,9 @@ export default function App() {
 
             <section className="section">
               <h2>Plugin Hooks</h2>
-              {selectedRun.pluginHooks.length ? (
-                <div className="table-scroll">
-                  <table>
+          {pluginHooks.length ? (
+            <div className="table-scroll">
+              <table>
                     <thead>
                       <tr>
                         <th>Plugin</th>
@@ -824,10 +825,10 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedRun.pluginHooks.map((hook, idx) => (
-                        <tr key={`${hook.pluginName}-${hook.hookName}-${idx}`}>
-                          <td>{hook.pluginName}</td>
-                          <td>{hook.hookName}</td>
+                  {pluginHooks.map((hook, idx) => (
+                    <tr key={`${hook.pluginName}-${hook.hookName}-${idx}`}>
+                      <td>{hook.pluginName}</td>
+                      <td>{hook.hookName}</td>
                           <td>{formatDuration(hook.durationMs)}</td>
                           <td>{formatTime(hook.startedAt)}</td>
                         </tr>
@@ -840,9 +841,9 @@ export default function App() {
               )}
             </section>
 
-            <section className="section">
+          <section className="section">
               <h2>Compactions</h2>
-              {selectedRun.compactionEvents.length ? (
+              {compactionEvents.length ? (
                 <div className="table-scroll">
                   <table>
                     <thead>
@@ -855,7 +856,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedRun.compactionEvents.map((event) => (
+                      {compactionEvents.map((event) => (
                         <tr key={`${event.attempt}-${event.at}`}>
                           <td>#{event.attempt}</td>
                           <td>{event.trigger}</td>
