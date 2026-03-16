@@ -9,7 +9,7 @@ dotenv.config();
 export const CoderAI = (process.env.USE_ANTHROPIC
   ? createAnthropic({
     apiKey: process.env.ANTHROPIC_API_KEY || '',
-    baseURL: process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com/v1'
+    baseURL: process.env.PULSE_ANTHROPIC_API_URL || 'https://api.anthropic.com/v1'
   })
   : createOpenAI({
     apiKey: process.env.OPENAI_API_KEY || '',
@@ -22,7 +22,7 @@ export const CoderAI = (process.env.USE_ANTHROPIC
  * the OpenAI-compatible endpoint (/v1/chat/completions).
  *
  * - 'openai' → OPENAI_API_KEY / OPENAI_API_URL
- * - 'claude' → ANTHROPIC_API_KEY / ANTHROPIC_API_URL (falls back to OPENAI_* if unset)
+ * - 'claude' → ANTHROPIC_API_KEY / PULSE_ANTHROPIC_API_URL (falls back to OPENAI_* if unset)
  *
  * The modelType is still meaningful for pre-processing (e.g. system message consolidation).
  */
@@ -30,7 +30,7 @@ export function buildProvider(type: ModelType): LLMProviderFactory {
   if (type === 'claude') {
     return createAnthropic({
       apiKey: process.env.ANTHROPIC_API_KEY || '',
-      baseURL: process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com/v1',
+      baseURL: process.env.PULSE_ANTHROPIC_API_URL || 'https://api.anthropic.com/v1',
       headers: { 'user-agent': 'claude-code/2.1.63' },
     }) as LLMProviderFactory;
   }

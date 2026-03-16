@@ -19,7 +19,7 @@ export type LLMProviderFactory = (model: string) => LanguageModel;
  * without needing to import or construct the SDK adapter manually.
  *
  * - `'openai'` — uses OPENAI_API_KEY / OPENAI_API_URL
- * - `'claude'` — uses ANTHROPIC_API_KEY / ANTHROPIC_API_URL
+ * - `'claude'` — uses ANTHROPIC_API_KEY / PULSE_ANTHROPIC_API_URL
  */
 export type ModelType = 'openai' | 'claude';
 

@@ -48,7 +48,7 @@ export interface LoopOptions {
    * Named provider type. Used to construct a provider from env vars without importing the SDK.
    * Ignored when `provider` is set explicitly.
    * - `'openai'` → OPENAI_API_KEY / OPENAI_API_URL
-   * - `'claude'` → ANTHROPIC_API_KEY / ANTHROPIC_API_URL
+   * - `'claude'` → ANTHROPIC_API_KEY / PULSE_ANTHROPIC_API_URL
    */
   modelType?: ModelType;
   /** Model name passed to the provider. Overrides DEFAULT_MODEL when set. */

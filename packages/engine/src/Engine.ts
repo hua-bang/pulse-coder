@@ -46,7 +46,7 @@ export interface EngineOptions {
    * the SDK adapter from environment variables automatically.
    * Ignored when `llmProvider` is set explicitly.
    * - `'openai'` → OPENAI_API_KEY / OPENAI_API_URL
-   * - `'claude'` → ANTHROPIC_API_KEY / ANTHROPIC_API_URL
+   * - `'claude'` → ANTHROPIC_API_KEY / PULSE_ANTHROPIC_API_URL
    */
   modelType?: ModelType;
 
