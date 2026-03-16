@@ -276,6 +276,8 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
         return result.text;
       }
 
+      console.log('modelType', modelType);
+
       return engine.run(context, {
         model: modelOverride,
         modelType,

@@ -32,6 +32,8 @@ export interface AcpRunnerInput {
   abortSignal?: AbortSignal;
   callbacks?: AcpRunnerCallbacks;
   stateStore?: AcpStateStore;
+  envOverrides?: Record<string, string | undefined>;
+  unsetEnv?: string[];
   clientInfo?: {
     name: string;
     title?: string;
@@ -71,6 +73,8 @@ export type PermissionRequestHandler = (request: PermissionRequest) => Promise<P
 export interface AcpClientOptions {
   onPermissionRequest?: PermissionRequestHandler;
   commandOverrides?: Partial<Record<AcpAgent, string>>;
+  envOverrides?: Record<string, string | undefined>;
+  unsetEnv?: string[];
 }
 
 export interface AcpClientCapabilities {

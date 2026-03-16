@@ -1,6 +1,7 @@
 import type {
   AcpRunnerInput,
   AcpRunnerResult,
+  AcpRunnerCallbacks,
   InitializeResult,
   PermissionOutcome,
   PermissionOption,
@@ -32,14 +33,114 @@ function resolvePermissionMode(): AcpPermissionMode {
   return 'allow';
 }
 
+const DEFAULT_ACP_RETRY_MAX = 2;
+const DEFAULT_ACP_RETRY_BASE_DELAY_MS = 750;
+
+type AcpRetryConfig = {
+  maxRetries: number;
+  baseDelayMs: number;
+};
+
+function resolveRetryConfig(): AcpRetryConfig {
+  const rawRetries = Number.parseInt(process.env.ACP_RETRY_MAX ?? `${DEFAULT_ACP_RETRY_MAX}`, 10);
+  const rawDelay = Number.parseInt(process.env.ACP_RETRY_BASE_DELAY_MS ?? `${DEFAULT_ACP_RETRY_BASE_DELAY_MS}`, 10);
+  return {
+    maxRetries: Number.isFinite(rawRetries) && rawRetries > 0 ? rawRetries : 0,
+    baseDelayMs: Number.isFinite(rawDelay) && rawDelay > 0 ? rawDelay : 0,
+  };
+}
+
+const PROXY_ENV_KEYS = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY'];
+
+// These env vars must never be inherited by the ACP child process.
+// CLAUDECODE=1 causes Claude Code to refuse launch when it detects a nested session.
+const ALWAYS_UNSET_ENV_KEYS = ['CLAUDECODE'];
+
+function resolveDisableProxy(): boolean {
+  const raw = process.env.ACP_DISABLE_PROXY;
+  if (!raw) return false;
+  const normalized = raw.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function hasProxyEnv(): boolean {
+  return PROXY_ENV_KEYS.some((key) => Boolean(process.env[key]));
+}
+
+function mergeUnsetEnv(base: string[] | undefined, extra: string[]): string[] | undefined {
+  if (!base || base.length === 0) return extra.length ? extra : undefined;
+  const merged = listDedupe(base.concat(extra));
+  return merged.length ? merged : undefined;
+}
+
+function listDedupe(items: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of items) {
+    if (seen.has(item)) continue;
+    seen.add(item);
+    out.push(item);
+  }
+  return out;
+}
+
+
 export async function runAcp(input: AcpRunnerInput): Promise<AcpRunnerResult> {
+  const retryConfig = resolveRetryConfig();
+  let sessionId = input.sessionId;
+  let lastError: unknown;
+  let disableProxy = resolveDisableProxy();
+  const proxyAvailable = hasProxyEnv();
+
+  for (let attempt = 0; attempt <= retryConfig.maxRetries; attempt += 1) {
+    let hadOutput = false;
+    const callbacks = wrapCallbacks(input.callbacks, () => {
+      hadOutput = true;
+    });
+
+    const unsetEnv = mergeUnsetEnv(
+      input.unsetEnv,
+      [...ALWAYS_UNSET_ENV_KEYS, ...(disableProxy ? PROXY_ENV_KEYS : [])],
+    );
+
+    try {
+      return await runAcpOnce({ ...input, sessionId, unsetEnv }, callbacks);
+    } catch (err) {
+      lastError = err;
+      const shouldRetry = shouldRetryAcpError(err, {
+        hadOutput,
+        abortSignal: input.abortSignal,
+        attempt,
+        maxRetries: retryConfig.maxRetries,
+      });
+      if (!shouldRetry) {
+        throw err;
+      }
+      if (!disableProxy && proxyAvailable && isTransientAcpError(err)) {
+        console.warn('[acp/runner] transient error detected, retrying without proxy');
+        disableProxy = true;
+      }
+      sessionId = undefined;
+      const delayMs = retryConfig.baseDelayMs * Math.max(1, attempt + 1);
+      if (delayMs > 0) {
+        await sleep(delayMs);
+      }
+    }
+  }
+
+  throw lastError ?? new Error('ACP failed without error');
+}
+
+async function runAcpOnce(input: AcpRunnerInput, callbacks?: AcpRunnerCallbacks): Promise<AcpRunnerResult> {
   const permissionMode = resolvePermissionMode();
   const stateStore = input.stateStore ?? new FileAcpStateStore();
   const client = new AcpClient(input.agent, input.cwd, {
     commandOverrides: input.commandOverrides,
+    envOverrides: input.envOverrides,
+    unsetEnv: input.unsetEnv,
     onPermissionRequest: async (request) => {
       const options = request.options;
-      if (permissionMode !== 'prompt' || !input.callbacks?.onClarificationRequest) {
+      if (permissionMode !== 'prompt' || !callbacks?.onClarificationRequest) {
         return null;
       }
 
@@ -47,7 +148,7 @@ export async function runAcp(input: AcpRunnerInput): Promise<AcpRunnerResult> {
         return { outcome: 'cancelled' };
       }
 
-      const answer = await input.callbacks.onClarificationRequest(buildPermissionClarification(request));
+      const answer = await callbacks.onClarificationRequest(buildPermissionClarification(request));
       const normalized = answer.trim().toLowerCase();
       if (!normalized) {
         return choosePermissionOutcomeFromAnswer(options, '');
@@ -107,16 +208,16 @@ export async function runAcp(input: AcpRunnerInput): Promise<AcpRunnerResult> {
           const delta = update.content?.text ?? '';
           if (delta) {
             textChunks.push(delta);
-            input.callbacks?.onText?.(delta);
+            callbacks?.onText?.(delta);
           }
           break;
         }
         case 'tool_call':
         case 'tool_call_update': {
           if (update.status === 'in_progress' || update.status === 'pending') {
-            input.callbacks?.onToolCall?.(buildToolCallSnapshot(update));
+            callbacks?.onToolCall?.(buildToolCallSnapshot(update));
           } else if (update.status === 'completed') {
-            input.callbacks?.onToolResult?.({
+            callbacks?.onToolResult?.({
               toolCallId: update.toolCallId,
               entries: update.entries,
               status: update.status,
@@ -155,6 +256,99 @@ export async function runAcp(input: AcpRunnerInput): Promise<AcpRunnerResult> {
   } finally {
     client.kill();
   }
+}
+
+function wrapCallbacks(
+  callbacks: AcpRunnerCallbacks | undefined,
+  markOutput: () => void,
+): AcpRunnerCallbacks | undefined {
+  if (!callbacks) return undefined;
+  return {
+    onText: callbacks.onText
+      ? (delta) => {
+          markOutput();
+          callbacks.onText?.(delta);
+        }
+      : undefined,
+    onToolCall: callbacks.onToolCall
+      ? (toolCall) => {
+          markOutput();
+          callbacks.onToolCall?.(toolCall);
+        }
+      : undefined,
+    onToolResult: callbacks.onToolResult
+      ? (toolResult) => {
+          markOutput();
+          callbacks.onToolResult?.(toolResult);
+        }
+      : undefined,
+    onClarificationRequest: callbacks.onClarificationRequest
+      ? async (request) => {
+          markOutput();
+          const handler = callbacks.onClarificationRequest!;
+          return handler(request);
+        }
+      : undefined,
+  };
+}
+
+function shouldRetryAcpError(
+  err: unknown,
+  input: {
+    hadOutput: boolean;
+    abortSignal?: AbortSignal;
+    attempt: number;
+    maxRetries: number;
+  },
+): boolean {
+  if (input.hadOutput) return false;
+  if (input.abortSignal?.aborted) return false;
+  if (input.attempt >= input.maxRetries) return false;
+  return isTransientAcpError(err);
+}
+
+function isTransientAcpError(err: unknown): boolean {
+  const code = extractAcpErrorCode(err);
+  if (code === -32603) return true;
+  const message = typeof (err as { message?: unknown })?.message === 'string'
+    ? String((err as { message?: unknown }).message)
+    : '';
+  const details = extractAcpErrorDetails(err) ?? '';
+  const combined = `${message} ${details}`.toLowerCase();
+  return combined.includes('query closed before response received')
+    || combined.includes('stream disconnected')
+    || combined.includes('response stream disconnected')
+    || combined.includes('transport error')
+    || combined.includes('network error')
+    || combined.includes('econnreset')
+    || combined.includes('und_err_connect_timeout');
+}
+
+function extractAcpErrorCode(err: unknown): number | null {
+  if (err && typeof err === 'object') {
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === 'number') return code;
+  }
+  const message = typeof (err as { message?: unknown })?.message === 'string'
+    ? String((err as { message?: unknown }).message)
+    : '';
+  const match = /ACP error (-?\d+)/.exec(message);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
+function extractAcpErrorDetails(err: unknown): string | null {
+  if (!err || typeof err !== 'object') return null;
+  const data = (err as { data?: unknown }).data;
+  if (typeof data === 'string') return data;
+  if (!data || typeof data !== 'object') return null;
+  const record = data as Record<string, unknown>;
+  return typeof record.details === 'string' && record.details.trim()
+    ? record.details.trim()
+    : null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function buildPermissionClarification(request: PermissionRequest) {

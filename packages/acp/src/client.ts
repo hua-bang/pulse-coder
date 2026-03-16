@@ -74,10 +74,11 @@ export class AcpClient {
 
     const cmd = resolveCmd(agent, options?.commandOverrides);
     const [bin, ...args] = cmd.split(/\s+/);
+    const env = buildAcpEnv(options?.envOverrides, options?.unsetEnv);
     this.proc = spawn(bin!, args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: process.env,
+      env,
     });
 
     this.proc.stderr?.on('data', (chunk: Buffer) => {
@@ -123,7 +124,8 @@ export class AcpClient {
       this.pending.delete((msg as RpcResponse).id);
       const response = msg as RpcResponse;
       if ('error' in response) {
-        entry.reject(new Error(`ACP error ${response.error.code}: ${response.error.message}`));
+        const err = buildAcpError(response.error);
+        entry.reject(err);
       } else {
         entry.resolve((response as RpcSuccess).result);
       }
@@ -236,6 +238,52 @@ export class AcpClient {
     }
     this.proc.stdin?.write(`${payload}\n`);
   }
+}
+
+function buildAcpEnv(
+  overrides?: Record<string, string | undefined>,
+  unset?: string[],
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (unset) {
+    for (const key of unset) {
+      delete env[key];
+    }
+  }
+  if (overrides) {
+    for (const [key, value] of Object.entries(overrides)) {
+      if (value === undefined) {
+        delete env[key];
+      } else {
+        env[key] = value;
+      }
+    }
+  }
+  return env;
+}
+
+function buildAcpError(error: RpcError['error']): Error {
+  const message = formatAcpErrorMessage(error);
+  const err = new Error(message);
+  (err as { code?: number }).code = error.code;
+  (err as { data?: unknown }).data = error.data;
+  return err;
+}
+
+function formatAcpErrorMessage(error: RpcError['error']): string {
+  const details = extractErrorDetails(error.data);
+  return details
+    ? `ACP error ${error.code}: ${error.message} (${details})`
+    : `ACP error ${error.code}: ${error.message}`;
+}
+
+function extractErrorDetails(data: unknown): string | null {
+  if (typeof data === 'string') return data;
+  if (!data || typeof data !== 'object') return null;
+  const record = data as Record<string, unknown>;
+  return typeof record.details === 'string' && record.details.trim()
+    ? record.details.trim()
+    : null;
 }
 
 function normalizePermissionOptions(raw: unknown): PermissionOption[] {
