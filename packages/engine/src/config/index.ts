@@ -31,7 +31,7 @@ export function buildProvider(type: ModelType): LLMProviderFactory {
     return createAnthropic({
       apiKey: process.env.ANTHROPIC_API_KEY || '',
       baseURL: process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com/v1',
-      headers: { 'user-agent': 'pulse-coder/1.0' },
+      headers: { 'user-agent': 'claude-code/2.1.63' },
     }) as LLMProviderFactory;
   }
   return createOpenAI({
