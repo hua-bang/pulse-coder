@@ -1,0 +1,4 @@
+interface:
+  display_name: "RunId Latency Analysis"
+  short_description: "Analyze a runId and output a fixed bilingual latency report"
+  default_prompt: "Analyze the provided runId using devtools data and output the fixed bilingual (ZH+EN) latency report template with bottleneck diagnosis and next actions."
