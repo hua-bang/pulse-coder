@@ -2,11 +2,11 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import z from 'zod';
 import type { Tool } from 'pulse-coder-engine';
-import type { WorkspaceContext } from './types.js';
+import type { VaultContext } from './types.js';
 
 const toolSchema = z.object({
-  includeConfig: z.boolean().optional().describe('Include the workspace config file contents.'),
-  includeListings: z.boolean().optional().describe('Include directory listings for workspace paths.'),
+  includeConfig: z.boolean().optional().describe('Include the vault config file contents.'),
+  includeListings: z.boolean().optional().describe('Include directory listings for vault paths.'),
   includeHidden: z.boolean().optional().describe('Include dotfiles in directory listings.'),
   maxEntries: z.number().int().min(1).max(500).optional().describe('Max entries per directory listing.'),
   targets: z
@@ -16,19 +16,19 @@ const toolSchema = z.object({
   includeConfigRaw: z.boolean().optional().describe('Include raw config text even when JSON parses successfully.'),
 });
 
-type WorkspaceInspectInput = z.infer<typeof toolSchema>;
+type VaultInspectInput = z.infer<typeof toolSchema>;
 
 type ListingTarget = 'root' | 'artifacts' | 'logs';
 
-type WorkspaceInspectResult = {
+type VaultInspectResult = {
   ok: boolean;
   reason?: string;
-  workspace?: WorkspaceView;
-  config?: WorkspaceConfigView;
+  vault?: VaultView;
+  config?: VaultConfigView;
   listings?: Record<ListingTarget, DirectoryListing>;
 };
 
-type WorkspaceView = {
+type VaultView = {
   id: string;
   root: string;
   configPath: string;
@@ -37,7 +37,7 @@ type WorkspaceView = {
   logsPath: string;
 };
 
-type WorkspaceConfigView = {
+type VaultConfigView = {
   path: string;
   exists: boolean;
   parsed?: unknown;
@@ -63,21 +63,21 @@ type DirectoryEntry = {
 const DEFAULT_MAX_ENTRIES = 200;
 const ALL_TARGETS: ListingTarget[] = ['root', 'artifacts', 'logs'];
 
-export function createWorkspaceInspectTool(input: {
-  getWorkspace: () => Promise<WorkspaceContext | null>;
-}): Tool<WorkspaceInspectInput, WorkspaceInspectResult> {
+export function createVaultInspectTool(input: {
+  getVault: () => Promise<VaultContext | null>;
+}): Tool<VaultInspectInput, VaultInspectResult> {
   return {
-    name: 'workspace_inspect',
-    description: 'Show current workspace config and directory listings.',
+    name: 'vault_inspect',
+    description: 'Show current vault config and directory listings.',
     inputSchema: toolSchema,
     defer_loading: true,
     execute: async (request) => {
-      const workspace = await input.getWorkspace();
+      const vault = await input.getVault();
 
-      if (!workspace) {
+      if (!vault) {
         return {
           ok: false,
-          reason: 'No workspace is bound for this run.',
+          reason: 'No vault is bound for this run.',
         };
       }
 
@@ -88,27 +88,27 @@ export function createWorkspaceInspectTool(input: {
       const targets = normalizeTargets(request.targets);
       const includeConfigRaw = request.includeConfigRaw ?? false;
 
-      const result: WorkspaceInspectResult = {
+      const result: VaultInspectResult = {
         ok: true,
-        workspace: {
-          id: workspace.id,
-          root: workspace.root,
-          configPath: workspace.configPath,
-          statePath: workspace.statePath,
-          artifactsPath: workspace.artifactsPath,
-          logsPath: workspace.logsPath,
+        vault: {
+          id: vault.id,
+          root: vault.root,
+          configPath: vault.configPath,
+          statePath: vault.statePath,
+          artifactsPath: vault.artifactsPath,
+          logsPath: vault.logsPath,
         },
       };
 
       if (includeConfig) {
-        result.config = await readConfig(workspace.configPath, includeConfigRaw);
+        result.config = await readConfig(vault.configPath, includeConfigRaw);
       }
 
       if (includeListings) {
         const listings: Record<ListingTarget, DirectoryListing> = {
-          root: await listDirectory(workspace.root, { includeHidden, maxEntries }),
-          artifacts: await listDirectory(workspace.artifactsPath, { includeHidden, maxEntries }),
-          logs: await listDirectory(workspace.logsPath, { includeHidden, maxEntries }),
+          root: await listDirectory(vault.root, { includeHidden, maxEntries }),
+          artifacts: await listDirectory(vault.artifactsPath, { includeHidden, maxEntries }),
+          logs: await listDirectory(vault.logsPath, { includeHidden, maxEntries }),
         };
 
         result.listings = pickListings(listings, targets);
@@ -141,10 +141,10 @@ function pickListings(
   return result;
 }
 
-async function readConfig(pathname: string, includeRaw: boolean): Promise<WorkspaceConfigView> {
+async function readConfig(pathname: string, includeRaw: boolean): Promise<VaultConfigView> {
   try {
     const raw = await fs.readFile(pathname, 'utf-8');
-    const output: WorkspaceConfigView = {
+    const output: VaultConfigView = {
       path: pathname,
       exists: true,
     };
