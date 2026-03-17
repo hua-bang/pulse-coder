@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { apiRouter } from './routes/api.js';
+// import { apiRouter } from './routes/api.js';
 // import { telegramRouter } from './routes/telegram.js';
 import { feishuRouter } from './routes/feishu.js';
 import { discordRouter } from './routes/discord.js';
@@ -28,7 +28,7 @@ export function createApp(): Hono {
 
   // Web REST + SSE routes
   app.route('/api/devtools', devtoolsRouter);
-  app.route('/api', apiRouter);
+  // app.route('/api', apiRouter);
 
   // 404 fallback
   app.notFound((c) => c.json({ error: 'Not found' }, 404));

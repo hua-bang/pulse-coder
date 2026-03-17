@@ -7,17 +7,6 @@ import { sessionStore } from '../core/session-store.js';
 
 export const apiRouter = new Hono();
 
-/** Verify WEB_API_SECRET on every /api/* request (skip if secret not configured). */
-apiRouter.use('*', (c, next) => {
-  const secret = process.env.WEB_API_SECRET;
-  if (!secret) return next();
-  const auth = c.req.header('authorization') ?? '';
-  if (auth !== `Bearer ${secret}`) {
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
-  return next();
-});
-
 /**
  * POST /api/chat
  * Submit a message and get back a streamId to open SSE.
