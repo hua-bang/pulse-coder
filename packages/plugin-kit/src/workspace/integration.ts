@@ -1,62 +1,62 @@
 import { AsyncLocalStorage } from 'async_hooks';
 import type { EnginePlugin, SystemPromptOption } from 'pulse-coder-engine';
 import type {
-  FileWorkspaceServiceOptions,
-  WorkspaceContext,
-  WorkspaceResolver,
-  WorkspaceResolverInput,
-  WorkspaceRunContext,
+  FileVaultServiceOptions,
+  VaultContext,
+  VaultResolver,
+  VaultResolverInput,
+  VaultRunContext,
 } from './types.js';
-import { FileWorkspacePluginService } from './service.js';
-import { createWorkspaceInspectTool } from './tools.js';
+import { FileVaultPluginService } from './service.js';
+import { createVaultInspectTool } from './tools.js';
 
 const DEFAULT_PROMPT = [
-  '## Workspace Binding',
-  'This runtime has a bound workspace for the current session.',
-  '- Use workspace paths for artifacts, logs, and configuration.',
-  '- workspace.root is NOT the git worktree path; use it only for artifacts/config/logs.',
-  '- If a command result suggests another workspace, treat that as unexpected and return to the bound workspace.',
+  '## Vault Binding',
+  'This runtime has a bound vault for the current session.',
+  '- Use vault paths for artifacts, logs, and configuration.',
+  '- vault.root is NOT the git worktree path; use it only for artifacts/config/logs.',
+  '- If a command result suggests another vault, treat that as unexpected and return to the bound vault.',
 ].join('\n');
 
-export interface CreateWorkspaceIntegrationOptions extends FileWorkspaceServiceOptions {
-  service?: FileWorkspacePluginService;
-  runContextAdapter?: WorkspaceRunContextAdapter;
+export interface CreateVaultIntegrationOptions extends FileVaultServiceOptions {
+  service?: FileVaultPluginService;
+  runContextAdapter?: VaultRunContextAdapter;
   pluginName?: string;
   pluginVersion?: string;
   promptHeader?: string;
-  resolver?: WorkspaceResolver;
+  resolver?: VaultResolver;
 }
 
-export interface ResolveCurrentWorkspaceInput {
-  service: FileWorkspacePluginService;
-  resolver?: WorkspaceResolver;
-  runContext?: WorkspaceRunContext;
+export interface ResolveCurrentVaultInput {
+  service: FileVaultPluginService;
+  resolver?: VaultResolver;
+  runContext?: VaultRunContext;
   engineRunContext?: Record<string, any>;
 }
 
-export interface GetWorkspaceInput {
-  runContext?: WorkspaceRunContext;
+export interface GetVaultInput {
+  runContext?: VaultRunContext;
   engineRunContext?: Record<string, any>;
 }
 
-export interface WorkspaceRunContextAdapter {
-  withContext<T>(context: WorkspaceRunContext, run: () => Promise<T>): Promise<T>;
-  getContext(): WorkspaceRunContext | undefined;
+export interface VaultRunContextAdapter {
+  withContext<T>(context: VaultRunContext, run: () => Promise<T>): Promise<T>;
+  getContext(): VaultRunContext | undefined;
 }
 
-export interface WorkspaceIntegration {
-  service: FileWorkspacePluginService;
+export interface VaultIntegration {
+  service: FileVaultPluginService;
   enginePlugin: EnginePlugin;
   initialize(): Promise<void>;
-  withRunContext<T>(context: WorkspaceRunContext, run: () => Promise<T>): Promise<T>;
-  getRunContext(): WorkspaceRunContext | undefined;
-  getWorkspace(input?: GetWorkspaceInput): Promise<WorkspaceContext | null>;
+  withRunContext<T>(context: VaultRunContext, run: () => Promise<T>): Promise<T>;
+  getRunContext(): VaultRunContext | undefined;
+  getVault(input?: GetVaultInput): Promise<VaultContext | null>;
 }
 
-export async function resolveCurrentWorkspace(
-  input: ResolveCurrentWorkspaceInput,
-): Promise<WorkspaceContext | null> {
-  const resolver = input.resolver ?? defaultWorkspaceResolver;
+export async function resolveCurrentVault(
+  input: ResolveCurrentVaultInput,
+): Promise<VaultContext | null> {
+  const resolver = input.resolver ?? defaultVaultResolver;
   const identity = await resolver({
     runContext: input.runContext,
     engineRunContext: input.engineRunContext,
@@ -66,10 +66,10 @@ export async function resolveCurrentWorkspace(
     return null;
   }
 
-  return input.service.ensureWorkspace(identity);
+  return input.service.ensureVault(identity);
 }
 
-export function createWorkspaceIntegration(options: CreateWorkspaceIntegrationOptions = {}): WorkspaceIntegration {
+export function createVaultIntegration(options: CreateVaultIntegrationOptions = {}): VaultIntegration {
   const {
     service,
     runContextAdapter,
@@ -80,10 +80,10 @@ export function createWorkspaceIntegration(options: CreateWorkspaceIntegrationOp
     ...serviceOptions
   } = options;
 
-  const workspaceService = service ?? new FileWorkspacePluginService(serviceOptions);
+  const vaultService = service ?? new FileVaultPluginService(serviceOptions);
   const adapter = runContextAdapter ?? createAsyncLocalRunContextAdapter();
-  const enginePlugin = createWorkspaceEnginePlugin({
-    service: workspaceService,
+  const enginePlugin = createVaultEnginePlugin({
+    service: vaultService,
     getRunContext: () => adapter.getContext(),
     name: pluginName,
     version: pluginVersion,
@@ -92,14 +92,14 @@ export function createWorkspaceIntegration(options: CreateWorkspaceIntegrationOp
   });
 
   return {
-    service: workspaceService,
+    service: vaultService,
     enginePlugin,
-    initialize: () => workspaceService.initialize(),
+    initialize: () => vaultService.initialize(),
     withRunContext: (context, run) => adapter.withContext(context, run),
     getRunContext: () => adapter.getContext(),
-    getWorkspace: (input) =>
-      resolveCurrentWorkspace({
-        service: workspaceService,
+    getVault: (input) =>
+      resolveCurrentVault({
+        service: vaultService,
         resolver,
         runContext: input?.runContext ?? adapter.getContext(),
         engineRunContext: input?.engineRunContext,
@@ -107,29 +107,29 @@ export function createWorkspaceIntegration(options: CreateWorkspaceIntegrationOp
   };
 }
 
-export interface CreateWorkspaceEnginePluginOptions {
-  service: FileWorkspacePluginService;
-  getRunContext: () => WorkspaceRunContext | undefined;
+export interface CreateVaultEnginePluginOptions {
+  service: FileVaultPluginService;
+  getRunContext: () => VaultRunContext | undefined;
   name?: string;
   version?: string;
   promptHeader?: string;
-  resolver?: WorkspaceResolver;
+  resolver?: VaultResolver;
 }
 
-export function createWorkspaceEnginePlugin(options: CreateWorkspaceEnginePluginOptions): EnginePlugin {
-  const pluginName = options.name ?? 'workspace-binding';
+export function createVaultEnginePlugin(options: CreateVaultEnginePluginOptions): EnginePlugin {
+  const pluginName = options.name ?? 'vault-binding';
   const pluginVersion = options.version ?? '0.0.1';
   const promptHeader = options.promptHeader?.trim() || DEFAULT_PROMPT;
-  const resolver = options.resolver ?? defaultWorkspaceResolver;
+  const resolver = options.resolver ?? defaultVaultResolver;
 
   return {
     name: pluginName,
     version: pluginVersion,
     async initialize(context) {
-      context.registerService('workspaceService', options.service);
-      const inspectTool = createWorkspaceInspectTool({
-        getWorkspace: () =>
-          resolveCurrentWorkspace({
+      context.registerService('vaultService', options.service);
+      const inspectTool = createVaultInspectTool({
+        getVault: () =>
+          resolveCurrentVault({
             service: options.service,
             resolver,
             runContext: options.getRunContext(),
@@ -143,8 +143,8 @@ export function createWorkspaceEnginePlugin(options: CreateWorkspaceEnginePlugin
           return;
         }
 
-        const workspace = await options.service.ensureWorkspace(identity);
-        const append = buildWorkspacePrompt(promptHeader, workspace);
+        const vault = await options.service.ensureVault(identity);
+        const append = buildVaultPrompt(promptHeader, vault);
         return {
           systemPrompt: appendSystemPrompt(systemPrompt, append),
         };
@@ -153,27 +153,27 @@ export function createWorkspaceEnginePlugin(options: CreateWorkspaceEnginePlugin
   };
 }
 
-function defaultWorkspaceResolver(_input: WorkspaceResolverInput): null {
+function defaultVaultResolver(_input: VaultResolverInput): null {
   return null;
 }
 
-function buildWorkspacePrompt(header: string, workspace: WorkspaceContext): string {
+function buildVaultPrompt(header: string, vault: VaultContext): string {
   return [
     header,
-    `- workspace.id: ${workspace.id}`,
-    `- workspace.root: ${workspace.root}`,
-    `- workspace.config: ${workspace.configPath}`,
-    `- workspace.state: ${workspace.statePath}`,
-    `- workspace.artifacts: ${workspace.artifactsPath}`,
-    `- workspace.logs: ${workspace.logsPath}`,
+    `- vault.id: ${vault.id}`,
+    `- vault.root: ${vault.root}`,
+    `- vault.config: ${vault.configPath}`,
+    `- vault.state: ${vault.statePath}`,
+    `- vault.artifacts: ${vault.artifactsPath}`,
+    `- vault.logs: ${vault.logsPath}`,
   ].join('\n');
 }
 
-function createAsyncLocalRunContextAdapter(): WorkspaceRunContextAdapter {
-  const store = new AsyncLocalStorage<WorkspaceRunContext>();
+function createAsyncLocalRunContextAdapter(): VaultRunContextAdapter {
+  const store = new AsyncLocalStorage<VaultRunContext>();
 
   return {
-    withContext<T>(context: WorkspaceRunContext, run: () => Promise<T>): Promise<T> {
+    withContext<T>(context: VaultRunContext, run: () => Promise<T>): Promise<T> {
       return store.run(context, run);
     },
     getContext() {

@@ -6,7 +6,7 @@ import { getAcpState, runAcp } from 'pulse-coder-acp';
 import { sessionStore } from './session-store.js';
 import { memoryIntegration, recordDailyLogFromSuccessPath } from './memory-integration.js';
 import { buildRemoteWorktreeRunContext, worktreeIntegration } from './worktree/integration.js';
-import { buildRemoteWorkspaceRunContext, workspaceIntegration } from './workspace/integration.js';
+import { buildRemoteVaultRunContext, vaultIntegration } from './workspace/integration.js';
 import { resolveModelForRun } from './model-config.js';
 const ACP_CLIENT_INFO = {
   name: 'pulse-remote-server',
@@ -336,8 +336,8 @@ export async function runWithAgentContexts<T>(
 ): Promise<T> {
   return worktreeIntegration.withRunContext(
     buildRemoteWorktreeRunContext(input.platformKey),
-    async () => workspaceIntegration.withRunContext(
-      buildRemoteWorkspaceRunContext(input.platformKey),
+    async () => vaultIntegration.withRunContext(
+      buildRemoteVaultRunContext(input.platformKey),
       async () => memoryIntegration.withRunContext(
         {
           platformKey: input.memoryKey,

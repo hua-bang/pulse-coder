@@ -1,9 +1,9 @@
-export interface WorkspaceIdentity {
+export interface VaultIdentity {
   key: string;
   attributes?: Record<string, string>;
 }
 
-export interface WorkspaceRecord {
+export interface VaultRecord {
   id: string;
   key: string;
   attributes?: Record<string, string>;
@@ -11,7 +11,7 @@ export interface WorkspaceRecord {
   updatedAt: number;
 }
 
-export interface WorkspaceContext extends WorkspaceRecord {
+export interface VaultContext extends VaultRecord {
   root: string;
   configPath: string;
   statePath: string;
@@ -19,23 +19,23 @@ export interface WorkspaceContext extends WorkspaceRecord {
   logsPath: string;
 }
 
-export interface WorkspaceIndexState {
+export interface VaultIndexState {
   version: 1;
   updatedAt: number;
-  workspaces: Record<string, WorkspaceRecord>;
+  vaults: Record<string, VaultRecord>;
 }
 
-export interface FileWorkspaceServiceOptions {
+export interface FileVaultServiceOptions {
   baseDir?: string;
 }
 
-export type WorkspaceRunContext = Record<string, any>;
+export type VaultRunContext = Record<string, any>;
 
-export interface WorkspaceResolverInput {
-  runContext?: WorkspaceRunContext;
+export interface VaultResolverInput {
+  runContext?: VaultRunContext;
   engineRunContext?: Record<string, any>;
 }
 
-export type WorkspaceResolver = (
-  input: WorkspaceResolverInput,
-) => WorkspaceIdentity | null | Promise<WorkspaceIdentity | null>;
+export type VaultResolver = (
+  input: VaultResolverInput,
+) => VaultIdentity | null | Promise<VaultIdentity | null>;

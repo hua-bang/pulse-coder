@@ -1,27 +1,27 @@
 import { homedir } from 'os';
 import { join } from 'path';
-import { createWorkspaceIntegration } from 'pulse-coder-plugin-kit/workspace';
-import { resolveWorkspaceIdentity } from './resolver.js';
+import { createVaultIntegration } from 'pulse-coder-plugin-kit/workspace';
+import { resolveVaultIdentity } from './resolver.js';
 
 const DEFAULT_RUNTIME_KEY = 'remote-server';
 
-export const workspaceIntegration = createWorkspaceIntegration({
+export const vaultIntegration = createVaultIntegration({
   baseDir: join(homedir(), '.pulse-coder', 'workspace-state'),
-  pluginName: 'remote-workspace-binding',
+  pluginName: 'remote-vault-binding',
   pluginVersion: '0.0.1',
-  resolver: resolveWorkspaceIdentity,
+  resolver: resolveVaultIdentity,
 });
 
-export const workspaceService = workspaceIntegration.service;
+export const vaultService = vaultIntegration.service;
 
-export function buildRemoteWorkspaceRunContext(scopeKey: string) {
+export function buildRemoteVaultRunContext(scopeKey: string) {
   return {
-    runtimeKey: resolveRemoteWorkspaceRuntimeKey(),
+    runtimeKey: resolveRemoteVaultRuntimeKey(),
     scopeKey,
   };
 }
 
-function resolveRemoteWorkspaceRuntimeKey(): string {
+function resolveRemoteVaultRuntimeKey(): string {
   const fromEnv = process.env.PULSE_CODER_WORKSPACE_RUNTIME_KEY?.trim();
   if (fromEnv) {
     return fromEnv;
