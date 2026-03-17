@@ -16,10 +16,10 @@
       "import": "./dist/worktree.js",
       "require": "./dist/worktree.cjs"
     },
-    "./workspace": {
-      "types": "./dist/workspace.d.ts",
-      "import": "./dist/workspace.js",
-      "require": "./dist/workspace.cjs"
+    "./vault": {
+      "types": "./dist/vault.d.ts",
+      "import": "./dist/vault.js",
+      "require": "./dist/vault.cjs"
     },
     "./devtools": {
       "types": "./dist/devtools.d.ts",
@@ -34,9 +34,9 @@
       "types": "./src/worktree/index.ts",
       "import": "./src/worktree/index.ts"
     },
-    "./src/workspace": {
-      "types": "./src/workspace/index.ts",
-      "import": "./src/workspace/index.ts"
+    "./src/vault": {
+      "types": "./src/vault/index.ts",
+      "import": "./src/vault/index.ts"
     },
     "./src/devtools": {
       "types": "./src/devtools/index.ts",

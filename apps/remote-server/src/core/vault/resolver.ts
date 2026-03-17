@@ -1,4 +1,4 @@
-import type { VaultIdentity, VaultResolverInput } from 'pulse-coder-plugin-kit/workspace';
+import type { VaultIdentity, VaultResolverInput } from 'pulse-coder-plugin-kit/vault';
 
 export function resolveVaultIdentity(input: VaultResolverInput): VaultIdentity | null {
   const engineContext = input.engineRunContext ?? {};

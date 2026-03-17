@@ -1,6 +1,6 @@
 import { homedir } from 'os';
 import { join } from 'path';
-import { createVaultIntegration } from 'pulse-coder-plugin-kit/workspace';
+import { createVaultIntegration } from 'pulse-coder-plugin-kit/vault';
 import { resolveVaultIdentity } from './resolver.js';
 
 const DEFAULT_RUNTIME_KEY = 'remote-server';

@@ -6,7 +6,7 @@ import { getAcpState, runAcp } from 'pulse-coder-acp';
 import { sessionStore } from './session-store.js';
 import { memoryIntegration, recordDailyLogFromSuccessPath } from './memory-integration.js';
 import { buildRemoteWorktreeRunContext, worktreeIntegration } from './worktree/integration.js';
-import { buildRemoteVaultRunContext, vaultIntegration } from './workspace/integration.js';
+import { buildRemoteVaultRunContext, vaultIntegration } from './vault/integration.js';
 import { resolveModelForRun } from './model-config.js';
 const ACP_CLIENT_INFO = {
   name: 'pulse-remote-server',
