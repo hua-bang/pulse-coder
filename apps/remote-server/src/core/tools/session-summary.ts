@@ -11,7 +11,10 @@ const toolSchema = z.object({
     .max(365)
     .optional()
     .describe('Offset the time window by N days from today (UTC). 0 means up to today.'),
-  sessionId: z.string().optional().describe('Optional explicit session id. Defaults to current session.'),
+  sessionId: z
+    .string()
+    .optional()
+    .describe('Optional explicit session id. Only use a session id from trusted tool output or user input; never invent one.'),
   includeUserMessages: z.boolean().optional().describe('Include user messages in the output. Defaults to true.'),
   includeAssistantMessages: z.boolean().optional().describe('Include assistant messages in the output. Defaults to true.'),
   maxMessagesPerSession: z.number().int().min(5).max(500).optional().describe('Cap message count per session (newest first). Defaults to 200.'),
@@ -85,16 +88,27 @@ export const sessionSummaryTool: Tool<ToolInput, ToolResult> = {
       const detail = await sessionStore.getSessionDetail(scopePlatformKey, input.sessionId, scopeOwnerKey);
       if (detail) {
         summaries = [buildSessionSummary(detail, includeUser, includeAssistant, maxMessages)];
+      } else {
+        summaries = await listSummariesForWindow({
+          platformKey: scopePlatformKey,
+          ownerKey: scopeOwnerKey,
+          sinceMs,
+          untilMs,
+          includeUser,
+          includeAssistant,
+          maxMessages,
+        });
       }
     } else {
-      const sessions = await sessionStore.listSessions(scopePlatformKey, 50, scopeOwnerKey);
-      const candidates = sessions.filter((session) => session.updatedAt >= sinceMs && session.updatedAt <= untilMs);
-      const details = await Promise.all(
-        candidates.map((session) => sessionStore.getSessionDetail(scopePlatformKey, session.id, scopeOwnerKey)),
-      );
-      summaries = details
-        .filter((detail): detail is NonNullable<typeof detail> => Boolean(detail))
-        .map((detail) => buildSessionSummary(detail, includeUser, includeAssistant, maxMessages));
+      summaries = await listSummariesForWindow({
+        platformKey: scopePlatformKey,
+        ownerKey: scopeOwnerKey,
+        sinceMs,
+        untilMs,
+        includeUser,
+        includeAssistant,
+        maxMessages,
+      });
     }
 
     return {
@@ -108,6 +122,26 @@ export const sessionSummaryTool: Tool<ToolInput, ToolResult> = {
     };
   },
 };
+
+async function listSummariesForWindow(input: {
+  platformKey: string;
+  ownerKey?: string;
+  sinceMs: number;
+  untilMs: number;
+  includeUser: boolean;
+  includeAssistant: boolean;
+  maxMessages: number;
+}): Promise<SessionSummary[]> {
+  const sessions = await sessionStore.listSessions(input.platformKey, 50, input.ownerKey);
+  const candidates = sessions.filter((session) => session.updatedAt >= input.sinceMs && session.updatedAt <= input.untilMs);
+  const details = await Promise.all(
+    candidates.map((session) => sessionStore.getSessionDetail(input.platformKey, session.id, input.ownerKey)),
+  );
+
+  return details
+    .filter((detail): detail is NonNullable<typeof detail> => Boolean(detail))
+    .map((detail) => buildSessionSummary(detail, input.includeUser, input.includeAssistant, input.maxMessages));
+}
 
 function buildSessionSummary(
   session: { id: string; createdAt: number; updatedAt: number; messages: unknown[] },
