@@ -554,6 +554,19 @@ function toRecordTurnPayload(content: string, kind: MemoryRecordKind): { userTex
   };
 }
 
+function mergeAndLimitMemories(items: MemoryItem[], limit: number): MemoryItem[] {
+  const normalizedLimit = Math.max(1, limit);
+  const merged = new Map<string, MemoryItem>();
+
+  for (const item of items) {
+    if (!merged.has(item.id)) {
+      merged.set(item.id, item);
+    }
+  }
+
+  return [...merged.values()].slice(0, normalizedLimit);
+}
+
 function buildMemoryRecallTool(
   memoryService: FileMemoryPluginService,
   getRunContext: () => MemoryRunContext | undefined,
