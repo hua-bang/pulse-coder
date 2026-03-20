@@ -549,106 +549,194 @@ body {
   flex-direction: column;
 }
 
-.note-editor {
-  flex: 1;
-  width: 100%;
-  border: none;
-  resize: none;
-  padding: 12px 14px;
-  font-family: var(--font);
-  font-size: 14px;
-  line-height: 1.7;
-  color: var(--text);
-  background: transparent;
-  outline: none;
-  tab-size: 2;
-}
+/* ---- Tiptap Editor ---- */
 
-.note-editor::placeholder {
-  color: var(--text-muted);
-  font-style: italic;
-}
-
-.note-preview {
+.note-tiptap-editor {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 14px;
+  height: 100%;
+}
+
+.note-tiptap-editor .ProseMirror {
+  min-height: 100%;
+  padding: 12px 16px 24px;
   font-family: var(--font);
   font-size: 14px;
-  line-height: 1.7;
+  line-height: 1.75;
   color: var(--text);
+  outline: none;
 }
 
-.note-preview h1 {
-  font-size: 1.5em;
+.note-tiptap-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  font-style: italic;
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+.note-tiptap-editor .ProseMirror h1 {
+  font-size: 1.6em;
+  font-weight: 700;
+  margin: 0.8em 0 0.3em;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.note-tiptap-editor .ProseMirror h2 {
+  font-size: 1.3em;
   font-weight: 600;
-  margin: 0.6em 0 0.3em;
+  margin: 0.7em 0 0.25em;
   color: var(--text);
+  line-height: 1.35;
 }
 
-.note-preview h2 {
-  font-size: 1.25em;
-  font-weight: 600;
-  margin: 0.5em 0 0.2em;
-  color: var(--text);
-}
-
-.note-preview h3 {
+.note-tiptap-editor .ProseMirror h3 {
   font-size: 1.1em;
   font-weight: 600;
-  margin: 0.4em 0 0.2em;
+  margin: 0.6em 0 0.2em;
   color: var(--text);
 }
 
-.note-preview p {
-  margin: 0.3em 0;
+.note-tiptap-editor .ProseMirror p {
+  margin: 0.2em 0;
 }
 
-.note-preview strong {
+.note-tiptap-editor .ProseMirror strong {
   font-weight: 600;
 }
 
-.note-preview em {
+.note-tiptap-editor .ProseMirror em {
   font-style: italic;
 }
 
-.note-preview ul {
-  padding-left: 1.5em;
+.note-tiptap-editor .ProseMirror ul,
+.note-tiptap-editor .ProseMirror ol {
+  padding-left: 1.4em;
   margin: 0.3em 0;
 }
 
-.note-preview li {
+.note-tiptap-editor .ProseMirror li {
   margin: 0.15em 0;
 }
 
-.note-preview blockquote {
+.note-tiptap-editor .ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0.2em;
+}
+
+.note-tiptap-editor .ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.note-tiptap-editor .ProseMirror ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.note-tiptap-editor .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.note-tiptap-editor .ProseMirror ul[data-type="taskList"] li > div {
+  flex: 1;
+}
+
+.note-tiptap-editor .ProseMirror blockquote {
   border-left: 3px solid var(--accent-file);
-  padding: 4px 12px;
+  padding: 3px 12px;
   margin: 0.4em 0;
   color: var(--text-secondary);
   background: rgba(217, 115, 13, 0.04);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
-.note-preview hr {
+.note-tiptap-editor .ProseMirror hr {
   border: none;
   height: 1px;
   background: var(--border);
-  margin: 0.8em 0;
+  margin: 1em 0;
 }
 
-.note-preview input[type="checkbox"] {
-  margin-right: 6px;
-  accent-color: var(--accent);
-}
-
-.note-inline-code {
+.note-tiptap-editor .ProseMirror code {
   font-family: var(--font-mono);
-  font-size: 0.9em;
-  background: rgba(0, 0, 0, 0.04);
+  font-size: 0.88em;
+  background: rgba(0, 0, 0, 0.05);
   padding: 1px 5px;
   border-radius: 3px;
-  color: #e03e3e;
+  color: #c0392b;
+}
+
+.note-tiptap-editor .ProseMirror pre {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin: 0.5em 0;
+  overflow-x: auto;
+}
+
+.note-tiptap-editor .ProseMirror pre code {
+  background: none;
+  padding: 0;
+  color: var(--text);
+  font-size: 0.85em;
+}
+
+/* ---- Bubble Menu ---- */
+
+.note-bubble-menu {
+  position: absolute;
+  z-index: 200;
+  transform: translate(-50%, calc(-100% - 8px));
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 3px 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-float);
+  pointer-events: auto;
+  animation: fadeIn 0.1s ease;
+}
+
+.note-bubble-btn {
+  height: 26px;
+  min-width: 26px;
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: background 0.1s, color 0.1s;
+}
+
+.note-bubble-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text);
+}
+
+.note-bubble-btn--active {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.note-bubble-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 2px;
+  flex-shrink: 0;
 }
 
 /* ---- Terminal Node ---- */
