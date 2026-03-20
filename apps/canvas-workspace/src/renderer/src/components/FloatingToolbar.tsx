@@ -1,0 +1,99 @@
+interface Props {
+  activeTool: string;
+  onToolChange: (tool: string) => void;
+  onAddNode: (type: "file" | "terminal") => void;
+}
+
+const tools = [
+  {
+    id: "select",
+    label: "Select",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <path
+          d="M4 2l10 6.5L9 10l-1.5 6L4 2z"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+        />
+      </svg>
+    )
+  },
+  {
+    id: "hand",
+    label: "Pan",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <path
+          d="M9 2v7M6 5v6.5a2.5 2.5 0 002.5 2.5h3A2.5 2.5 0 0014 11.5V8M6 5a1.5 1.5 0 013 0M12 5a1.5 1.5 0 00-3 0M12 5v3M14 8a1.5 1.5 0 00-3 0"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    )
+  }
+];
+
+export const FloatingToolbar = ({
+  activeTool,
+  onToolChange,
+  onAddNode
+}: Props) => {
+  return (
+    <div className="floating-toolbar">
+      <div className="toolbar-group">
+        {tools.map((t) => (
+          <button
+            key={t.id}
+            className={`toolbar-btn${activeTool === t.id ? " toolbar-btn--active" : ""}`}
+            onClick={() => onToolChange(t.id)}
+            title={t.label}
+          >
+            {t.icon}
+          </button>
+        ))}
+      </div>
+
+      <div className="toolbar-divider" />
+
+      <div className="toolbar-group">
+        <button
+          className="toolbar-btn toolbar-btn--create"
+          onClick={() => onAddNode("file")}
+          title="Add File Card"
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <rect
+              x="3" y="3" width="12" height="12" rx="2"
+              stroke="currentColor" strokeWidth="1.3"
+            />
+            <path
+              d="M7 9h4M9 7v4"
+              stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"
+            />
+          </svg>
+          <span className="toolbar-btn-label">File</span>
+        </button>
+        <button
+          className="toolbar-btn toolbar-btn--create"
+          onClick={() => onAddNode("terminal")}
+          title="Add Terminal Card"
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <rect
+              x="2" y="3" width="14" height="12" rx="2"
+              stroke="currentColor" strokeWidth="1.3"
+            />
+            <path
+              d="M5 8l2.5 2L5 12M9 12h4"
+              stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"
+            />
+          </svg>
+          <span className="toolbar-btn-label">Terminal</span>
+        </button>
+      </div>
+    </div>
+  );
+};
