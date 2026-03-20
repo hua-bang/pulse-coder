@@ -251,11 +251,19 @@ body {
   text-overflow: ellipsis;
 }
 
+/* ---- Canvas Viewport (keep-alive wrapper) ---- */
+
+.canvas-viewport {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
 /* ---- Canvas Container ---- */
 
 .canvas-container {
-  flex: 1;
-  position: relative;
+  position: absolute;
+  inset: 0;
   overflow: hidden;
   cursor: default;
   background: var(--bg-canvas);

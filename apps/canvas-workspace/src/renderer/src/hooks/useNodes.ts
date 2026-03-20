@@ -41,8 +41,6 @@ export const useNodes = (
   );
 
   useEffect(() => {
-    setLoaded(false);
-    setNodes([]);
     const api = window.canvasWorkspace?.store;
     if (!api) {
       setLoaded(true);

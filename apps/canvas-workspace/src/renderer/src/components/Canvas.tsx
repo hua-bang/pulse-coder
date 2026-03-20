@@ -9,7 +9,7 @@ import { NodeContextMenu } from "./NodeContextMenu";
 import { FloatingToolbar } from "./FloatingToolbar";
 import { ZoomIndicator } from "./ZoomIndicator";
 
-export const Canvas = ({ canvasId }: { canvasId: string }) => {
+export const Canvas = ({ canvasId, hidden }: { canvasId: string; hidden?: boolean }) => {
   const [activeTool, setActiveTool] = useState("select");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
@@ -42,12 +42,7 @@ export const Canvas = ({ canvasId }: { canvasId: string }) => {
     setTransformForSave
   } = useNodes(canvasId, handleRestoreTransform);
 
-  // Reset transform when switching workspaces (restored transform overrides this via onRestoreTransform)
-  useEffect(() => {
-    resetTransform();
-  }, [canvasId, resetTransform]);
-
-  useEffect(() => {
+useEffect(() => {
     setTransformForSave(transform);
   }, [transform, setTransformForSave]);
 
@@ -183,6 +178,7 @@ export const Canvas = ({ canvasId }: { canvasId: string }) => {
     <div
       ref={containerRef}
       className={`canvas-container${cursorClass}`}
+      style={hidden ? { visibility: 'hidden', pointerEvents: 'none' } : undefined}
       onWheel={handleWheel}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}

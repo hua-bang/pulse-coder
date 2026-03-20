@@ -30,7 +30,11 @@ const App = () => {
           onRename={renameWorkspace}
           onDelete={deleteWorkspace}
         />
-        <Canvas canvasId={activeId} />
+        <div className="canvas-viewport">
+          {workspaces.map((ws) => (
+            <Canvas key={ws.id} canvasId={ws.id} hidden={ws.id !== activeId} />
+          ))}
+        </div>
       </div>
     </div>
   );
