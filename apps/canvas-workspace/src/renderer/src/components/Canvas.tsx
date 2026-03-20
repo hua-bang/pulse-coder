@@ -9,7 +9,7 @@ import { NodeContextMenu } from "./NodeContextMenu";
 import { FloatingToolbar } from "./FloatingToolbar";
 import { ZoomIndicator } from "./ZoomIndicator";
 
-export const Canvas = () => {
+export const Canvas = ({ canvasId }: { canvasId: string }) => {
   const [activeTool, setActiveTool] = useState("select");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
@@ -40,7 +40,12 @@ export const Canvas = () => {
     moveNode,
     resizeNode,
     setTransformForSave
-  } = useNodes("default", handleRestoreTransform);
+  } = useNodes(canvasId, handleRestoreTransform);
+
+  // Reset transform when switching workspaces (restored transform overrides this via onRestoreTransform)
+  useEffect(() => {
+    resetTransform();
+  }, [canvasId, resetTransform]);
 
   useEffect(() => {
     setTransformForSave(transform);

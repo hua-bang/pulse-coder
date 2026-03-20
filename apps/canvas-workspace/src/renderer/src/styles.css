@@ -178,6 +178,63 @@ body {
   color: var(--text-secondary);
 }
 
+/* ---- Sidebar workspace row ---- */
+
+.sidebar-item-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  position: relative;
+}
+
+.sidebar-item-row .sidebar-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-item-delete {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: background 0.1s, color 0.1s;
+}
+
+.sidebar-item-row:hover .sidebar-item-delete {
+  display: flex;
+}
+
+.sidebar-item-delete:hover {
+  background: rgba(224, 62, 62, 0.08);
+  color: #e03e3e;
+}
+
+.sidebar-rename-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1.5px solid var(--accent-border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+  font-family: var(--font);
+}
+
+.sidebar-rename-input--new {
+  border-color: var(--accent-border);
+  background: var(--accent-light);
+}
+
 .sidebar-item-icon {
   width: 20px;
   height: 20px;

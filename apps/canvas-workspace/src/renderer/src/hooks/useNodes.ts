@@ -41,6 +41,8 @@ export const useNodes = (
   );
 
   useEffect(() => {
+    setLoaded(false);
+    setNodes([]);
     const api = window.canvasWorkspace?.store;
     if (!api) {
       setLoaded(true);
@@ -90,7 +92,7 @@ export const useNodes = (
                         title: res.fileName?.replace(/\.md$/, "") || n.title,
                         data: {
                           ...n.data,
-                          filePath: res.filePath
+                          filePath: res.filePath ?? ''
                         }
                       }
                     : n
