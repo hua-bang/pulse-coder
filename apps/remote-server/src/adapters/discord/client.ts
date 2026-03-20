@@ -6,6 +6,7 @@ const DEFAULT_DISCORD_API_BASE_URL = 'https://discord.com/api/v10';
 const DEFAULT_DISCORD_USER_AGENT = 'PulseAgentBot (https://github.com/agent-teams, 1.0)';
 const DISCORD_MESSAGE_LIMIT = 2000;
 const CHANNEL_TYPE_CACHE_TTL_MS = 5 * 60 * 1000;
+const CHANNEL_PARTICIPANT_COUNT_CACHE_TTL_MS = 30 * 1000;
 const TRANSIENT_RETRY_DELAY_MS = 350;
 
 interface DiscordApiError {
@@ -21,13 +22,24 @@ interface DiscordMessageResponse {
   id: string;
 }
 
+interface DiscordChannelRecipient {
+  id?: string;
+}
+
 interface DiscordChannelResponse {
   id: string;
   type?: number;
+  member_count?: number;
+  recipients?: DiscordChannelRecipient[];
 }
 
 interface ChannelTypeCacheEntry {
   type: number | null;
+  expiresAt: number;
+}
+
+interface ChannelParticipantCountCacheEntry {
+  count: number | null;
   expiresAt: number;
 }
 
@@ -67,6 +79,7 @@ export class DiscordClient {
   private readonly botToken: string;
   private readonly userAgent: string;
   private readonly channelTypeCache = new Map<string, ChannelTypeCacheEntry>();
+  private readonly channelParticipantCountCache = new Map<string, ChannelParticipantCountCacheEntry>();
   private readonly joinedThreadIds = new Set<string>();
 
   constructor(
@@ -183,6 +196,37 @@ export class DiscordClient {
       return type;
     } catch (err) {
       console.warn(`[discord] Failed to fetch channel metadata for ${channelId}:`, err);
+      return null;
+    }
+  }
+
+  async getChannelParticipantCount(channelId: string): Promise<number | null> {
+    if (!this.botToken) {
+      return null;
+    }
+
+    const normalizedChannelId = channelId.trim();
+    if (!normalizedChannelId) {
+      return null;
+    }
+
+    const cached = this.channelParticipantCountCache.get(normalizedChannelId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.count;
+    }
+
+    try {
+      const channel = await this.retryOnceOnTransient('get_channel_participant_count', () => this.getChannel(normalizedChannelId));
+      const count = deriveChannelParticipantCount(channel);
+
+      this.channelParticipantCountCache.set(normalizedChannelId, {
+        count,
+        expiresAt: Date.now() + CHANNEL_PARTICIPANT_COUNT_CACHE_TTL_MS,
+      });
+
+      return count;
+    } catch (err) {
+      console.warn(`[discord] Failed to fetch channel participant count for ${normalizedChannelId}:`, err);
       return null;
     }
   }
@@ -486,6 +530,30 @@ export class DiscordClient {
       throw new Error('DISCORD_BOT_TOKEN is required for Discord DM mode');
     }
   }
+}
+
+function deriveChannelParticipantCount(channel: DiscordChannelResponse): number | null {
+  const channelType = channel.type;
+  if (typeof channelType !== 'number') {
+    return null;
+  }
+
+  // DM is always user + bot.
+  if (channelType === 1) {
+    return 2;
+  }
+
+  // Group DM recipients do not include the bot account itself.
+  if (channelType === 3) {
+    return (channel.recipients?.length ?? 0) + 1;
+  }
+
+  if (isDiscordThreadChannelType(channelType)) {
+    return typeof channel.member_count === 'number' ? channel.member_count : null;
+  }
+
+  // Discord does not expose exact participant count for regular guild text channels.
+  return null;
 }
 
 function limitDiscordContent(text: string): string {

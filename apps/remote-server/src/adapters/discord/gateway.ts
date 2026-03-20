@@ -68,6 +68,7 @@ const DEFAULT_GATEWAY_URL = 'wss://gateway.discord.gg/?v=10&encoding=json';
 const DISCORD_GATEWAY_INTENTS = 1 + 512 + 4096 + 32768;
 const MAX_RECONNECT_DELAY_MS = 30000;
 const DEFAULT_ACK_STALE_THRESHOLD_MS = 90000;
+const DISCORD_CHANNEL_DIRECT_REPLY_MEMBER_COUNT = 2;
 
 export class DiscordDmGateway {
   private readonly client = new DiscordClient();
@@ -325,7 +326,8 @@ export class DiscordDmGateway {
     const channelId = message.channel_id?.trim();
     const userId = message.author?.id?.trim();
     const rawContent = message.content ?? '';
-    const isGuildMessage = Boolean(message.guild_id);
+    const guildId = message.guild_id?.trim();
+    const isGuildMessage = Boolean(guildId);
     const threadId = message.thread?.id?.trim();
     const isThread = Boolean(threadId);
 
@@ -349,6 +351,20 @@ export class DiscordDmGateway {
       this.seenMessageIds.delete(this.seenMessageIds.values().next().value as string);
     }
 
+    const mentionedSelf = isMessageMentioningSelf(message, this.selfUserId);
+
+    const participantCount = await this.client.getChannelParticipantCount(channelId);
+    if (participantCount === null) {
+      console.warn(`[discord-gateway] Skip message because channel participant count is unavailable channel=${channelId}`);
+      return;
+    }
+    if (participantCount < DISCORD_CHANNEL_DIRECT_REPLY_MEMBER_COUNT) {
+      return;
+    }
+    if (participantCount > DISCORD_CHANNEL_DIRECT_REPLY_MEMBER_COUNT && !mentionedSelf) {
+      return;
+    }
+
     let resolvedIsThread = isThread;
     if (!resolvedIsThread && isGuildMessage) {
       const channelType = await this.client.getChannelType(channelId);
@@ -363,7 +379,7 @@ export class DiscordDmGateway {
     }
 
     const platformKey = buildDiscordPlatformKey({
-      guildId: message.guild_id,
+      guildId,
       channelId,
       userId,
       isThread: resolvedIsThread,
@@ -383,7 +399,6 @@ export class DiscordDmGateway {
       }
     }
 
-    const mentionedSelf = isMessageMentioningSelf(message, this.selfUserId);
     if (isGuildMessage && !resolvedIsThread && this.guildRequireMention && !mentionedSelf) {
       return;
     }
