@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
 import type { Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -358,8 +359,9 @@ export const FileNodeBody = ({ node, onUpdate }: Props) => {
         </div>
       )}
 
-      {/* Inline bubble menu — appears above selected text */}
-      {bubble && editor && (
+      {/* Bubble menu — portaled to document.body so position:fixed is relative
+          to the viewport, not the canvas-transform ancestor. */}
+      {bubble && editor && createPortal(
         <div
           className="note-bubble-menu"
           style={{ left: bubble.x, top: bubble.y }}
@@ -441,7 +443,8 @@ export const FileNodeBody = ({ node, onUpdate }: Props) => {
               />
             </svg>
           </button>
-        </div>
+        </div>,
+        document.body,
       )}
 
       <div className="note-content" onWheel={(e) => e.stopPropagation()}>

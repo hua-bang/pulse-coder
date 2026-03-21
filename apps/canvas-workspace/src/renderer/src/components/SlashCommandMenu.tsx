@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface SlashCommandDef {
   id: string;
@@ -50,7 +51,10 @@ export const SlashCommandMenu = ({
   const menuW = 220;
   const left = Math.min(x, viewportW - menuW - 8);
 
-  return (
+  // Portal into document.body so position:fixed is relative to the viewport,
+  // not to the canvas-transform ancestor (which has a CSS transform that
+  // would otherwise shift fixed-positioned children away from the viewport).
+  return createPortal(
     <div
       ref={menuRef}
       className="slash-menu"
@@ -73,6 +77,7 @@ export const SlashCommandMenu = ({
           </span>
         </button>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 };
