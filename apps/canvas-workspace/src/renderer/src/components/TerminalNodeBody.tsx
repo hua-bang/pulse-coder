@@ -223,6 +223,7 @@ export const TerminalNodeBody = ({ node, onUpdate }: Props) => {
       ref={containerRef}
       className="terminal-xterm-container"
       onMouseDown={(e) => e.stopPropagation()}
+      onWheel={(e) => e.stopPropagation()}
     />
   );
 };

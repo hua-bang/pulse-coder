@@ -9,7 +9,7 @@ import { NodeContextMenu } from "./NodeContextMenu";
 import { FloatingToolbar } from "./FloatingToolbar";
 import { ZoomIndicator } from "./ZoomIndicator";
 
-export const Canvas = () => {
+export const Canvas = ({ canvasId, hidden }: { canvasId: string; hidden?: boolean }) => {
   const [activeTool, setActiveTool] = useState("select");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
@@ -40,9 +40,9 @@ export const Canvas = () => {
     moveNode,
     resizeNode,
     setTransformForSave
-  } = useNodes("default", handleRestoreTransform);
+  } = useNodes(canvasId, handleRestoreTransform);
 
-  useEffect(() => {
+useEffect(() => {
     setTransformForSave(transform);
   }, [transform, setTransformForSave]);
 
@@ -178,6 +178,7 @@ export const Canvas = () => {
     <div
       ref={containerRef}
       className={`canvas-container${cursorClass}`}
+      style={hidden ? { visibility: 'hidden', pointerEvents: 'none' } : undefined}
       onWheel={handleWheel}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}

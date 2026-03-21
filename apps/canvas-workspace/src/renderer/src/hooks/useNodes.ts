@@ -90,7 +90,7 @@ export const useNodes = (
                         title: res.fileName?.replace(/\.md$/, "") || n.title,
                         data: {
                           ...n.data,
-                          filePath: res.filePath
+                          filePath: res.filePath ?? ''
                         }
                       }
                     : n

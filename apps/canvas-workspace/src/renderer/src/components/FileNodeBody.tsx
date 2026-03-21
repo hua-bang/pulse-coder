@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { CanvasNode, FileNodeData } from "../types";
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useEditor, EditorContent } from '@tiptap/react';
+import type { Editor } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Placeholder from '@tiptap/extension-placeholder';
+import TaskList from '@tiptap/extension-task-list';
+import TaskItem from '@tiptap/extension-task-item';
+import { Markdown } from 'tiptap-markdown';
+import type { CanvasNode, FileNodeData } from '../types';
+import { SlashCommandMenu, type SlashCommandDef } from './SlashCommandMenu';
 
 interface Props {
   node: CanvasNode;
@@ -8,225 +17,298 @@ interface Props {
 
 const AUTO_SAVE_MS = 1500;
 
-const renderMarkdown = (md: string): string => {
-  let html = md;
-  // headings
-  html = html.replace(/^### (.+)$/gm, "<h3>$1</h3>");
-  html = html.replace(/^## (.+)$/gm, "<h2>$1</h2>");
-  html = html.replace(/^# (.+)$/gm, "<h1>$1</h1>");
-  // bold / italic / code
-  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
-  html = html.replace(/`(.+?)`/g, '<code class="note-inline-code">$1</code>');
-  // hr
-  html = html.replace(/^---$/gm, "<hr />");
-  // unordered list
-  html = html.replace(/^[-*] (.+)$/gm, "<li>$1</li>");
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, (m) => `<ul>${m}</ul>`);
-  // checkboxes
-  html = html.replace(
-    /\[x\]/gi,
-    '<input type="checkbox" checked disabled />'
+// ---- Slash command definitions ----
+
+interface SlashCmd extends SlashCommandDef {
+  run: (editor: Editor, from: number, to: number) => void;
+}
+
+const ALL_SLASH_COMMANDS: SlashCmd[] = [
+  {
+    id: 'text', label: 'Text', desc: 'Plain paragraph', icon: 'T',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).clearNodes().run(),
+  },
+  {
+    id: 'h1', label: 'Heading 1', desc: 'Large section heading', icon: 'H1',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).toggleHeading({ level: 1 }).run(),
+  },
+  {
+    id: 'h2', label: 'Heading 2', desc: 'Medium section heading', icon: 'H2',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).toggleHeading({ level: 2 }).run(),
+  },
+  {
+    id: 'h3', label: 'Heading 3', desc: 'Small section heading', icon: 'H3',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).toggleHeading({ level: 3 }).run(),
+  },
+  {
+    id: 'ul', label: 'Bullet List', desc: 'Unordered list', icon: '•',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).toggleBulletList().run(),
+  },
+  {
+    id: 'ol', label: 'Numbered List', desc: 'Ordered list', icon: '1.',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).toggleOrderedList().run(),
+  },
+  {
+    id: 'task', label: 'Task List', desc: 'Todo checklist', icon: '☑',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).toggleTaskList().run(),
+  },
+  {
+    id: 'quote', label: 'Blockquote', desc: 'Quote / callout block', icon: '"',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).toggleBlockquote().run(),
+  },
+  {
+    id: 'code', label: 'Code Block', desc: 'Code snippet', icon: '</>',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).toggleCodeBlock().run(),
+  },
+  {
+    id: 'hr', label: 'Divider', desc: 'Horizontal line', icon: '—',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).setHorizontalRule().run(),
+  },
+];
+
+const filterCmds = (query: string): SlashCmd[] => {
+  if (!query) return ALL_SLASH_COMMANDS;
+  const q = query.toLowerCase();
+  return ALL_SLASH_COMMANDS.filter(
+    (c) => c.label.toLowerCase().includes(q) || c.id.includes(q) || c.desc.toLowerCase().includes(q),
   );
-  html = html.replace(/\[ \]/g, '<input type="checkbox" disabled />');
-  // blockquote
-  html = html.replace(/^> (.+)$/gm, "<blockquote>$1</blockquote>");
-  // paragraphs (lines that aren't already wrapped)
-  html = html.replace(
-    /^(?!<[a-z])((?!<\/)[^\n]+)$/gm,
-    (_, line) => `<p>${line}</p>`
-  );
-  // collapse consecutive <blockquote>
-  html = html.replace(/<\/blockquote>\s*<blockquote>/g, "<br />");
-  return html;
 };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const getMarkdown = (editor: any): string => {
+  return (editor?.storage?.markdown?.getMarkdown() as string | undefined) ?? '';
+};
+
+interface BubbleState {
+  x: number;
+  y: number;
+}
 
 export const FileNodeBody = ({ node, onUpdate }: Props) => {
   const data = node.data as FileNodeData;
-  const [mode, setMode] = useState<"edit" | "preview">("edit");
-  const [content, setContent] = useState(data.content || "");
   const [modified, setModified] = useState(false);
-  const [statusText, setStatusText] = useState("");
+  const [statusText, setStatusText] = useState('');
+  const [bubble, setBubble] = useState<BubbleState | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const contentRef = useRef(content);
-  contentRef.current = content;
   const dataRef = useRef(data);
   dataRef.current = data;
-  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const nodeIdRef = useRef(node.id);
+  nodeIdRef.current = node.id;
+  const prevContentRef = useRef(data.content);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Sync when data.content changes externally (e.g. file open)
-  useEffect(() => {
-    if (data.content !== contentRef.current) {
-      setContent(data.content || "");
-      setModified(false);
-    }
-  }, [data.content]);
+  // Slash command menu state
+  interface SlashMenuState { x: number; y: number; query: string; index: number; slashFrom: number }
+  const [slashMenu, setSlashMenu] = useState<SlashMenuState | null>(null);
+  const slashMenuRef = useRef<SlashMenuState | null>(null);
+  slashMenuRef.current = slashMenu;
 
   const showStatus = useCallback((msg: string, duration = 2000) => {
     setStatusText(msg);
-    setTimeout(() => setStatusText(""), duration);
+    setTimeout(() => setStatusText(''), duration);
   }, []);
 
   const persistToFile = useCallback(
-    async (text: string, filePath: string) => {
+    async (markdown: string, filePath: string) => {
       const api = window.canvasWorkspace?.file;
       if (!api || !filePath) return;
-      const res = await api.write(filePath, text);
+      const res = await api.write(filePath, markdown);
       if (res.ok) {
         setModified(false);
-        onUpdate(node.id, {
-          data: { ...dataRef.current, content: text, saved: true, modified: false }
+        onUpdate(nodeIdRef.current, {
+          data: { ...dataRef.current, content: markdown, saved: true, modified: false },
         });
-        showStatus("Saved");
+        showStatus('Saved');
       }
     },
-    [node.id, onUpdate, showStatus]
+    [onUpdate, showStatus]
   );
 
-  const scheduleAutoSave = useCallback(
-    (text: string) => {
+  const editor = useEditor({
+    extensions: [
+      StarterKit,
+      Placeholder.configure({ placeholder: 'Start writing…' }),
+      TaskList,
+      TaskItem.configure({ nested: true }),
+      Markdown.configure({ html: false, transformPastedText: true }),
+    ],
+    content: data.content || '',
+    onUpdate: ({ editor }) => {
+      const markdown = getMarkdown(editor);
+      setModified(true);
+      onUpdate(nodeIdRef.current, {
+        data: { ...dataRef.current, content: markdown, modified: true },
+      });
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
         const fp = dataRef.current.filePath;
-        if (fp) void persistToFile(text, fp);
+        if (fp) void persistToFile(markdown, fp);
       }, AUTO_SAVE_MS);
-    },
-    [persistToFile]
-  );
 
-  const handleContentChange = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const val = e.target.value;
-      setContent(val);
-      setModified(true);
-      onUpdate(node.id, {
-        data: { ...dataRef.current, content: val, modified: true }
-      });
-      scheduleAutoSave(val);
-    },
-    [onUpdate, node.id, scheduleAutoSave]
-  );
-
-  // Keyboard shortcut: Cmd+S / Ctrl+S
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-        e.preventDefault();
-        const fp = dataRef.current.filePath;
-        if (fp) void persistToFile(contentRef.current, fp);
+      // Slash command detection: match /query at end of current text block
+      const { from } = editor.state.selection;
+      const startPos = Math.max(0, from - 60);
+      const textBefore = editor.state.doc.textBetween(startPos, from, '\n', '\0');
+      const slashMatch = textBefore.match(/(?:^|[\n ])\/(\w*)$/);
+      if (slashMatch) {
+        const query = slashMatch[1] ?? '';
+        const slashDocPos = from - query.length - 1;
+        const coords = editor.view.coordsAtPos(slashDocPos);
+        setSlashMenu((prev) => ({
+          x: coords.left,
+          y: coords.bottom,
+          query,
+          index: prev?.query === query ? prev.index : 0,
+          slashFrom: slashDocPos,
+        }));
+      } else {
+        if (slashMenuRef.current) setSlashMenu(null);
       }
     },
-    [persistToFile]
-  );
-
-  // Tab in textarea inserts spaces
-  const handleTab = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Tab") {
-      e.preventDefault();
-      const ta = e.currentTarget;
-      const start = ta.selectionStart;
-      const end = ta.selectionEnd;
-      const val = ta.value;
-      const newVal = val.substring(0, start) + "  " + val.substring(end);
-      setContent(newVal);
-      onUpdate(node.id, {
-        data: { ...dataRef.current, content: newVal, modified: true }
-      });
+    onSelectionUpdate: ({ editor }) => {
+      if (editor.state.selection.empty) {
+        setBubble(null);
+        return;
+      }
       requestAnimationFrame(() => {
-        ta.selectionStart = ta.selectionEnd = start + 2;
+        const domSel = window.getSelection();
+        if (!domSel || domSel.rangeCount === 0 || !containerRef.current) {
+          setBubble(null);
+          return;
+        }
+        const selRect = domSel.getRangeAt(0).getBoundingClientRect();
+        // Use viewport coordinates so the menu uses position:fixed and
+        // is never clipped by the canvas-node's overflow:hidden.
+        setBubble({
+          x: selRect.left + selRect.width / 2,
+          y: selRect.top,
+        });
       });
-    }
-  }, [node.id, onUpdate]);
+    },
+    onBlur: () => setBubble(null),
+  });
+
+  // Sync content when file opens externally
+  useEffect(() => {
+    if (!editor || data.content === prevContentRef.current) return;
+    prevContentRef.current = data.content;
+    editor.commands.setContent(data.content || '');
+    setModified(false);
+  }, [data.content, editor]);
+
+  // Cmd+S / Ctrl+S
+  useEffect(() => {
+    if (!editor) return;
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        const fp = dataRef.current.filePath;
+        if (fp) {
+          const markdown = getMarkdown(editor);
+          void persistToFile(markdown, fp);
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [editor, persistToFile]);
+
+  // Slash menu keyboard navigation — capture phase so we intercept before ProseMirror
+  useEffect(() => {
+    if (!editor) return;
+    const handler = (e: KeyboardEvent) => {
+      const menu = slashMenuRef.current;
+      if (!menu) return;
+      const items = filterCmds(menu.query);
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setSlashMenu((prev) => prev ? { ...prev, index: Math.min(prev.index + 1, items.length - 1) } : null);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setSlashMenu((prev) => prev ? { ...prev, index: Math.max(prev.index - 1, 0) } : null);
+      } else if (e.key === 'Enter') {
+        const item = items[menu.index] ?? items[0];
+        if (item) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          item.run(editor, menu.slashFrom, editor.state.selection.from);
+          setSlashMenu(null);
+        }
+      } else if (e.key === 'Escape') {
+        setSlashMenu(null);
+      }
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [editor]);
+
+  const handleSlashSelect = useCallback((cmd: SlashCommandDef) => {
+    if (!editor || !slashMenuRef.current) return;
+    const { slashFrom } = slashMenuRef.current;
+    const fullCmd = ALL_SLASH_COMMANDS.find((c) => c.id === cmd.id);
+    fullCmd?.run(editor, slashFrom, editor.state.selection.from);
+    setSlashMenu(null);
+  }, [editor]);
 
   const handleOpenFile = useCallback(async () => {
     const api = window.canvasWorkspace?.file;
     if (!api) return;
     const res = await api.openDialog();
     if (!res.ok || res.canceled) return;
-    setContent(res.content || "");
+    const content = res.content || '';
+    prevContentRef.current = content;
+    editor?.commands.setContent(content);
     setModified(false);
-    onUpdate(node.id, {
+    onUpdate(nodeIdRef.current, {
       title: res.fileName || node.title,
-      data: {
-        filePath: res.filePath || "",
-        content: res.content || "",
-        saved: true,
-        modified: false
-      }
+      data: { filePath: res.filePath || '', content, saved: true, modified: false },
     });
     showStatus(`Opened ${res.fileName}`);
-  }, [node.id, node.title, onUpdate, showStatus]);
+  }, [editor, node.title, onUpdate, showStatus]);
 
   const handleSaveAs = useCallback(async () => {
     const api = window.canvasWorkspace?.file;
-    if (!api) return;
+    if (!api || !editor) return;
     const defaultName = dataRef.current.filePath
-      ? dataRef.current.filePath.split("/").pop() || "untitled.md"
-      : (node.title || "untitled") + ".md";
-    const res = await api.saveAsDialog(defaultName, contentRef.current);
+      ? dataRef.current.filePath.split('/').pop() || 'untitled.md'
+      : (node.title || 'untitled') + '.md';
+    const markdown = getMarkdown(editor);
+    const res = await api.saveAsDialog(defaultName, markdown);
     if (!res.ok || res.canceled) return;
     setModified(false);
-    onUpdate(node.id, {
+    onUpdate(nodeIdRef.current, {
       title: res.fileName || node.title,
       data: {
         ...dataRef.current,
         filePath: res.filePath || dataRef.current.filePath,
-        content: contentRef.current,
+        content: markdown,
         saved: true,
-        modified: false
-      }
+        modified: false,
+      },
     });
     showStatus(`Saved to ${res.fileName}`);
-  }, [node.id, node.title, onUpdate, showStatus]);
+  }, [editor, node.title, onUpdate, showStatus]);
 
   const handleManualSave = useCallback(() => {
     const fp = dataRef.current.filePath;
-    if (fp) {
-      void persistToFile(contentRef.current, fp);
+    if (fp && editor) {
+      void persistToFile(getMarkdown(editor), fp);
     } else {
       void handleSaveAs();
     }
-  }, [persistToFile, handleSaveAs]);
-
-  // Format toolbar actions
-  const insertFormat = useCallback(
-    (before: string, after = "") => {
-      const ta = editorRef.current;
-      if (!ta) return;
-      const start = ta.selectionStart;
-      const end = ta.selectionEnd;
-      const val = ta.value;
-      const selected = val.substring(start, end);
-      const newVal =
-        val.substring(0, start) + before + selected + after + val.substring(end);
-      setContent(newVal);
-      setModified(true);
-      onUpdate(node.id, {
-        data: { ...dataRef.current, content: newVal, modified: true }
-      });
-      scheduleAutoSave(newVal);
-      requestAnimationFrame(() => {
-        ta.focus();
-        ta.selectionStart = start + before.length;
-        ta.selectionEnd = start + before.length + selected.length;
-      });
-    },
-    [node.id, onUpdate, scheduleAutoSave]
-  );
+  }, [editor, persistToFile, handleSaveAs]);
 
   const filePath = data.filePath;
-  const fileName = filePath ? filePath.split("/").pop() : null;
+  const fileName = filePath ? filePath.split('/').pop() : null;
 
   return (
-    <div className="note-card" onKeyDown={handleKeyDown}>
+    <div className="note-card" ref={containerRef}>
       {/* Toolbar */}
       <div className="note-toolbar">
         <div className="note-toolbar-left">
-          <button
-            className="note-tool-btn"
-            onClick={handleOpenFile}
-            title="Open file"
-          >
+          <button className="note-tool-btn" onClick={handleOpenFile} title="Open file">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
               <path
                 d="M2 4.5C2 3.67 2.67 3 3.5 3H6l1.5 2h5c.83 0 1.5.67 1.5 1.5V12c0 .83-.67 1.5-1.5 1.5h-9A1.5 1.5 0 012 12V4.5z"
@@ -235,11 +317,7 @@ export const FileNodeBody = ({ node, onUpdate }: Props) => {
               />
             </svg>
           </button>
-          <button
-            className="note-tool-btn"
-            onClick={handleManualSave}
-            title="Save (Cmd+S)"
-          >
+          <button className="note-tool-btn" onClick={handleManualSave} title="Save (Cmd+S)">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
               <path
                 d="M12.5 14h-9A1.5 1.5 0 012 12.5v-9A1.5 1.5 0 013.5 2H10l4 4v6.5a1.5 1.5 0 01-1.5 1.5z"
@@ -250,126 +328,140 @@ export const FileNodeBody = ({ node, onUpdate }: Props) => {
               <path d="M5 10h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
             </svg>
           </button>
-          <button
-            className="note-tool-btn"
-            onClick={handleSaveAs}
-            title="Save as..."
-          >
+          <button className="note-tool-btn" onClick={handleSaveAs} title="Save as…">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
               <path
                 d="M12.5 14h-9A1.5 1.5 0 012 12.5v-9A1.5 1.5 0 013.5 2H10l4 4v6.5a1.5 1.5 0 01-1.5 1.5z"
                 stroke="currentColor"
                 strokeWidth="1.2"
               />
-              <path d="M8 7v5M6 10l2 2 2-2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-
-          <span className="note-toolbar-divider" />
-
-          <button
-            className="note-tool-btn"
-            onClick={() => insertFormat("**", "**")}
-            title="Bold"
-          >
-            <strong style={{ fontSize: 12 }}>B</strong>
-          </button>
-          <button
-            className="note-tool-btn"
-            onClick={() => insertFormat("*", "*")}
-            title="Italic"
-          >
-            <em style={{ fontSize: 12 }}>I</em>
-          </button>
-          <button
-            className="note-tool-btn"
-            onClick={() => insertFormat("`", "`")}
-            title="Code"
-          >
-            <span style={{ fontSize: 11, fontFamily: "var(--font-mono)" }}>&lt;/&gt;</span>
-          </button>
-          <button
-            className="note-tool-btn"
-            onClick={() => insertFormat("# ")}
-            title="Heading"
-          >
-            <span style={{ fontSize: 12, fontWeight: 600 }}>H</span>
-          </button>
-          <button
-            className="note-tool-btn"
-            onClick={() => insertFormat("- ")}
-            title="List"
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <path d="M6 4h7M6 8h7M6 12h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-              <circle cx="3.5" cy="4" r="1" fill="currentColor" />
-              <circle cx="3.5" cy="8" r="1" fill="currentColor" />
-              <circle cx="3.5" cy="12" r="1" fill="currentColor" />
+              <path
+                d="M8 7v5M6 10l2 2 2-2"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           </button>
         </div>
-
         <div className="note-toolbar-right">
           {statusText && <span className="note-status">{statusText}</span>}
           {modified && !statusText && (
             <span className="note-status note-status--modified">Edited</span>
           )}
-          <button
-            className={`note-tool-btn note-tool-btn--toggle ${mode === "preview" ? "note-tool-btn--active" : ""}`}
-            onClick={() => setMode(mode === "edit" ? "preview" : "edit")}
-            title={mode === "edit" ? "Preview" : "Edit"}
-          >
-            {mode === "edit" ? (
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                />
-                <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2" />
-              </svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M12.5 3.5l-9 9M3.5 3.5l4 4"
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            )}
-          </button>
         </div>
       </div>
 
-      {/* File path hint */}
       {fileName && (
-        <div className="note-file-hint" title={filePath}>
+        <div className="note-file-hint" title={filePath ?? undefined}>
           {fileName}
         </div>
       )}
 
-      {/* Editor / Preview */}
-      <div className="note-content">
-        {mode === "edit" ? (
-          <textarea
-            ref={editorRef}
-            className="note-editor"
-            value={content}
-            onChange={handleContentChange}
-            onKeyDown={handleTab}
-            placeholder="Start writing..."
-            spellCheck={false}
-          />
-        ) : (
-          <div
-            className="note-preview"
-            dangerouslySetInnerHTML={{
-              __html: renderMarkdown(content || "*No content yet*")
-            }}
-          />
-        )}
+      {/* Bubble menu — portaled to document.body so position:fixed is relative
+          to the viewport, not the canvas-transform ancestor. */}
+      {bubble && editor && createPortal(
+        <div
+          className="note-bubble-menu"
+          style={{ left: bubble.x, top: bubble.y }}
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <button
+            className={`note-bubble-btn ${editor.isActive('bold') ? 'note-bubble-btn--active' : ''}`}
+            onClick={() => editor.chain().focus().toggleBold().run()}
+            title="Bold"
+          >
+            <strong>B</strong>
+          </button>
+          <button
+            className={`note-bubble-btn ${editor.isActive('italic') ? 'note-bubble-btn--active' : ''}`}
+            onClick={() => editor.chain().focus().toggleItalic().run()}
+            title="Italic"
+          >
+            <em>I</em>
+          </button>
+          <button
+            className={`note-bubble-btn ${editor.isActive('code') ? 'note-bubble-btn--active' : ''}`}
+            onClick={() => editor.chain().focus().toggleCode().run()}
+            title="Inline code"
+          >
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10 }}>`·`</span>
+          </button>
+          <div className="note-bubble-divider" />
+          <button
+            className={`note-bubble-btn ${editor.isActive('heading', { level: 1 }) ? 'note-bubble-btn--active' : ''}`}
+            onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+            title="Heading 1"
+          >
+            H1
+          </button>
+          <button
+            className={`note-bubble-btn ${editor.isActive('heading', { level: 2 }) ? 'note-bubble-btn--active' : ''}`}
+            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+            title="Heading 2"
+          >
+            H2
+          </button>
+          <button
+            className={`note-bubble-btn ${editor.isActive('heading', { level: 3 }) ? 'note-bubble-btn--active' : ''}`}
+            onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+            title="Heading 3"
+          >
+            H3
+          </button>
+          <div className="note-bubble-divider" />
+          <button
+            className={`note-bubble-btn ${editor.isActive('bulletList') ? 'note-bubble-btn--active' : ''}`}
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+            title="Bullet list"
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <path
+                d="M6 4h7M6 8h7M6 12h7"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+              />
+              <circle cx="3" cy="4" r="1.1" fill="currentColor" />
+              <circle cx="3" cy="8" r="1.1" fill="currentColor" />
+              <circle cx="3" cy="12" r="1.1" fill="currentColor" />
+            </svg>
+          </button>
+          <button
+            className={`note-bubble-btn ${editor.isActive('blockquote') ? 'note-bubble-btn--active' : ''}`}
+            onClick={() => editor.chain().focus().toggleBlockquote().run()}
+            title="Blockquote"
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <path d="M3 3v10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              <path
+                d="M6 5h7M6 8h5M6 11h6"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        </div>,
+        document.body,
+      )}
+
+      <div className="note-content" onWheel={(e) => e.stopPropagation()}>
+        <EditorContent editor={editor} className="note-tiptap-editor" />
       </div>
+
+      {/* Slash command menu — fixed position, never clipped by canvas overflow */}
+      {slashMenu && (
+        <SlashCommandMenu
+          x={slashMenu.x}
+          y={slashMenu.y}
+          selectedIndex={slashMenu.index}
+          items={filterCmds(slashMenu.query)}
+          onSelect={handleSlashSelect}
+          onClose={() => setSlashMenu(null)}
+        />
+      )}
     </div>
   );
 };
