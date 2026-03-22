@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
+import type { Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import { Markdown } from 'tiptap-markdown';
 import type { CanvasNode, FileNodeData } from '../types';
+import { SlashCommandMenu, type SlashCommandDef } from './SlashCommandMenu';
 
 interface Props {
   node: CanvasNode;
@@ -13,6 +16,63 @@ interface Props {
 }
 
 const AUTO_SAVE_MS = 1500;
+
+// ---- Slash command definitions ----
+
+interface SlashCmd extends SlashCommandDef {
+  run: (editor: Editor, from: number, to: number) => void;
+}
+
+const ALL_SLASH_COMMANDS: SlashCmd[] = [
+  {
+    id: 'text', label: 'Text', desc: 'Plain paragraph', icon: 'T',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).clearNodes().run(),
+  },
+  {
+    id: 'h1', label: 'Heading 1', desc: 'Large section heading', icon: 'H1',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).toggleHeading({ level: 1 }).run(),
+  },
+  {
+    id: 'h2', label: 'Heading 2', desc: 'Medium section heading', icon: 'H2',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).toggleHeading({ level: 2 }).run(),
+  },
+  {
+    id: 'h3', label: 'Heading 3', desc: 'Small section heading', icon: 'H3',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).toggleHeading({ level: 3 }).run(),
+  },
+  {
+    id: 'ul', label: 'Bullet List', desc: 'Unordered list', icon: '•',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).toggleBulletList().run(),
+  },
+  {
+    id: 'ol', label: 'Numbered List', desc: 'Ordered list', icon: '1.',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).toggleOrderedList().run(),
+  },
+  {
+    id: 'task', label: 'Task List', desc: 'Todo checklist', icon: '☑',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).toggleTaskList().run(),
+  },
+  {
+    id: 'quote', label: 'Blockquote', desc: 'Quote / callout block', icon: '"',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).toggleBlockquote().run(),
+  },
+  {
+    id: 'code', label: 'Code Block', desc: 'Code snippet', icon: '</>',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).toggleCodeBlock().run(),
+  },
+  {
+    id: 'hr', label: 'Divider', desc: 'Horizontal line', icon: '—',
+    run: (e, f, t) => e.chain().focus().deleteRange({ from: f, to: t }).setHorizontalRule().run(),
+  },
+];
+
+const filterCmds = (query: string): SlashCmd[] => {
+  if (!query) return ALL_SLASH_COMMANDS;
+  const q = query.toLowerCase();
+  return ALL_SLASH_COMMANDS.filter(
+    (c) => c.label.toLowerCase().includes(q) || c.id.includes(q) || c.desc.toLowerCase().includes(q),
+  );
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const getMarkdown = (editor: any): string => {
@@ -36,6 +96,12 @@ export const FileNodeBody = ({ node, onUpdate }: Props) => {
   nodeIdRef.current = node.id;
   const prevContentRef = useRef(data.content);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Slash command menu state
+  interface SlashMenuState { x: number; y: number; query: string; index: number; slashFrom: number }
+  const [slashMenu, setSlashMenu] = useState<SlashMenuState | null>(null);
+  const slashMenuRef = useRef<SlashMenuState | null>(null);
+  slashMenuRef.current = slashMenu;
 
   const showStatus = useCallback((msg: string, duration = 2000) => {
     setStatusText(msg);
@@ -78,6 +144,26 @@ export const FileNodeBody = ({ node, onUpdate }: Props) => {
         const fp = dataRef.current.filePath;
         if (fp) void persistToFile(markdown, fp);
       }, AUTO_SAVE_MS);
+
+      // Slash command detection: match /query at end of current text block
+      const { from } = editor.state.selection;
+      const startPos = Math.max(0, from - 60);
+      const textBefore = editor.state.doc.textBetween(startPos, from, '\n', '\0');
+      const slashMatch = textBefore.match(/(?:^|[\n ])\/(\w*)$/);
+      if (slashMatch) {
+        const query = slashMatch[1] ?? '';
+        const slashDocPos = from - query.length - 1;
+        const coords = editor.view.coordsAtPos(slashDocPos);
+        setSlashMenu((prev) => ({
+          x: coords.left,
+          y: coords.bottom,
+          query,
+          index: prev?.query === query ? prev.index : 0,
+          slashFrom: slashDocPos,
+        }));
+      } else {
+        if (slashMenuRef.current) setSlashMenu(null);
+      }
     },
     onSelectionUpdate: ({ editor }) => {
       if (editor.state.selection.empty) {
@@ -91,10 +177,11 @@ export const FileNodeBody = ({ node, onUpdate }: Props) => {
           return;
         }
         const selRect = domSel.getRangeAt(0).getBoundingClientRect();
-        const boxRect = containerRef.current.getBoundingClientRect();
+        // Use viewport coordinates so the menu uses position:fixed and
+        // is never clipped by the canvas-node's overflow:hidden.
         setBubble({
-          x: selRect.left + selRect.width / 2 - boxRect.left,
-          y: selRect.top - boxRect.top,
+          x: selRect.left + selRect.width / 2,
+          y: selRect.top,
         });
       });
     },
@@ -125,6 +212,45 @@ export const FileNodeBody = ({ node, onUpdate }: Props) => {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [editor, persistToFile]);
+
+  // Slash menu keyboard navigation — capture phase so we intercept before ProseMirror
+  useEffect(() => {
+    if (!editor) return;
+    const handler = (e: KeyboardEvent) => {
+      const menu = slashMenuRef.current;
+      if (!menu) return;
+      const items = filterCmds(menu.query);
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setSlashMenu((prev) => prev ? { ...prev, index: Math.min(prev.index + 1, items.length - 1) } : null);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setSlashMenu((prev) => prev ? { ...prev, index: Math.max(prev.index - 1, 0) } : null);
+      } else if (e.key === 'Enter') {
+        const item = items[menu.index] ?? items[0];
+        if (item) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          item.run(editor, menu.slashFrom, editor.state.selection.from);
+          setSlashMenu(null);
+        }
+      } else if (e.key === 'Escape') {
+        setSlashMenu(null);
+      }
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [editor]);
+
+  const handleSlashSelect = useCallback((cmd: SlashCommandDef) => {
+    if (!editor || !slashMenuRef.current) return;
+    const { slashFrom } = slashMenuRef.current;
+    const fullCmd = ALL_SLASH_COMMANDS.find((c) => c.id === cmd.id);
+    fullCmd?.run(editor, slashFrom, editor.state.selection.from);
+    setSlashMenu(null);
+  }, [editor]);
 
   const handleOpenFile = useCallback(async () => {
     const api = window.canvasWorkspace?.file;
@@ -233,8 +359,9 @@ export const FileNodeBody = ({ node, onUpdate }: Props) => {
         </div>
       )}
 
-      {/* Inline bubble menu — appears above selected text */}
-      {bubble && editor && (
+      {/* Bubble menu — portaled to document.body so position:fixed is relative
+          to the viewport, not the canvas-transform ancestor. */}
+      {bubble && editor && createPortal(
         <div
           className="note-bubble-menu"
           style={{ left: bubble.x, top: bubble.y }}
@@ -316,12 +443,25 @@ export const FileNodeBody = ({ node, onUpdate }: Props) => {
               />
             </svg>
           </button>
-        </div>
+        </div>,
+        document.body,
       )}
 
-      <div className="note-content">
+      <div className="note-content" onWheel={(e) => e.stopPropagation()}>
         <EditorContent editor={editor} className="note-tiptap-editor" />
       </div>
+
+      {/* Slash command menu — fixed position, never clipped by canvas overflow */}
+      {slashMenu && (
+        <SlashCommandMenu
+          x={slashMenu.x}
+          y={slashMenu.y}
+          selectedIndex={slashMenu.index}
+          items={filterCmds(slashMenu.query)}
+          onSelect={handleSlashSelect}
+          onClose={() => setSlashMenu(null)}
+        />
+      )}
     </div>
   );
 };

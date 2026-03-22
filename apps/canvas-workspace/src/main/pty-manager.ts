@@ -2,12 +2,24 @@ import { ipcMain } from "electron";
 import * as pty from "node-pty";
 import { platform, homedir } from "os";
 import { execSync } from "child_process";
+import { existsSync } from "fs";
 
 const sessions = new Map<string, pty.IPty>();
 
 const defaultShell = () => {
   if (platform() === "win32") return "powershell.exe";
-  return process.env.SHELL || "/bin/zsh";
+  // process.env.SHELL may be unset when launched from macOS GUI / Finder
+  const candidates = [
+    process.env.SHELL,
+    "/bin/zsh",
+    "/bin/bash",
+    "/usr/bin/zsh",
+    "/usr/bin/bash",
+  ];
+  for (const s of candidates) {
+    if (s && existsSync(s)) return s;
+  }
+  return "/bin/sh";
 };
 
 const getCwd = (pid: number): string | null => {

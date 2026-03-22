@@ -57,6 +57,9 @@ importers:
         specifier: ^0.9.0
         version: 0.9.0(@tiptap/core@3.20.4(@tiptap/pm@3.20.4))
     devDependencies:
+      '@electron/rebuild':
+        specifier: ^4.0.3
+        version: 4.0.3
       '@types/node':
         specifier: ^20.14.9
         version: 20.19.33
