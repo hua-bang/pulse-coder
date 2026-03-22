@@ -150,6 +150,19 @@ export const setupFileManagerIpc = () => {
     }
   });
 
+  // Open folder dialog
+  ipcMain.handle("file:openFolderDialog", async (_event) => {
+    const win = BrowserWindow.getFocusedWindow();
+    const result = await dialog.showOpenDialog(win!, {
+      title: "Select Project Root Folder",
+      properties: ["openDirectory"]
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { ok: false, canceled: true };
+    }
+    return { ok: true, folderPath: result.filePaths[0] };
+  });
+
   // Save-as dialog
   ipcMain.handle(
     "file:saveAsDialog",

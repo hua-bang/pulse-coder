@@ -80,6 +80,8 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
 
     openDialog: () => ipcRenderer.invoke("file:openDialog"),
 
+    openFolderDialog: () => ipcRenderer.invoke("file:openFolderDialog"),
+
     saveAsDialog: (defaultName: string, content: string) =>
       ipcRenderer.invoke("file:saveAsDialog", { defaultName, content })
   },
