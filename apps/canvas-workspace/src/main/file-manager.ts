@@ -3,6 +3,46 @@ import { promises as fs } from "fs";
 import { join, basename } from "path";
 import { homedir } from "os";
 
+const IGNORED_DIRS = new Set([
+  'node_modules', '.git', '.DS_Store', 'dist', '.next', '.nuxt', '__pycache__', '.venv',
+]);
+
+interface DirEntry {
+  name: string;
+  type: 'file' | 'dir';
+  children?: DirEntry[];
+}
+
+const listDirRecursive = async (
+  dirPath: string,
+  depth: number,
+  maxDepth: number
+): Promise<DirEntry[]> => {
+  const entries = await fs.readdir(dirPath, { withFileTypes: true });
+  const result: DirEntry[] = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith('.') || IGNORED_DIRS.has(entry.name)) continue;
+    if (entry.isDirectory()) {
+      const item: DirEntry = { name: entry.name, type: 'dir' };
+      if (depth < maxDepth) {
+        try {
+          item.children = await listDirRecursive(join(dirPath, entry.name), depth + 1, maxDepth);
+        } catch {
+          item.children = [];
+        }
+      }
+      result.push(item);
+    } else {
+      result.push({ name: entry.name, type: 'file' });
+    }
+  }
+  result.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  return result;
+};
+
 const NOTES_DIR = join(homedir(), ".pulse-coder", "canvas", "notes");
 
 const ensureNotesDir = async () => {
@@ -59,6 +99,32 @@ export const setupFileManagerIpc = () => {
       }
     }
   );
+
+  // List directory (recursive, max depth)
+  ipcMain.handle(
+    "file:listDir",
+    async (_event, payload: { dirPath: string; maxDepth?: number }) => {
+      try {
+        const entries = await listDirRecursive(payload.dirPath, 0, payload.maxDepth ?? 3);
+        return { ok: true, entries };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    }
+  );
+
+  // Open folder dialog
+  ipcMain.handle("dialog:openFolder", async (_event) => {
+    const win = BrowserWindow.getFocusedWindow();
+    const result = await dialog.showOpenDialog(win!, {
+      title: "Select Project Folder",
+      properties: ["openDirectory"]
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { ok: false, canceled: true };
+    }
+    return { ok: true, folderPath: result.filePaths[0] };
+  });
 
   // Open file dialog
   ipcMain.handle("file:openDialog", async (_event) => {

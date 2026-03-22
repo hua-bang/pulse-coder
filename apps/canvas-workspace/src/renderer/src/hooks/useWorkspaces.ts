@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 export interface WorkspaceEntry {
   id: string;
   name: string;
+  rootFolder?: string;
 }
 
 interface WorkspaceManifest {
@@ -106,6 +107,17 @@ export const useWorkspaces = () => {
     [saveManifest]
   );
 
+  const setRootFolder = useCallback(
+    (id: string, folderPath: string) => {
+      setWorkspaces((prev) => {
+        const next = prev.map((w) => (w.id === id ? { ...w, rootFolder: folderPath } : w));
+        saveManifest(next);
+        return next;
+      });
+    },
+    [saveManifest]
+  );
+
   return {
     workspaces,
     activeId,
@@ -113,5 +125,6 @@ export const useWorkspaces = () => {
     createWorkspace,
     renameWorkspace,
     deleteWorkspace,
+    setRootFolder,
   };
 };

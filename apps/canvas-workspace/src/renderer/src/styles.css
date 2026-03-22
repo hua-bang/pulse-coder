@@ -235,6 +235,50 @@ body {
   background: var(--accent-light);
 }
 
+.sidebar-workspace-entry {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-root-folder {
+  padding: 1px 10px 4px 36px;
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.75;
+}
+
+.sidebar-item-folder {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  margin-left: 1px;
+}
+
+.sidebar-item-row:hover .sidebar-item-folder {
+  display: flex;
+}
+
+.sidebar-item-folder--set {
+  display: flex;
+  color: var(--accent-term);
+}
+
+.sidebar-item-folder:hover {
+  background: rgba(15, 123, 108, 0.08);
+  color: var(--accent-term);
+}
+
 .sidebar-item-icon {
   width: 20px;
   height: 20px;
@@ -878,6 +922,13 @@ body {
 }
 
 /* ---- Terminal Node ---- */
+
+.terminal-body-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
 
 .terminal-xterm-container {
   height: 100%;

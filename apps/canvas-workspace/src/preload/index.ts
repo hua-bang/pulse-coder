@@ -75,9 +75,16 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
     write: (filePath: string, content: string) =>
       ipcRenderer.invoke("file:write", { filePath, content }),
 
+    listDir: (dirPath: string, maxDepth?: number) =>
+      ipcRenderer.invoke("file:listDir", { dirPath, maxDepth }),
+
     openDialog: () => ipcRenderer.invoke("file:openDialog"),
 
     saveAsDialog: (defaultName: string, content: string) =>
       ipcRenderer.invoke("file:saveAsDialog", { defaultName, content })
+  },
+
+  dialog: {
+    openFolder: () => ipcRenderer.invoke("dialog:openFolder")
   }
 });

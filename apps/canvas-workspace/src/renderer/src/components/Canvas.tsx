@@ -3,13 +3,14 @@ import { useCanvas } from "../hooks/useCanvas";
 import { useNodes } from "../hooks/useNodes";
 import { useNodeDrag } from "../hooks/useNodeDrag";
 import { useNodeResize } from "../hooks/useNodeResize";
+import { useCanvasContext } from "../hooks/useCanvasContext";
 import type { CanvasTransform } from "../types";
 import { CanvasNodeView } from "./CanvasNodeView";
 import { NodeContextMenu } from "./NodeContextMenu";
 import { FloatingToolbar } from "./FloatingToolbar";
 import { ZoomIndicator } from "./ZoomIndicator";
 
-export const Canvas = ({ canvasId, hidden }: { canvasId: string; hidden?: boolean }) => {
+export const Canvas = ({ canvasId, rootFolder, hidden }: { canvasId: string; rootFolder?: string; hidden?: boolean }) => {
   const [activeTool, setActiveTool] = useState("select");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
@@ -45,6 +46,8 @@ export const Canvas = ({ canvasId, hidden }: { canvasId: string; hidden?: boolea
 useEffect(() => {
     setTransformForSave(transform);
   }, [transform, setTransformForSave]);
+
+  useCanvasContext(rootFolder, nodes);
 
   const { draggingId, onDragStart, onDragMove, onDragEnd } = useNodeDrag(
     moveNode,
@@ -200,6 +203,8 @@ useEffect(() => {
           <CanvasNodeView
             key={node.id}
             node={node}
+            allNodes={nodes}
+            rootFolder={rootFolder}
             isDragging={draggingId === node.id}
             isResizing={resizingId === node.id}
             isSelected={selectedNodeId === node.id}
