@@ -34,6 +34,12 @@ export interface CanvasSaveData {
   savedAt: string;
 }
 
+export interface DirEntry {
+  name: string;
+  type: 'file' | 'dir';
+  children?: DirEntry[];
+}
+
 export interface FileApi {
   createNote: (
     name?: string
@@ -45,6 +51,10 @@ export interface FileApi {
     filePath: string,
     content: string
   ) => Promise<{ ok: boolean; error?: string }>;
+  listDir: (
+    dirPath: string,
+    maxDepth?: number
+  ) => Promise<{ ok: boolean; entries?: DirEntry[]; error?: string }>;
   openDialog: () => Promise<{
     ok: boolean;
     canceled?: boolean;
@@ -69,6 +79,10 @@ export interface FileApi {
     folderPath?: string;
     error?: string;
   }>;
+}
+
+export interface DialogApi {
+  openFolder: () => Promise<{ ok: boolean; canceled?: boolean; folderPath?: string; error?: string }>;
 }
 
 export interface CanvasWorkspaceApi {
@@ -99,6 +113,7 @@ export interface CanvasWorkspaceApi {
     delete: (id: string) => Promise<{ ok: boolean; error?: string }>;
   };
   file: FileApi;
+  dialog: DialogApi;
 }
 
 declare global {

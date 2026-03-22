@@ -186,39 +186,6 @@ body {
   min-width: 0;
 }
 
-.sidebar-item-action {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  border: none;
-  background: transparent;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  color: var(--sidebar-text-muted);
-  transition: background 0.1s, color 0.1s;
-}
-
-.sidebar-item-row:hover .sidebar-item-action {
-  display: flex;
-}
-
-.sidebar-item-action--set {
-  display: flex;
-  color: var(--accent);
-}
-
-.sidebar-item-action:hover {
-  background: var(--sidebar-item-hover);
-  color: var(--sidebar-text);
-}
-
-.sidebar-item-action--set:hover {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-}
 
 .sidebar-item-delete {
   flex-shrink: 0;
@@ -261,6 +228,50 @@ body {
 .sidebar-rename-input--new {
   border-color: var(--accent-border);
   background: rgba(62, 207, 142, 0.06);
+}
+
+.sidebar-workspace-entry {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-root-folder {
+  padding: 1px 10px 4px 36px;
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.75;
+}
+
+.sidebar-item-folder {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  margin-left: 1px;
+}
+
+.sidebar-item-row:hover .sidebar-item-folder {
+  display: flex;
+}
+
+.sidebar-item-folder--set {
+  display: flex;
+  color: var(--accent-term);
+}
+
+.sidebar-item-folder:hover {
+  background: rgba(15, 123, 108, 0.08);
+  color: var(--accent-term);
 }
 
 .sidebar-item-icon {
@@ -907,6 +918,13 @@ body {
 }
 
 /* ---- Terminal Node ---- */
+
+.terminal-body-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
 
 .terminal-xterm-container {
   height: 100%;

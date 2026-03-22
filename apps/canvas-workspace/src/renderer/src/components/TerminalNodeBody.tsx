@@ -5,6 +5,8 @@ import type { CanvasNode, TerminalNodeData } from "../types";
 
 interface Props {
   node: CanvasNode;
+  allNodes?: CanvasNode[];
+  rootFolder?: string;
   onUpdate: (id: string, patch: Partial<CanvasNode>) => void;
 }
 
@@ -29,7 +31,7 @@ const serializeBuffer = (term: Terminal): string => {
   return text;
 };
 
-export const TerminalNodeBody = ({ node, onUpdate }: Props) => {
+export const TerminalNodeBody = ({ node, allNodes, rootFolder, onUpdate }: Props) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -135,11 +137,14 @@ export const TerminalNodeBody = ({ node, onUpdate }: Props) => {
       return;
     }
 
-    const spawnCwd = initialCwd.current || undefined;
+    const spawnCwd = initialCwd.current || rootFolder || undefined;
     const result = await api.spawn(sessionId, term.cols, term.rows, spawnCwd);
     if (!result.ok) {
       term.writeln(`\x1b[31mFailed to spawn shell: ${result.error}\x1b[0m`);
       return;
+    }
+    if (rootFolder && !initialCwd.current) {
+      term.writeln(`\x1b[2m[canvas] Context written to CLAUDE.md / AGENTS.md\x1b[0m`);
     }
 
     const removeData = api.onData(sessionId, (d: string) => {
@@ -174,7 +179,7 @@ export const TerminalNodeBody = ({ node, onUpdate }: Props) => {
       removeExit();
       api.kill(sessionId);
     };
-  }, [sessionId, persistState]);
+  }, [sessionId, rootFolder, persistState]);
 
   useEffect(() => {
     void initTerminal();
@@ -224,11 +229,12 @@ export const TerminalNodeBody = ({ node, onUpdate }: Props) => {
   }, []);
 
   return (
-    <div
-      ref={containerRef}
-      className="terminal-xterm-container"
-      onMouseDown={(e) => e.stopPropagation()}
-      onWheel={(e) => e.stopPropagation()}
-    />
+    <div className="terminal-body-wrap">
+      <div
+        ref={containerRef}
+        className="terminal-xterm-container"
+        onMouseDown={(e) => e.stopPropagation()}
+      />
+    </div>
   );
 };

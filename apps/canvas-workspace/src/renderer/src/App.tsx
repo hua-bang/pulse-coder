@@ -31,7 +31,7 @@ const App = () => {
         />
         <div className="canvas-viewport">
           {workspaces.map((ws) => (
-            <Canvas key={ws.id} canvasId={ws.id} hidden={ws.id !== activeId} />
+            <Canvas key={ws.id} canvasId={ws.id} rootFolder={ws.rootFolder} hidden={ws.id !== activeId} />
           ))}
         </div>
       </div>

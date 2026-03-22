@@ -10,7 +10,7 @@ interface Props {
   onCreate: (name: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
-  onSetRootFolder: (id: string, folderPath: string | undefined) => void;
+  onSetRootFolder: (id: string, folderPath: string) => void;
 }
 
 export const Sidebar = ({
@@ -67,6 +67,15 @@ export const Sidebar = ({
     setCreating(false);
   };
 
+  const pickFolder = async (wsId: string) => {
+    const api = window.canvasWorkspace?.dialog;
+    if (!api) return;
+    const result = await api.openFolder();
+    if (result.ok && result.folderPath) {
+      onSetRootFolder(wsId, result.folderPath);
+    }
+  };
+
   return (
     <aside className={`sidebar${collapsed ? ' sidebar--collapsed' : ''}`}>
       <div className="sidebar-header">
@@ -88,7 +97,8 @@ export const Sidebar = ({
           <div className="sidebar-section-title">Workspaces</div>
           <div className="sidebar-list">
             {workspaces.map((ws) => (
-              <div key={ws.id} className="sidebar-item-row">
+              <div key={ws.id} className="sidebar-workspace-entry">
+              <div className="sidebar-item-row">
                 {renamingId === ws.id ? (
                   <input
                     ref={renameInputRef}
@@ -131,26 +141,12 @@ export const Sidebar = ({
                       <span className="sidebar-item-name">{ws.name}</span>
                     </button>
                     <button
-                      className={`sidebar-item-action${ws.rootFolder ? ' sidebar-item-action--set' : ''}`}
-                      onClick={async () => {
-                        if (ws.rootFolder) {
-                          onSetRootFolder(ws.id, undefined);
-                        } else {
-                          const res = await window.canvasWorkspace?.file.openFolderDialog();
-                          if (res?.ok && res.folderPath) {
-                            onSetRootFolder(ws.id, res.folderPath);
-                          }
-                        }
-                      }}
+                      className={`sidebar-item-folder${ws.rootFolder ? ' sidebar-item-folder--set' : ''}`}
+                      onClick={(e) => { e.stopPropagation(); void pickFolder(ws.id); }}
                       title={ws.rootFolder ? `Root: ${ws.rootFolder}` : 'Set project root folder'}
                     >
-                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                        <path
-                          d="M2 5a1 1 0 011-1h3l1.5 2H13a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1V5z"
-                          stroke="currentColor"
-                          strokeWidth="1.4"
-                          strokeLinejoin="round"
-                        />
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                        <path d="M1.5 4.5A1 1 0 012.5 3.5h4l1.5 2h6a1 1 0 011 1v6a1 1 0 01-1 1h-12a1 1 0 01-1-1v-7z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
                       </svg>
                     </button>
                   </>
@@ -172,6 +168,12 @@ export const Sidebar = ({
                     </svg>
                   </button>
                 )}
+              </div>
+              {ws.rootFolder && (
+                <div className="sidebar-root-folder" title={ws.rootFolder}>
+                  {ws.rootFolder.split('/').slice(-2).join('/')}
+                </div>
+              )}
               </div>
             ))}
 

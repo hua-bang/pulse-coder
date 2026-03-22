@@ -108,7 +108,7 @@ export const useWorkspaces = () => {
   );
 
   const setRootFolder = useCallback(
-    (id: string, folderPath: string | undefined) => {
+    (id: string, folderPath: string) => {
       setWorkspaces((prev) => {
         const next = prev.map((w) => (w.id === id ? { ...w, rootFolder: folderPath } : w));
         saveManifest(next);
