@@ -109,8 +109,13 @@ export const TerminalNodeBody = ({ node, onUpdate }: Props) => {
     fitRef.current = fitAddon;
 
     if (initialScrollback.current) {
+      const RESTORE_TAIL_LINES = 10;
+      const lastLines = initialScrollback.current
+        .split("\n")
+        .slice(-RESTORE_TAIL_LINES)
+        .join("\r\n");
       term.writeln("\x1b[2m--- session restored ---\x1b[0m");
-      term.write(initialScrollback.current.replace(/\n/g, "\r\n") + "\r\n");
+      term.write(lastLines + "\r\n");
       term.writeln("\x1b[2m--- new session ---\x1b[0m\r\n");
     }
 
