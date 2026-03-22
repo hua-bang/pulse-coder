@@ -79,6 +79,7 @@ export const Sidebar = ({
   return (
     <aside className={`sidebar${collapsed ? ' sidebar--collapsed' : ''}`}>
       <div className="sidebar-header">
+        {!collapsed && <span className="sidebar-brand">Canvas</span>}
         <button className="sidebar-toggle" onClick={onToggle} title="Toggle sidebar">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path

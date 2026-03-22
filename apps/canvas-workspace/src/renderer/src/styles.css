@@ -2,41 +2,33 @@
 
 :root {
   color-scheme: light;
-  --bg: #f7f6f3;
-  --bg-canvas: #efede8;
+  --bg: #f8f8f7;
+  --bg-canvas: #f0efed;
   --surface: #ffffff;
-  --surface-hover: #faf9f7;
-  --border: #e4e0d9;
-  --border-light: #eeebe5;
-  --text: #1a1a1a;
-  --text-secondary: #6b6b6b;
-  --text-muted: #aeaaa3;
-  --accent: #5b5bd6;
-  --accent-light: rgba(91, 91, 214, 0.08);
-  --accent-border: rgba(91, 91, 214, 0.4);
-  --accent-file: #d97706;
-  --accent-term: #059669;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
-  --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.05);
-  --shadow-drag: 0 12px 28px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.05);
-  --shadow-float: 0 6px 20px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.05);
-  --radius: 6px;
-  --radius-lg: 10px;
-  --radius-sm: 4px;
-  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", Menlo, monospace;
-  --sidebar-width: 220px;
-  --sidebar-collapsed: 44px;
-  /* sidebar */
-  --sidebar-bg: #f7f6f3;
-  --sidebar-border: #e4e0d9;
-  --sidebar-text: #1a1a1a;
-  --sidebar-text-muted: #aeaaa3;
-  --sidebar-item-hover: rgba(0, 0, 0, 0.05);
-  --sidebar-item-active-bg: rgba(91, 91, 214, 0.09);
-  --sidebar-item-active-text: #5b5bd6;
-  --sidebar-section-color: #b8b4ac;
+  --surface-hover: #fafaf9;
+  --border: #e8e5e0;
+  --border-light: #f0eeea;
+  --text: #37352f;
+  --text-secondary: #787774;
+  --text-muted: #b4b0a8;
+  --accent: #2383e2;
+  --accent-light: rgba(35, 131, 226, 0.08);
+  --accent-border: rgba(35, 131, 226, 0.5);
+  --accent-file: #d9730d;
+  --accent-term: #0f7b6c;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.03);
+  --shadow-card-hover: 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --shadow-drag: 0 12px 32px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --shadow-float: 0 4px 24px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --radius: 8px;
+  --radius-lg: 12px;
+  --radius-sm: 6px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", "Fira Code", "Cascadia Code", Menlo, monospace;
+  --sidebar-width: 240px;
+  --sidebar-collapsed: 48px;
+  --titlebar-height: 38px;
 }
 
 * {
@@ -62,6 +54,24 @@ body {
   flex-direction: column;
 }
 
+.app-titlebar {
+  height: var(--titlebar-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.titlebar-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
 .app-body {
   flex: 1;
   display: flex;
@@ -72,14 +82,13 @@ body {
 
 .sidebar {
   width: var(--sidebar-width);
-  background: var(--sidebar-bg);
-  border-right: 1px solid var(--sidebar-border);
+  background: var(--surface);
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   transition: width 0.2s ease;
   overflow: hidden;
-  -webkit-app-region: drag;
 }
 
 .sidebar--collapsed {
@@ -87,18 +96,24 @@ body {
 }
 
 .sidebar-header {
-  height: 48px;
+  height: 44px;
   display: flex;
   align-items: center;
-  justify-content: center;
   padding: 0 12px;
-  border-bottom: 1px solid var(--sidebar-border);
-  -webkit-app-region: drag;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.sidebar-brand {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
 }
 
 .sidebar-toggle {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: none;
   background: transparent;
   border-radius: var(--radius-sm);
@@ -106,23 +121,21 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--sidebar-text-muted);
-  transition: background 0.12s, color 0.12s;
+  color: var(--text-secondary);
+  transition: background 0.12s;
   flex-shrink: 0;
-  -webkit-app-region: no-drag;
 }
 
 .sidebar-toggle:hover {
-  background: var(--sidebar-item-hover);
-  color: var(--sidebar-text);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .sidebar-section-title {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--sidebar-section-color);
+  color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.05em;
   padding: 16px 14px 6px;
 }
 
@@ -130,7 +143,6 @@ body {
   display: flex;
   flex-direction: column;
   padding: 0 6px;
-  -webkit-app-region: no-drag;
 }
 
 .sidebar-item {
@@ -143,33 +155,27 @@ body {
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 13px;
-  color: var(--sidebar-text-muted);
+  color: var(--text);
   text-align: left;
-  transition: background 0.1s, color 0.1s;
+  transition: background 0.1s;
   width: 100%;
 }
 
 .sidebar-item:hover {
-  background: var(--sidebar-item-hover);
-  color: var(--sidebar-text);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .sidebar-item--active {
-  background: var(--sidebar-item-active-bg);
-  color: var(--sidebar-item-active-text);
+  background: var(--accent-light);
+  color: var(--accent);
 }
 
 .sidebar-item--active:hover {
-  background: var(--sidebar-item-active-bg);
-  color: var(--sidebar-item-active-text);
+  background: var(--accent-light);
 }
 
 .sidebar-item--muted {
-  color: var(--sidebar-section-color);
-}
-
-.sidebar-item--muted:hover {
-  color: var(--sidebar-text);
+  color: var(--text-secondary);
 }
 
 /* ---- Sidebar workspace row ---- */
@@ -197,7 +203,7 @@ body {
   display: none;
   align-items: center;
   justify-content: center;
-  color: var(--sidebar-text-muted);
+  color: var(--text-muted);
   transition: background 0.1s, color 0.1s;
 }
 
@@ -206,8 +212,8 @@ body {
 }
 
 .sidebar-item-delete:hover {
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
+  background: rgba(224, 62, 62, 0.08);
+  color: #e03e3e;
 }
 
 .sidebar-rename-input {
@@ -215,18 +221,18 @@ body {
   min-width: 0;
   height: 30px;
   padding: 0 8px;
-  border: 1px solid var(--accent-border);
+  border: 1.5px solid var(--accent-border);
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--surface);
   font-size: 13px;
-  color: var(--sidebar-text);
+  color: var(--text);
   outline: none;
   font-family: var(--font);
 }
 
 .sidebar-rename-input--new {
   border-color: var(--accent-border);
-  background: rgba(62, 207, 142, 0.06);
+  background: var(--accent-light);
 }
 
 .sidebar-workspace-entry {
@@ -324,8 +330,8 @@ body {
   inset: 0;
   pointer-events: none;
   background-image:
-    radial-gradient(circle, rgba(0, 0, 0, 0.12) 0.9px, transparent 0.9px);
-  background-size: 22px 22px;
+    radial-gradient(circle, rgba(0, 0, 0, 0.07) 0.8px, transparent 0.8px);
+  background-size: 20px 20px;
 }
 
 .canvas-transform {
@@ -380,7 +386,7 @@ body {
   top: 0;
   left: 0;
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1.5px solid transparent;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
   display: flex;
@@ -392,12 +398,11 @@ body {
 
 .canvas-node:hover {
   box-shadow: var(--shadow-card-hover);
-  border-color: #d5d0c9;
 }
 
 .canvas-node--selected {
   border-color: var(--accent-border);
-  box-shadow: var(--shadow-card-hover), 0 0 0 3px rgba(91, 91, 214, 0.1);
+  box-shadow: var(--shadow-card-hover), 0 0 0 2px rgba(35, 131, 226, 0.15);
 }
 
 .canvas-node--dragging {
@@ -1029,7 +1034,7 @@ body {
 
 .floating-toolbar {
   position: absolute;
-  bottom: 18px;
+  bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -1051,7 +1056,7 @@ body {
 
 .toolbar-divider {
   width: 1px;
-  height: 18px;
+  height: 20px;
   background: var(--border);
   margin: 0 4px;
 }
@@ -1074,7 +1079,7 @@ body {
 }
 
 .toolbar-btn:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(0, 0, 0, 0.04);
   color: var(--text);
 }
 
@@ -1101,7 +1106,7 @@ body {
 
 .zoom-indicator {
   position: absolute;
-  bottom: 18px;
+  bottom: 16px;
   right: 16px;
   height: 28px;
   padding: 0 10px;
