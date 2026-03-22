@@ -29,6 +29,9 @@ const extractDescription = (content: string): string => {
   return '';
 };
 
+const MARKER_START = (id: string) => `<!-- canvas-workspace:${id} -->`;
+const MARKER_END = (id: string) => `<!-- /canvas-workspace:${id} -->`;
+
 const buildCanvasContext = (
   nodes: CanvasNode[],
   workspaceFolder: string,
@@ -61,6 +64,20 @@ const buildCanvasContext = (
 
   lines.push('', '> Use the file paths above to read content as needed.', '');
   return lines.join('\n');
+};
+
+/** Replace or append a workspace-scoped section in file content. */
+const upsertSection = (existing: string, id: string, section: string): string => {
+  const start = MARKER_START(id);
+  const end = MARKER_END(id);
+  const block = `${start}\n${section}\n${end}`;
+  const startIdx = existing.indexOf(start);
+  const endIdx = existing.indexOf(end);
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    return existing.slice(0, startIdx) + block + existing.slice(endIdx + end.length);
+  }
+  const trimmed = existing.trimEnd();
+  return trimmed ? `${trimmed}\n\n${block}\n` : `${block}\n`;
 };
 
 const serializeBuffer = (term: Terminal): string => {
@@ -196,21 +213,18 @@ export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, work
       if (context) {
         const fileApi = window.canvasWorkspace?.file;
         if (fileApi) {
+          const wsId = workspaceId ?? 'default';
           const [claudeRead, agentsRead] = await Promise.all([
             fileApi.read(`${spawnCwd}/CLAUDE.md`),
             fileApi.read(`${spawnCwd}/AGENTS.md`),
           ]);
-          const claudeContent = claudeRead.ok
-            ? `${claudeRead.content}\n\n${context}`
-            : context;
-          const agentsContent = agentsRead.ok
-            ? `${agentsRead.content}\n\n${context}`
-            : context;
+          const claudeContent = upsertSection(claudeRead.ok ? (claudeRead.content ?? '') : '', wsId, context);
+          const agentsContent = upsertSection(agentsRead.ok ? (agentsRead.content ?? '') : '', wsId, context);
           await Promise.all([
             fileApi.write(`${spawnCwd}/CLAUDE.md`, claudeContent),
             fileApi.write(`${spawnCwd}/AGENTS.md`, agentsContent),
           ]);
-          const action = (ok: boolean) => ok ? 'appended' : 'created';
+          const action = (ok: boolean) => ok ? 'updated' : 'created';
           term.writeln(
             `\x1b[2m[canvas] CLAUDE.md ${action(claudeRead.ok)} / AGENTS.md ${action(agentsRead.ok)}\x1b[0m`
           );
