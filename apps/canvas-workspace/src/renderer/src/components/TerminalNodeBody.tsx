@@ -178,26 +178,30 @@ export const TerminalNodeBody = ({ node, allNodes, rootFolder, onUpdate }: Props
     const spawnCwd = initialCwd.current || rootFolder || undefined;
 
     // Write lightweight canvas context to CLAUDE.md / AGENTS.md before spawning
-    // Only create the files if they don't already exist
+    // Append to existing files, or create them if they don't exist
     if (spawnCwd && allNodes && allNodes.length > 0) {
       const context = buildCanvasContext(allNodes, spawnCwd);
       if (context) {
         const fileApi = window.canvasWorkspace?.file;
         if (fileApi) {
-          const [claudeExists, agentsExists] = await Promise.all([
-            fileApi.read(`${spawnCwd}/CLAUDE.md`).then((r) => r.ok),
-            fileApi.read(`${spawnCwd}/AGENTS.md`).then((r) => r.ok),
+          const [claudeRead, agentsRead] = await Promise.all([
+            fileApi.read(`${spawnCwd}/CLAUDE.md`),
+            fileApi.read(`${spawnCwd}/AGENTS.md`),
           ]);
-          const writes: Promise<unknown>[] = [];
-          if (!claudeExists) writes.push(fileApi.write(`${spawnCwd}/CLAUDE.md`, context));
-          if (!agentsExists) writes.push(fileApi.write(`${spawnCwd}/AGENTS.md`, context));
-          if (writes.length > 0) {
-            await Promise.all(writes);
-            const created = [!claudeExists && 'CLAUDE.md', !agentsExists && 'AGENTS.md']
-              .filter(Boolean)
-              .join(' / ');
-            term.writeln(`\x1b[2m[canvas] Context written to ${created}\x1b[0m`);
-          }
+          const claudeContent = claudeRead.ok
+            ? `${claudeRead.content}\n\n${context}`
+            : context;
+          const agentsContent = agentsRead.ok
+            ? `${agentsRead.content}\n\n${context}`
+            : context;
+          await Promise.all([
+            fileApi.write(`${spawnCwd}/CLAUDE.md`, claudeContent),
+            fileApi.write(`${spawnCwd}/AGENTS.md`, agentsContent),
+          ]);
+          const action = (ok: boolean) => ok ? 'appended' : 'created';
+          term.writeln(
+            `\x1b[2m[canvas] CLAUDE.md ${action(claudeRead.ok)} / AGENTS.md ${action(agentsRead.ok)}\x1b[0m`
+          );
         }
       }
     }
