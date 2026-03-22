@@ -178,16 +178,26 @@ export const TerminalNodeBody = ({ node, allNodes, rootFolder, onUpdate }: Props
     const spawnCwd = initialCwd.current || rootFolder || undefined;
 
     // Write lightweight canvas context to CLAUDE.md / AGENTS.md before spawning
+    // Only create the files if they don't already exist
     if (spawnCwd && allNodes && allNodes.length > 0) {
       const context = buildCanvasContext(allNodes, spawnCwd);
       if (context) {
         const fileApi = window.canvasWorkspace?.file;
         if (fileApi) {
-          await Promise.all([
-            fileApi.write(`${spawnCwd}/CLAUDE.md`, context),
-            fileApi.write(`${spawnCwd}/AGENTS.md`, context),
+          const [claudeExists, agentsExists] = await Promise.all([
+            fileApi.read(`${spawnCwd}/CLAUDE.md`).then((r) => r.ok),
+            fileApi.read(`${spawnCwd}/AGENTS.md`).then((r) => r.ok),
           ]);
-          term.writeln(`\x1b[2m[canvas] Context written to CLAUDE.md / AGENTS.md\x1b[0m`);
+          const writes: Promise<unknown>[] = [];
+          if (!claudeExists) writes.push(fileApi.write(`${spawnCwd}/CLAUDE.md`, context));
+          if (!agentsExists) writes.push(fileApi.write(`${spawnCwd}/AGENTS.md`, context));
+          if (writes.length > 0) {
+            await Promise.all(writes);
+            const created = [!claudeExists && 'CLAUDE.md', !agentsExists && 'AGENTS.md']
+              .filter(Boolean)
+              .join(' / ');
+            term.writeln(`\x1b[2m[canvas] Context written to ${created}\x1b[0m`);
+          }
         }
       }
     }
