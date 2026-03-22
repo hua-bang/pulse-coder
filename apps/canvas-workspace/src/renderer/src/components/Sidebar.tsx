@@ -79,7 +79,6 @@ export const Sidebar = ({
   return (
     <aside className={`sidebar${collapsed ? ' sidebar--collapsed' : ''}`}>
       <div className="sidebar-header">
-        {!collapsed && <span className="sidebar-brand">Canvas</span>}
         <button className="sidebar-toggle" onClick={onToggle} title="Toggle sidebar">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path
@@ -99,81 +98,71 @@ export const Sidebar = ({
           <div className="sidebar-list">
             {workspaces.map((ws) => (
               <div key={ws.id} className="sidebar-workspace-entry">
-              <div className="sidebar-item-row">
-                {renamingId === ws.id ? (
-                  <input
-                    ref={renameInputRef}
-                    className="sidebar-rename-input"
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    onBlur={commitRename}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') commitRename();
-                      if (e.key === 'Escape') cancelRename();
-                    }}
-                  />
-                ) : (
-                  <button
-                    className={`sidebar-item${activeId === ws.id ? ' sidebar-item--active' : ''}`}
-                    onClick={() => onSelect(ws.id)}
-                    onDoubleClick={() => startRename(ws)}
-                    title="Double-click to rename"
-                  >
-                    <span className="sidebar-item-icon">
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                        <rect
-                          x="2"
-                          y="2"
-                          width="12"
-                          height="12"
-                          rx="2"
-                          stroke="currentColor"
-                          strokeWidth="1.3"
-                        />
+                <div className="sidebar-item-row">
+                  {renamingId === ws.id ? (
+                    <input
+                      ref={renameInputRef}
+                      className="sidebar-rename-input"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onBlur={commitRename}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitRename();
+                        if (e.key === 'Escape') cancelRename();
+                      }}
+                    />
+                  ) : (
+                    <button
+                      className={`sidebar-item${activeId === ws.id ? ' sidebar-item--active' : ''}`}
+                      onClick={() => onSelect(ws.id)}
+                      onDoubleClick={() => startRename(ws)}
+                      title="Double-click to rename"
+                    >
+                      <span className="sidebar-item-icon">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                          <rect
+                            x="2"
+                            y="2"
+                            width="12"
+                            height="12"
+                            rx="2"
+                            stroke="currentColor"
+                            strokeWidth="1.3"
+                          />
+                          <path
+                            d="M5 6h6M5 9h4"
+                            stroke="currentColor"
+                            strokeWidth="1.2"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      </span>
+                      <span className="sidebar-item-name">{ws.name}</span>
+                    </button>
+                  )}
+
+                  {workspaces.length > 1 && renamingId !== ws.id && (
+                    <button
+                      className="sidebar-item-delete"
+                      onClick={() => onDelete(ws.id)}
+                      title="Delete workspace"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
                         <path
-                          d="M5 6h6M5 9h4"
+                          d="M4 4l8 8M12 4l-8 8"
                           stroke="currentColor"
-                          strokeWidth="1.2"
+                          strokeWidth="1.5"
                           strokeLinecap="round"
                         />
                       </svg>
-                    </span>
-                    <span className="sidebar-item-name">{ws.name}</span>
-                  </button>
-
-                  <button
-                    className={`sidebar-item-folder${ws.rootFolder ? ' sidebar-item-folder--set' : ''}`}
-                    onClick={(e) => { e.stopPropagation(); void pickFolder(ws.id); }}
-                    title={ws.rootFolder ? `Root: ${ws.rootFolder}` : 'Set project root folder'}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                      <path d="M1.5 4.5A1 1 0 012.5 3.5h4l1.5 2h6a1 1 0 011 1v6a1 1 0 01-1 1h-12a1 1 0 01-1-1v-7z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-                    </svg>
-                  </button>
-                )}
-
-                {workspaces.length > 1 && renamingId !== ws.id && (
-                  <button
-                    className="sidebar-item-delete"
-                    onClick={() => onDelete(ws.id)}
-                    title="Delete workspace"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                      <path
-                        d="M4 4l8 8M12 4l-8 8"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  </button>
-                )}
-              </div>
-              {ws.rootFolder && (
-                <div className="sidebar-root-folder" title={ws.rootFolder}>
-                  {ws.rootFolder.split('/').slice(-2).join('/')}
+                    </button>
+                  )}
                 </div>
-              )}
+                {ws.rootFolder && (
+                  <div className="sidebar-root-folder" title={ws.rootFolder}>
+                    {ws.rootFolder.split('/').slice(-2).join('/')}
+                  </div>
+                )}
               </div>
             ))}
 
