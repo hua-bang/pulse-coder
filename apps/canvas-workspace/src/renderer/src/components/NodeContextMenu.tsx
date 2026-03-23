@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 interface Props {
   x: number;
   y: number;
-  onCreate: (type: "file" | "terminal") => void;
+  onCreate: (type: "file" | "terminal" | "frame") => void;
   onClose: () => void;
 }
 
@@ -59,6 +59,16 @@ export const NodeContextMenu = ({ x, y, onCreate, onClose }: Props) => {
         <span className="context-menu-label">
           <strong>Terminal</strong>
           <small>Run shell commands</small>
+        </span>
+      </button>
+      <button
+        className="context-menu-item"
+        onClick={() => onCreate("frame")}
+      >
+        <span className="context-menu-icon">{"\u25A1"}</span>
+        <span className="context-menu-label">
+          <strong>Frame</strong>
+          <small>Visual container group</small>
         </span>
       </button>
     </div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCanvas } from "../hooks/useCanvas";
 import { useNodes } from "../hooks/useNodes";
 import { useNodeDrag } from "../hooks/useNodeDrag";
@@ -165,7 +165,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
   );
 
   const handleCreateNode = useCallback(
-    (type: "file" | "terminal") => {
+    (type: "file" | "terminal" | "frame") => {
       if (!contextMenu) return;
       const node = addNode(type, contextMenu.canvasX, contextMenu.canvasY);
       setSelectedNodeId(node.id);
@@ -175,7 +175,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
   );
 
   const handleToolbarAddNode = useCallback(
-    (type: "file" | "terminal") => {
+    (type: "file" | "terminal" | "frame") => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const centerX = rect.width / 2;
@@ -185,10 +185,11 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
         rect.top + centerY,
         containerRef.current
       );
+      const halfW = type === "file" ? 210 : type === "terminal" ? 240 : 300;
       const node = addNode(
         type,
-        pos.x - (type === "file" ? 210 : 240),
-        pos.y - 150
+        pos.x - halfW,
+        pos.y - (type === "frame" ? 200 : 150)
       );
       setSelectedNodeId(node.id);
     },
@@ -232,6 +233,16 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
     onResizeEnd();
   }, [canvasMouseUp, onDragEnd, onResizeEnd]);
 
+  // Frames render first so they appear behind other nodes
+  const sortedNodes = useMemo(
+    () => [...nodes].sort((a, b) => {
+      if (a.type === "frame" && b.type !== "frame") return -1;
+      if (a.type !== "frame" && b.type === "frame") return 1;
+      return 0;
+    }),
+    [nodes]
+  );
+
   const cursorClass =
     activeTool === "hand"
       ? " canvas-container--hand"
@@ -272,7 +283,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
           transition: animating ? 'transform 0.32s cubic-bezier(0.25, 0.46, 0.45, 0.94)' : undefined
         }}
       >
-        {nodes.map((node) => (
+        {sortedNodes.map((node) => (
           <CanvasNodeView
             key={node.id}
             node={node}

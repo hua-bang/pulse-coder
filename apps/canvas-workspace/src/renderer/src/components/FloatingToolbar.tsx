@@ -1,7 +1,7 @@
 interface Props {
   activeTool: string;
   onToolChange: (tool: string) => void;
-  onAddNode: (type: "file" | "terminal") => void;
+  onAddNode: (type: "file" | "terminal" | "frame") => void;
 }
 
 const tools = [
@@ -92,6 +92,23 @@ export const FloatingToolbar = ({
             />
           </svg>
           <span className="toolbar-btn-label">Terminal</span>
+        </button>
+        <button
+          className="toolbar-btn toolbar-btn--create"
+          onClick={() => onAddNode("frame")}
+          title="Add Frame"
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <rect
+              x="2" y="2" width="14" height="14" rx="2.5"
+              stroke="currentColor" strokeWidth="1.3"
+            />
+            <rect
+              x="5" y="5" width="8" height="8" rx="1"
+              stroke="currentColor" strokeWidth="1" strokeDasharray="2 1.5"
+            />
+          </svg>
+          <span className="toolbar-btn-label">Frame</span>
         </button>
       </div>
     </div>

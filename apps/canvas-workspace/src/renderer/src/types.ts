@@ -1,12 +1,12 @@
 export interface CanvasNode {
   id: string;
-  type: "file" | "terminal";
+  type: "file" | "terminal" | "frame";
   title: string;
   x: number;
   y: number;
   width: number;
   height: number;
-  data: FileNodeData | TerminalNodeData;
+  data: FileNodeData | TerminalNodeData | FrameNodeData;
 }
 
 export interface FileNodeData {
@@ -20,6 +20,11 @@ export interface TerminalNodeData {
   sessionId: string;
   scrollback?: string;
   cwd?: string;
+}
+
+export interface FrameNodeData {
+  color: string;
+  label?: string;
 }
 
 export interface CanvasTransform {

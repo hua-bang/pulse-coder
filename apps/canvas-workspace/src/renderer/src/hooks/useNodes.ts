@@ -61,19 +61,21 @@ export const useNodes = (
   }, [canvasId, onRestoreTransform]);
 
   const addNode = useCallback(
-    (type: "file" | "terminal", x: number, y: number) => {
+    (type: "file" | "terminal" | "frame", x: number, y: number) => {
       const node: CanvasNode = {
         id: genId(),
         type,
-        title: type === "file" ? "Untitled" : "Terminal",
+        title: type === "file" ? "Untitled" : type === "terminal" ? "Terminal" : "Frame",
         x,
         y,
-        width: type === "file" ? 420 : 480,
-        height: type === "file" ? 360 : 300,
+        width: type === "file" ? 420 : type === "terminal" ? 480 : 600,
+        height: type === "file" ? 360 : type === "terminal" ? 300 : 400,
         data:
           type === "file"
             ? { filePath: "", content: "", saved: false, modified: false }
-            : { sessionId: "" }
+            : type === "terminal"
+              ? { sessionId: "" }
+              : { color: "rgba(144, 101, 176, 0.10)" }
       };
 
       // Auto-create note file for file nodes

@@ -60,7 +60,8 @@ export const SearchPalette = ({ nodes, onSelect, onClose }: Props) => {
       }
 
       if (node.type === "file") {
-        const filePath = node.data.filePath || "";
+        const fileData = node.data as import("../types").FileNodeData;
+        const filePath = fileData.filePath || "";
         const fileName = filePath.split("/").pop() || "";
         const fileNameLower = fileName.toLowerCase();
         const filePathLower = filePath.toLowerCase();
@@ -70,7 +71,7 @@ export const SearchPalette = ({ nodes, onSelect, onClose }: Props) => {
           continue;
         }
 
-        const content = node.data.content || "";
+        const content = fileData.content || "";
         if (content.toLowerCase().includes(q)) {
           const idx = content.toLowerCase().indexOf(q);
           const start = Math.max(0, idx - 20);

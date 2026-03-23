@@ -16,6 +16,7 @@
   --accent-border: rgba(35, 131, 226, 0.45);
   --accent-file: #d9730d;
   --accent-term: #0f7b6c;
+  --accent-frame: #9065b0;
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.05);
   --shadow-card-hover: 0 2px 6px rgba(0, 0, 0, 0.06), 0 8px 20px rgba(0, 0, 0, 0.07);
@@ -403,6 +404,71 @@ body {
   z-index: 100;
 }
 
+/* ---- Frame Node ---- */
+
+.canvas-node--frame {
+  background: transparent;
+  border: 2px dashed rgba(144, 101, 176, 0.35);
+  box-shadow: none;
+}
+
+.canvas-node--frame:hover {
+  border-color: rgba(144, 101, 176, 0.55);
+  box-shadow: none;
+}
+
+.canvas-node--frame.canvas-node--selected {
+  border-color: var(--accent-frame);
+  box-shadow: 0 0 0 2px rgba(144, 101, 176, 0.15);
+}
+
+.canvas-node--frame .node-header {
+  background: transparent;
+  border-bottom: none;
+}
+
+.frame-body {
+  flex: 1;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  min-height: 60px;
+  position: relative;
+}
+
+.frame-colors {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.canvas-node--frame:hover .frame-colors,
+.canvas-node--frame.canvas-node--selected .frame-colors {
+  opacity: 1;
+}
+
+.frame-color-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.1s ease, border-color 0.1s ease;
+}
+
+.frame-color-swatch:hover {
+  transform: scale(1.2);
+  border-color: rgba(0, 0, 0, 0.25);
+}
+
+.frame-color-swatch--active {
+  border-color: rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.15);
+}
+
 /* ---- Node Header ---- */
 
 .node-header {
@@ -437,6 +503,10 @@ body {
 
 .node-type-badge--terminal {
   color: var(--text-muted);
+}
+
+.node-type-badge--frame {
+  color: var(--accent-frame);
 }
 
 .node-title {
