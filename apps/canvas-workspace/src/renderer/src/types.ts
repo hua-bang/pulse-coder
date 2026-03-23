@@ -42,6 +42,7 @@ export interface DirEntry {
 
 export interface FileApi {
   createNote: (
+    workspaceId?: string,
     name?: string
   ) => Promise<{ ok: boolean; filePath?: string; fileName?: string; error?: string }>;
   read: (
@@ -105,6 +106,7 @@ export interface CanvasWorkspaceApi {
     ) => Promise<{ ok: boolean; data?: CanvasSaveData | null; error?: string }>;
     list: () => Promise<{ ok: boolean; ids?: string[]; error?: string }>;
     delete: (id: string) => Promise<{ ok: boolean; error?: string }>;
+    getDir: (id: string) => Promise<{ ok: boolean; dir?: string; error?: string }>;
   };
   file: FileApi;
   dialog: DialogApi;

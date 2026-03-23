@@ -43,21 +43,20 @@ const listDirRecursive = async (
   return result;
 };
 
-const NOTES_DIR = join(homedir(), ".pulse-coder", "canvas", "notes");
+const STORE_DIR = join(homedir(), ".pulse-coder", "canvas");
 
-const ensureNotesDir = async () => {
-  await fs.mkdir(NOTES_DIR, { recursive: true });
-};
-
-export const getNotesDir = () => NOTES_DIR;
+const getNotesDir = (workspaceId: string) =>
+  join(STORE_DIR, workspaceId, "notes");
 
 export const setupFileManagerIpc = () => {
-  // Create a new note file in the notes directory
+  // Create a new note file in the workspace-scoped notes directory
   ipcMain.handle(
     "file:createNote",
-    async (_event, payload: { name?: string }) => {
+    async (_event, payload: { workspaceId?: string; name?: string }) => {
       try {
-        await ensureNotesDir();
+        const wsId = payload.workspaceId ?? "default";
+        const notesDir = getNotesDir(wsId);
+        await fs.mkdir(notesDir, { recursive: true });
         const timestamp = Date.now();
         const safeName = payload.name
           ? payload.name.replace(/[^a-zA-Z0-9_\- ]/g, "").trim()
@@ -65,7 +64,7 @@ export const setupFileManagerIpc = () => {
         const fileName = safeName
           ? `${safeName}.md`
           : `note-${timestamp}.md`;
-        const filePath = join(NOTES_DIR, fileName);
+        const filePath = join(notesDir, fileName);
         await fs.writeFile(filePath, "", "utf-8");
         return { ok: true, filePath, fileName };
       } catch (err) {

@@ -80,7 +80,7 @@ export const useNodes = (
       if (type === "file") {
         const api = window.canvasWorkspace?.file;
         if (api) {
-          void api.createNote().then((res) => {
+          void api.createNote(canvasId).then((res) => {
             if (res.ok && res.filePath) {
               setNodes((prev) =>
                 prev.map((n) =>

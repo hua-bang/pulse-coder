@@ -62,12 +62,15 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
     list: () => ipcRenderer.invoke("canvas:list"),
 
     delete: (id: string) =>
-      ipcRenderer.invoke("canvas:delete", { id })
+      ipcRenderer.invoke("canvas:delete", { id }),
+
+    getDir: (id: string) =>
+      ipcRenderer.invoke("canvas:getDir", { id })
   },
 
   file: {
-    createNote: (name?: string) =>
-      ipcRenderer.invoke("file:createNote", { name }),
+    createNote: (workspaceId?: string, name?: string) =>
+      ipcRenderer.invoke("file:createNote", { workspaceId, name }),
 
     read: (filePath: string) =>
       ipcRenderer.invoke("file:read", { filePath }),

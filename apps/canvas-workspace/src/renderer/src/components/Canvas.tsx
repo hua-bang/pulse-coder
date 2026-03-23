@@ -10,7 +10,7 @@ import { NodeContextMenu } from "./NodeContextMenu";
 import { FloatingToolbar } from "./FloatingToolbar";
 import { ZoomIndicator } from "./ZoomIndicator";
 
-export const Canvas = ({ canvasId, rootFolder, hidden }: { canvasId: string; rootFolder?: string; hidden?: boolean }) => {
+export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId: string; canvasName?: string; rootFolder?: string; hidden?: boolean }) => {
   const [activeTool, setActiveTool] = useState("select");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
@@ -47,7 +47,7 @@ useEffect(() => {
     setTransformForSave(transform);
   }, [transform, setTransformForSave]);
 
-  useCanvasContext(rootFolder, nodes);
+  useCanvasContext(rootFolder, nodes, canvasName);
 
   const { draggingId, onDragStart, onDragMove, onDragEnd } = useNodeDrag(
     moveNode,
@@ -205,6 +205,8 @@ useEffect(() => {
             node={node}
             allNodes={nodes}
             rootFolder={rootFolder}
+            workspaceId={canvasId}
+            workspaceName={canvasName}
             isDragging={draggingId === node.id}
             isResizing={resizingId === node.id}
             isSelected={selectedNodeId === node.id}

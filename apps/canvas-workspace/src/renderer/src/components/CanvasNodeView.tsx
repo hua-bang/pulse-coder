@@ -8,6 +8,8 @@ interface Props {
   node: CanvasNode;
   allNodes: CanvasNode[];
   rootFolder?: string;
+  workspaceId?: string;
+  workspaceName?: string;
   isDragging: boolean;
   isResizing: boolean;
   isSelected: boolean;
@@ -28,6 +30,8 @@ export const CanvasNodeView = ({
   node,
   allNodes,
   rootFolder,
+  workspaceId,
+  workspaceName,
   isDragging,
   isResizing,
   isSelected,
@@ -131,7 +135,7 @@ export const CanvasNodeView = ({
         {node.type === "file" ? (
           <FileNodeBody node={node} onUpdate={onUpdate} />
         ) : (
-          <TerminalNodeBody node={node} allNodes={allNodes} rootFolder={rootFolder} onUpdate={onUpdate} />
+          <TerminalNodeBody node={node} allNodes={allNodes} rootFolder={rootFolder} workspaceId={workspaceId} workspaceName={workspaceName} onUpdate={onUpdate} />
         )}
       </div>
 
