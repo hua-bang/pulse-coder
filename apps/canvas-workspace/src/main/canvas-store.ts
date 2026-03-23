@@ -14,11 +14,10 @@ const AGENTS_MD_TEMPLATE = `# Canvas Agent Config
 ## Instructions
 <!-- Conventions, style, or constraints for agents working in this workspace -->
 
-## Key Files
-<!-- Important files or notes the agent should be aware of -->
+---
 
-## Context
-<!-- Additional background: tech stack, current phase, etc. -->
+<!-- canvas:auto-start -->
+<!-- canvas:auto-end -->
 `;
 
 /** Manifest stays as a flat file; all other workspaces live in subdirectories. */
