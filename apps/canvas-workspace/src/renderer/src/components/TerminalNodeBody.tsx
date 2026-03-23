@@ -207,6 +207,12 @@ export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, work
   dataRef.current = data;
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
+  const allNodesRef = useRef(allNodes);
+  allNodesRef.current = allNodes;
+  const workspaceIdRef = useRef(workspaceId);
+  workspaceIdRef.current = workspaceId;
+  const workspaceNameRef = useRef(workspaceName);
+  workspaceNameRef.current = workspaceName;
   const initialScrollback = useRef(data.scrollback ?? "");
   const initialCwd = useRef(data.cwd ?? "");
 
@@ -322,10 +328,10 @@ export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, work
       if (d === '\r' || d === '\n') {
         const cmd = inputBuf.trim();
         inputBuf = '';
-        if (AI_TOOL_PATTERN.test(cmd) && allNodes && allNodes.length > 0) {
+        if (AI_TOOL_PATTERN.test(cmd) && allNodesRef.current && allNodesRef.current.length > 0) {
           void api.getCwd(sessionId).then((r) => {
             const cwd = r.ok && r.cwd ? r.cwd : spawnCwd;
-            if (cwd) void writeCanvasContext(allNodes, cwd, workspaceId, workspaceName, term);
+            if (cwd) void writeCanvasContext(allNodesRef.current!, cwd, workspaceIdRef.current, workspaceNameRef.current, term);
           });
         }
       } else if (d === '\x7f') {
