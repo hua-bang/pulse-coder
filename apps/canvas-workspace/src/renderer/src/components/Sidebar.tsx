@@ -78,20 +78,6 @@ export const Sidebar = ({
 
   return (
     <aside className={`sidebar${collapsed ? ' sidebar--collapsed' : ''}`}>
-      <div className="sidebar-header">
-        <button className="sidebar-toggle" onClick={onToggle} title="Toggle sidebar">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d={collapsed ? 'M6 3l5 5-5 5' : 'M10 3L5 8l5 5'}
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-      </div>
-
       {!collapsed && (
         <>
           <div className="sidebar-section-title">Workspaces</div>
@@ -204,6 +190,20 @@ export const Sidebar = ({
           </div>
         </>
       )}
+
+      <div className="sidebar-footer">
+        <button className="sidebar-toggle" onClick={onToggle} title="Toggle sidebar">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path
+              d={collapsed ? 'M6 3l5 5-5 5' : 'M10 3L5 8l5 5'}
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
     </aside>
   );
 };

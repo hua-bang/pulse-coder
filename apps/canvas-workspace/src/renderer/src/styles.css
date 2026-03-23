@@ -55,21 +55,7 @@ body {
 }
 
 .app-titlebar {
-  height: var(--titlebar-height);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  -webkit-app-region: drag;
-  user-select: none;
-  flex-shrink: 0;
-}
-
-.titlebar-title {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
+  display: none;
 }
 
 .app-body {
@@ -95,13 +81,13 @@ body {
   width: var(--sidebar-collapsed);
 }
 
-.sidebar-header {
-  height: 44px;
+.sidebar-footer {
+  margin-top: auto;
+  padding: 8px;
   display: flex;
   align-items: center;
-  padding: 0 12px;
-  gap: 8px;
-  border-bottom: 1px solid var(--border-light);
+  border-top: 1px solid var(--border-light);
+  flex-shrink: 0;
 }
 
 .sidebar-brand {
