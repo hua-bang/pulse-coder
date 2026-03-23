@@ -13,6 +13,7 @@ interface Props {
   isDragging: boolean;
   isResizing: boolean;
   isSelected: boolean;
+  isHighlighted: boolean;
   onDragStart: (e: React.MouseEvent, node: CanvasNode) => void;
   onResizeStart: (
     e: React.MouseEvent,
@@ -36,6 +37,7 @@ export const CanvasNodeView = ({
   isDragging,
   isResizing,
   isSelected,
+  isHighlighted,
   onDragStart,
   onResizeStart,
   onUpdate,
@@ -97,7 +99,8 @@ export const CanvasNodeView = ({
     `canvas-node--${node.type}`,
     isDragging && "canvas-node--dragging",
     isResizing && "canvas-node--resizing",
-    isSelected && "canvas-node--selected"
+    isSelected && "canvas-node--selected",
+    isHighlighted && "canvas-node--highlighted"
   ]
     .filter(Boolean)
     .join(" ");

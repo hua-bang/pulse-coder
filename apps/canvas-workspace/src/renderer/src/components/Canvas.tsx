@@ -9,12 +9,16 @@ import { CanvasNodeView } from "./CanvasNodeView";
 import { NodeContextMenu } from "./NodeContextMenu";
 import { FloatingToolbar } from "./FloatingToolbar";
 import { ZoomIndicator } from "./ZoomIndicator";
+import { SearchPalette } from "./SearchPalette";
 
 export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId: string; canvasName?: string; rootFolder?: string; hidden?: boolean }) => {
   const [activeTool, setActiveTool] = useState("select");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [animating, setAnimating] = useState(false);
   const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const {
     transform,
@@ -26,6 +30,27 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
     screenToCanvas,
     resetTransform
   } = useCanvas(activeTool === "hand");
+
+  const handleFocusNode = useCallback(
+    (node: CanvasNode) => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const padding = 80;
+      const fitScale = Math.min(
+        (rect.width - padding * 2) / node.width,
+        (rect.height - padding * 2) / node.height
+      );
+      const targetScale = Math.min(Math.max(0.1, fitScale), 1.5);
+      const tx = rect.width / 2 - (node.x + node.width / 2) * targetScale;
+      const ty = rect.height / 2 - (node.y + node.height / 2) * targetScale;
+
+      setAnimating(true);
+      setTransform({ x: tx, y: ty, scale: targetScale });
+      if (animTimerRef.current) clearTimeout(animTimerRef.current);
+      animTimerRef.current = setTimeout(() => setAnimating(false), 380);
+    },
+    [setTransform]
+  );
 
   const handleRestoreTransform = useCallback(
     (t: CanvasTransform) => {
@@ -45,11 +70,45 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
     setTransformForSave
   } = useNodes(canvasId, handleRestoreTransform);
 
-useEffect(() => {
+  useEffect(() => {
     setTransformForSave(transform);
   }, [transform, setTransformForSave]);
 
   useCanvasContext(rootFolder, nodes, canvasName);
+
+  // Cmd/Ctrl+K to open search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        const activeEl = document.activeElement;
+        const isEditable = activeEl && (
+          activeEl.tagName === 'INPUT' ||
+          activeEl.tagName === 'TEXTAREA' ||
+          (activeEl as HTMLElement).isContentEditable
+        );
+        if (!isEditable) {
+          e.preventDefault();
+          setSearchOpen((prev) => !prev);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Clear highlight after animation
+  useEffect(() => {
+    if (highlightedId) {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = setTimeout(() => setHighlightedId(null), 1500);
+    }
+  }, [highlightedId]);
+
+  const handleSearchSelect = useCallback((node: CanvasNode) => {
+    setSelectedNodeId(node.id);
+    setHighlightedId(node.id);
+    handleFocusNode(node);
+  }, [handleFocusNode]);
 
   const { draggingId, onDragStart, onDragMove, onDragEnd } = useNodeDrag(
     moveNode,
@@ -67,9 +126,17 @@ useEffect(() => {
     canvasY: number;
   } | null>(null);
 
+  const isBlankCanvasTarget = useCallback((target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) return false;
+    return !target.closest(
+      ".canvas-node, .floating-toolbar, .zoom-indicator, .context-menu"
+    );
+  }, []);
+
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
+      if (!isBlankCanvasTarget(e.target)) return;
       if (!containerRef.current) return;
       const pos = screenToCanvas(e.clientX, e.clientY, containerRef.current);
       setContextMenu({
@@ -79,11 +146,12 @@ useEffect(() => {
         canvasY: pos.y
       });
     },
-    [screenToCanvas]
+    [isBlankCanvasTarget, screenToCanvas]
   );
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
+      if (!isBlankCanvasTarget(e.target)) return;
       if (!containerRef.current) return;
       const pos = screenToCanvas(e.clientX, e.clientY, containerRef.current);
       setContextMenu({
@@ -93,7 +161,7 @@ useEffect(() => {
         canvasY: pos.y
       });
     },
-    [screenToCanvas]
+    [isBlankCanvasTarget, screenToCanvas]
   );
 
   const handleCreateNode = useCallback(
@@ -140,26 +208,7 @@ useEffect(() => {
     setSelectedNodeId(nodeId);
   }, []);
 
-  const handleFocusNode = useCallback(
-    (node: CanvasNode) => {
-      if (!containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const padding = 80;
-      const fitScale = Math.min(
-        (rect.width - padding * 2) / node.width,
-        (rect.height - padding * 2) / node.height
-      );
-      const targetScale = Math.min(Math.max(0.1, fitScale), 1.5);
-      const tx = rect.width / 2 - (node.x + node.width / 2) * targetScale;
-      const ty = rect.height / 2 - (node.y + node.height / 2) * targetScale;
 
-      setAnimating(true);
-      setTransform({ x: tx, y: ty, scale: targetScale });
-      if (animTimerRef.current) clearTimeout(animTimerRef.current);
-      animTimerRef.current = setTimeout(() => setAnimating(false), 380);
-    },
-    [setTransform]
-  );
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -234,6 +283,7 @@ useEffect(() => {
             isDragging={draggingId === node.id}
             isResizing={resizingId === node.id}
             isSelected={selectedNodeId === node.id}
+            isHighlighted={highlightedId === node.id}
             onDragStart={onDragStart}
             onResizeStart={onResizeStart}
             onUpdate={updateNode}
@@ -290,6 +340,14 @@ useEffect(() => {
       />
 
       <ZoomIndicator scale={transform.scale} onReset={resetTransform} />
+
+      {searchOpen && (
+        <SearchPalette
+          nodes={nodes}
+          onSelect={handleSearchSelect}
+          onClose={() => setSearchOpen(false)}
+        />
+      )}
     </div>
   );
 };
