@@ -6,6 +6,12 @@ interface Props {
   onUpdate: (id: string, patch: Partial<CanvasNode>) => void;
 }
 
+export const FrameNodeBody = ({ node: _node, onUpdate: _onUpdate }: Props) => {
+  return <div className="frame-body" />;
+};
+
+/* ---- Color picker (rendered in header) ---- */
+
 const COLOR_PRESETS = [
   { name: "Red", value: "#e03e3e" },
   { name: "Orange", value: "#d9730d" },
@@ -18,7 +24,12 @@ const COLOR_PRESETS = [
   { name: "Gray", value: "#787774" }
 ];
 
-export const FrameNodeBody = ({ node, onUpdate }: Props) => {
+interface ColorPickerProps {
+  node: CanvasNode;
+  onUpdate: (id: string, patch: Partial<CanvasNode>) => void;
+}
+
+export const FrameColorPicker = ({ node, onUpdate }: ColorPickerProps) => {
   const data = node.data as FrameNodeData;
 
   const handleColorChange = useCallback(
@@ -29,8 +40,9 @@ export const FrameNodeBody = ({ node, onUpdate }: Props) => {
   );
 
   return (
-    <div className="frame-body">
-      <div className="frame-colors">
+    <div className="frame-color-trigger" title="Frame color">
+      <div className="frame-color-dot" style={{ backgroundColor: data.color }} />
+      <div className="frame-color-popover">
         {COLOR_PRESETS.map((preset) => (
           <button
             key={preset.name}

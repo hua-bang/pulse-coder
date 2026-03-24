@@ -465,39 +465,66 @@ body {
   position: relative;
 }
 
-.frame-colors {
-  position: absolute;
-  bottom: 10px;
-  left: 10px;
+/* Frame color picker trigger (in header) */
+.frame-color-trigger {
+  position: relative;
   display: flex;
-  gap: 5px;
-  opacity: 0;
-  transition: opacity 0.15s ease;
+  align-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
-.canvas-node--frame:hover .frame-colors,
-.canvas-node--frame.canvas-node--selected .frame-colors {
-  opacity: 1;
-}
-
-.frame-color-swatch {
+.frame-color-dot {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  border: 1.5px solid rgba(255, 255, 255, 0.5);
+  transition: border-color 0.15s ease;
+}
+
+.frame-color-trigger:hover .frame-color-dot {
+  border-color: white;
+}
+
+/* Popover appears on hover */
+.frame-color-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border-light, rgba(0,0,0,0.08));
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
+  z-index: 20;
+  white-space: nowrap;
+}
+
+.frame-color-trigger:hover .frame-color-popover {
+  display: flex;
+}
+
+.frame-color-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.08);
   cursor: pointer;
   padding: 0;
   transition: transform 0.1s ease, border-color 0.1s ease;
 }
 
 .frame-color-swatch:hover {
-  transform: scale(1.2);
-  border-color: rgba(255, 255, 255, 0.7);
+  transform: scale(1.25);
+  border-color: rgba(0, 0, 0, 0.25);
 }
 
 .frame-color-swatch--active {
-  border-color: white;
-  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.2);
+  border-color: rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.12);
 }
 
 /* ---- Node Header ---- */

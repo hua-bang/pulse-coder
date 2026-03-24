@@ -3,7 +3,7 @@ import type { CanvasNode, FrameNodeData } from "../types";
 import type { ResizeEdge } from "../hooks/useNodeResize";
 import { FileNodeBody } from "./FileNodeBody";
 import { TerminalNodeBody } from "./TerminalNodeBody";
-import { FrameNodeBody } from "./FrameNodeBody";
+import { FrameNodeBody, FrameColorPicker } from "./FrameNodeBody";
 
 interface Props {
   node: CanvasNode;
@@ -147,6 +147,9 @@ export const CanvasNodeView = ({
         >
           {node.title}
         </span>
+        {node.type === "frame" && (
+          <FrameColorPicker node={node} onUpdate={onUpdate} />
+        )}
         <button className="node-focus" onClick={handleFocus} title="Focus">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <circle cx="6" cy="6" r="2" stroke="currentColor" strokeWidth="1.3" />
