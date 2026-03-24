@@ -15,6 +15,7 @@ interface Props {
   isResizing: boolean;
   isSelected: boolean;
   isHighlighted: boolean;
+  canvasScale?: number;
   onDragStart: (e: React.MouseEvent, node: CanvasNode) => void;
   onResizeStart: (
     e: React.MouseEvent,
@@ -39,6 +40,7 @@ export const CanvasNodeView = ({
   isResizing,
   isSelected,
   isHighlighted,
+  canvasScale = 1,
   onDragStart,
   onResizeStart,
   onUpdate,
@@ -119,7 +121,14 @@ export const CanvasNodeView = ({
       }}
       onClick={handleNodeClick}
     >
-      <div className="node-header" onMouseDown={handleHeaderMouseDown}>
+      <div
+        className="node-header"
+        onMouseDown={handleHeaderMouseDown}
+        style={node.type === 'frame' ? {
+          transform: `scale(${1 / canvasScale})`,
+          transformOrigin: 'left bottom',
+        } : undefined}
+      >
         <span className={`node-type-badge node-type-badge--${node.type}`}>
           {node.type === "file" ? (
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none">

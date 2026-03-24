@@ -336,6 +336,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
             isResizing={resizingId === node.id}
             isSelected={selectedNodeId === node.id}
             isHighlighted={highlightedId === node.id}
+            canvasScale={transform.scale}
             onDragStart={onDragStart}
             onResizeStart={onResizeStart}
             onUpdate={updateNode}
