@@ -19,6 +19,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
   const [searchOpen, setSearchOpen] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasAutoFitted = useRef(false);
 
   const {
     transform,
@@ -52,11 +53,38 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
     [setTransform]
   );
 
-  const handleRestoreTransform = useCallback(
-    (t: CanvasTransform) => {
-      setTransform(t);
+  const fitAllNodes = useCallback(
+    (nodeList: CanvasNode[]) => {
+      if (!containerRef.current || nodeList.length === 0) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const padding = 80;
+      const minX = Math.min(...nodeList.map((n) => n.x));
+      const minY = Math.min(...nodeList.map((n) => n.y));
+      const maxX = Math.max(...nodeList.map((n) => n.x + n.width));
+      const maxY = Math.max(...nodeList.map((n) => n.y + n.height));
+      const boundsW = maxX - minX;
+      const boundsH = maxY - minY;
+      if (boundsW === 0 || boundsH === 0) return;
+      const fitScale = Math.min(
+        (rect.width - padding * 2) / boundsW,
+        (rect.height - padding * 2) / boundsH
+      );
+      const targetScale = Math.min(Math.max(0.1, fitScale), 1.5);
+      const tx = rect.width / 2 - (minX + boundsW / 2) * targetScale;
+      const ty = rect.height / 2 - (minY + boundsH / 2) * targetScale;
+      setAnimating(true);
+      setTransform({ x: tx, y: ty, scale: targetScale });
+      if (animTimerRef.current) clearTimeout(animTimerRef.current);
+      animTimerRef.current = setTimeout(() => setAnimating(false), 380);
     },
     [setTransform]
+  );
+
+  const handleRestoreTransform = useCallback(
+    (_t: CanvasTransform) => {
+      // Transform will be overridden by auto-fit on initial load
+    },
+    []
   );
 
   const {
@@ -74,6 +102,16 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
   useEffect(() => {
     setTransformForSave(transform);
   }, [transform, setTransformForSave]);
+
+  // Auto-fit all nodes into view on initial load
+  useEffect(() => {
+    if (loaded && !hasAutoFitted.current) {
+      hasAutoFitted.current = true;
+      if (nodes.length > 0) {
+        fitAllNodes(nodes);
+      }
+    }
+  }, [loaded, nodes, fitAllNodes]);
 
   useCanvasContext(rootFolder, nodes, canvasName);
 
