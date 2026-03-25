@@ -221,7 +221,7 @@ export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, work
   const mentionOpenRef = useRef(false);
   const mentionQueryRef = useRef('');
   const mentionIndexRef = useRef(0);
-  const [mentionUI, setMentionUI] = useState<{ open: boolean; query: string; index: number }>({
+  const [mentionUI, setMentionUI] = useState<{ open: boolean; query: string; index: number; rect?: DOMRect }>({
     open: false, query: '', index: 0,
   });
   const mentionCandidates = useMemo(() => {
@@ -419,7 +419,8 @@ export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, work
         mentionOpenRef.current = true;
         mentionQueryRef.current = '';
         mentionIndexRef.current = 0;
-        setMentionUI({ open: true, query: '', index: 0 });
+        const rect = containerRef.current?.getBoundingClientRect();
+        setMentionUI({ open: true, query: '', index: 0, rect });
       } else if (d === '\r' || d === '\n') {
         const cmd = inputBuf.trim();
         inputBuf = '';
@@ -524,7 +525,15 @@ export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, work
         onMouseDown={(e) => { e.stopPropagation(); onSelect?.(); }}
       />
       {mentionUI.open && (
-        <div className="terminal-mention-dropdown">
+        <div
+          className="terminal-mention-dropdown"
+          style={mentionUI.rect ? {
+            position: 'fixed',
+            left: mentionUI.rect.left + 8,
+            bottom: window.innerHeight - mentionUI.rect.top + 4,
+            width: mentionUI.rect.width - 16,
+          } : undefined}
+        >
           <div className="terminal-mention-header">
             <span className="terminal-mention-at">@</span>
             <span className="terminal-mention-query">{mentionUI.query || 'nodes…'}</span>

@@ -1122,16 +1122,12 @@ body {
 /* ---- Terminal @ Mention Dropdown ---- */
 
 .terminal-mention-dropdown {
-  position: absolute;
-  bottom: 100%;
-  left: 8px;
-  right: 8px;
-  margin-bottom: 4px;
+  position: fixed;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  z-index: 200;
+  z-index: 9999;
   overflow: hidden;
   max-height: 260px;
   display: flex;
