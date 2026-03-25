@@ -135,6 +135,36 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Cmd/Ctrl+Tab to cycle through nodes (Shift reverses direction)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Tab') {
+        const activeEl = document.activeElement;
+        const isEditable = activeEl && (
+          activeEl.tagName === 'INPUT' ||
+          activeEl.tagName === 'TEXTAREA' ||
+          (activeEl as HTMLElement).isContentEditable
+        );
+        if (!isEditable && nodes.length > 0) {
+          e.preventDefault();
+          const currentIndex = nodes.findIndex((n) => n.id === selectedNodeId);
+          let nextIndex: number;
+          if (e.shiftKey) {
+            nextIndex = currentIndex <= 0 ? nodes.length - 1 : currentIndex - 1;
+          } else {
+            nextIndex = currentIndex >= nodes.length - 1 ? 0 : currentIndex + 1;
+          }
+          const nextNode = nodes[nextIndex];
+          setSelectedNodeId(nextNode.id);
+          setHighlightedId(nextNode.id);
+          handleFocusNode(nextNode);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [nodes, selectedNodeId, handleFocusNode]);
+
   // Clear highlight after animation
   useEffect(() => {
     if (highlightedId) {
