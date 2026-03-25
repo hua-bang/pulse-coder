@@ -169,7 +169,7 @@ export const CanvasNodeView = ({
         {node.type === "file" ? (
           <FileNodeBody node={node} onUpdate={onUpdate} />
         ) : node.type === "terminal" ? (
-          <TerminalNodeBody node={node} allNodes={allNodes} rootFolder={rootFolder} workspaceId={workspaceId} workspaceName={workspaceName} onUpdate={onUpdate} />
+          <TerminalNodeBody node={node} allNodes={allNodes} rootFolder={rootFolder} workspaceId={workspaceId} workspaceName={workspaceName} onUpdate={onUpdate} onSelect={() => onSelect(node.id)} />
         ) : (
           <FrameNodeBody node={node} onUpdate={onUpdate} />
         )}

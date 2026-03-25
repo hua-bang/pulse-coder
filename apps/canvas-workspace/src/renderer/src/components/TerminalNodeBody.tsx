@@ -10,6 +10,7 @@ interface Props {
   workspaceId?: string;
   workspaceName?: string;
   onUpdate: (id: string, patch: Partial<CanvasNode>) => void;
+  onSelect?: () => void;
 }
 
 const SCROLLBACK_SAVE_INTERVAL = 2000;
@@ -192,7 +193,7 @@ const serializeBuffer = (term: Terminal): string => {
   return text;
 };
 
-export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, workspaceName, onUpdate }: Props) => {
+export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, workspaceName, onUpdate, onSelect }: Props) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -415,7 +416,7 @@ export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, work
       <div
         ref={containerRef}
         className="terminal-xterm-container"
-        onMouseDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => { e.stopPropagation(); onSelect?.(); }}
       />
     </div>
   );
