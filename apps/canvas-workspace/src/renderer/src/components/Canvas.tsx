@@ -13,13 +13,20 @@ import { SearchPalette } from "./SearchPalette";
 
 export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId: string; canvasName?: string; rootFolder?: string; hidden?: boolean }) => {
   const [activeTool, setActiveTool] = useState("select");
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [clipboardNodes, setClipboardNodes] = useState<CanvasNode[]>([]);
   const [animating, setAnimating] = useState(false);
   const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasAutoFitted = useRef(false);
+  const [contextMenu, setContextMenu] = useState<{
+    screenX: number;
+    screenY: number;
+    canvasX: number;
+    canvasY: number;
+  } | null>(null);
 
   const {
     transform,
@@ -93,10 +100,16 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
     addNode,
     updateNode,
     removeNode,
+    removeNodes,
     moveNode,
     moveNodes,
     resizeNode,
-    setTransformForSave
+    setTransformForSave,
+    commitHistory,
+    undo,
+    redo,
+    duplicateNode,
+    pasteNodes,
   } = useNodes(canvasId, handleRestoreTransform);
 
   useEffect(() => {
@@ -115,25 +128,94 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
 
   useCanvasContext(rootFolder, nodes, canvasName);
 
-  // Cmd/Ctrl+K to open search
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        const activeEl = document.activeElement;
-        const isEditable = activeEl && (
-          activeEl.tagName === 'INPUT' ||
-          activeEl.tagName === 'TEXTAREA' ||
-          (activeEl as HTMLElement).isContentEditable
-        );
-        if (!isEditable) {
-          e.preventDefault();
-          setSearchOpen((prev) => !prev);
+      const active = document.activeElement;
+      const isEditable = active && (
+        active.tagName === 'INPUT' ||
+        active.tagName === 'TEXTAREA' ||
+        (active as HTMLElement).isContentEditable
+      );
+      const isMod = e.metaKey || e.ctrlKey;
+
+      // Cmd/Ctrl+K: toggle search palette
+      if (isMod && e.key === 'k' && !isEditable) {
+        e.preventDefault();
+        setSearchOpen((prev) => !prev);
+        return;
+      }
+
+      // Cmd/Ctrl+Z: undo
+      if (isMod && !e.shiftKey && e.key === 'z' && !isEditable) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+
+      // Cmd/Ctrl+Shift+Z: redo
+      if (isMod && e.shiftKey && e.key === 'z' && !isEditable) {
+        e.preventDefault();
+        redo();
+        return;
+      }
+
+      // Cmd/Ctrl+A: select all nodes
+      if (isMod && e.key === 'a' && !isEditable) {
+        e.preventDefault();
+        setSelectedNodeIds(nodes.map((n) => n.id));
+        return;
+      }
+
+      // Cmd/Ctrl+D: duplicate selected node
+      if (isMod && e.key === 'd' && !isEditable) {
+        e.preventDefault();
+        if (selectedNodeIds.length === 1) {
+          const newNode = duplicateNode(selectedNodeIds[0]);
+          if (newNode) setSelectedNodeIds([newNode.id]);
         }
+        return;
+      }
+
+      // Cmd/Ctrl+C: copy selected nodes
+      if (isMod && e.key === 'c' && !isEditable) {
+        const selected = nodes.filter((n) => selectedNodeIds.includes(n.id));
+        if (selected.length > 0) setClipboardNodes(selected);
+        return;
+      }
+
+      // Cmd/Ctrl+V: paste nodes
+      if (isMod && e.key === 'v' && !isEditable) {
+        if (clipboardNodes.length > 0) {
+          e.preventDefault();
+          const created = pasteNodes(clipboardNodes);
+          setSelectedNodeIds(created.map((n) => n.id));
+        }
+        return;
+      }
+
+      // Escape: close modals then clear selection
+      if (e.key === 'Escape') {
+        if (searchOpen) { setSearchOpen(false); return; }
+        if (contextMenu) { setContextMenu(null); return; }
+        setSelectedNodeIds([]);
+        return;
+      }
+
+      // Delete / Backspace: delete selected nodes
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !isEditable) {
+        if (selectedNodeIds.length > 0) {
+          e.preventDefault();
+          removeNodes(selectedNodeIds);
+          setSelectedNodeIds([]);
+        }
+        return;
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [undo, redo, nodes, selectedNodeIds, duplicateNode, clipboardNodes, pasteNodes, removeNodes, searchOpen, contextMenu]);
 
   // Cmd/Ctrl+Tab to cycle through nodes (Shift reverses direction)
   useEffect(() => {
@@ -174,7 +256,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
   }, [highlightedId]);
 
   const handleSearchSelect = useCallback((node: CanvasNode) => {
-    setSelectedNodeId(node.id);
+    setSelectedNodeIds([node.id]);
     setHighlightedId(node.id);
     handleFocusNode(node);
   }, [handleFocusNode]);
@@ -189,13 +271,6 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
     useNodeResize(resizeNode, transform.scale);
 
   const containerRef = useRef<HTMLDivElement>(null);
-
-  const [contextMenu, setContextMenu] = useState<{
-    screenX: number;
-    screenY: number;
-    canvasX: number;
-    canvasY: number;
-  } | null>(null);
 
   const isBlankCanvasTarget = useCallback((target: EventTarget | null) => {
     if (!(target instanceof HTMLElement)) return false;
@@ -239,7 +314,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
     (type: "file" | "terminal" | "frame") => {
       if (!contextMenu) return;
       const node = addNode(type, contextMenu.canvasX, contextMenu.canvasY);
-      setSelectedNodeId(node.id);
+      setSelectedNodeIds([node.id]);
       setContextMenu(null);
     },
     [addNode, contextMenu]
@@ -262,7 +337,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
         pos.x - halfW,
         pos.y - (type === "frame" ? 200 : 150)
       );
-      setSelectedNodeId(node.id);
+      setSelectedNodeIds([node.id]);
     },
     [addNode, screenToCanvas]
   );
@@ -271,16 +346,14 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
     (e: React.MouseEvent) => {
       if (contextMenu) setContextMenu(null);
       if ((e.target as HTMLElement).closest(".canvas-node")) return;
-      setSelectedNodeId(null);
+      setSelectedNodeIds([]);
     },
     [contextMenu]
   );
 
   const handleNodeSelect = useCallback((nodeId: string) => {
-    setSelectedNodeId(nodeId);
+    setSelectedNodeIds([nodeId]);
   }, []);
-
-
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -302,7 +375,8 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
     canvasMouseUp();
     onDragEnd();
     onResizeEnd();
-  }, [canvasMouseUp, onDragEnd, onResizeEnd]);
+    commitHistory();
+  }, [canvasMouseUp, onDragEnd, onResizeEnd, commitHistory]);
 
   // Frames render first so they appear behind other nodes
   const sortedNodes = useMemo(
@@ -367,7 +441,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
             workspaceName={canvasName}
             isDragging={draggingId === node.id}
             isResizing={resizingId === node.id}
-            isSelected={selectedNodeId === node.id}
+            isSelected={selectedNodeIds.includes(node.id)}
             isHighlighted={highlightedId === node.id}
             onDragStart={onDragStart}
             onResizeStart={onResizeStart}
