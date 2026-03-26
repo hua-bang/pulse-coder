@@ -355,14 +355,17 @@ export class DiscordDmGateway {
 
     const participantCount = await this.client.getChannelParticipantCount(channelId);
     if (participantCount === null) {
-      console.warn(`[discord-gateway] Skip message because channel participant count is unavailable channel=${channelId}`);
-      return;
-    }
-    if (participantCount < DISCORD_CHANNEL_DIRECT_REPLY_MEMBER_COUNT) {
-      return;
-    }
-    if (participantCount > DISCORD_CHANNEL_DIRECT_REPLY_MEMBER_COUNT && !mentionedSelf) {
-      return;
+      if (!isGuildMessage) {
+        console.warn(`[discord-gateway] Skip message because channel participant count is unavailable channel=${channelId}`);
+        return;
+      }
+    } else {
+      if (participantCount < DISCORD_CHANNEL_DIRECT_REPLY_MEMBER_COUNT) {
+        return;
+      }
+      if (participantCount > DISCORD_CHANNEL_DIRECT_REPLY_MEMBER_COUNT && !mentionedSelf) {
+        return;
+      }
     }
 
     let resolvedIsThread = isThread;
