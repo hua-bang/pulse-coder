@@ -1,4 +1,6 @@
 
+import { DiscordClient, type DiscordApplicationCommandCreate } from './client.js';
+
 const RESTART_COMMAND: DiscordApplicationCommandCreate = {
   name: 'restart',
   description: 'Restart process, check status, or update branch then restart.',

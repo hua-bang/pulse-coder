@@ -12,7 +12,10 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "better-sqlite3",
-      "electron"
+      "electron",
+      "esbuild",
+      "node-pty",
+      "protobufjs"
     ]
   },
   "scripts": {
