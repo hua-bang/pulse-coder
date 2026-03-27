@@ -147,6 +147,7 @@ export const CanvasNodeView = ({
           suppressContentEditableWarning
           spellCheck={false}
           onBlur={handleTitleChange}
+          onMouseDown={(e) => e.stopPropagation()}
         >
           {node.title}
         </span>
@@ -165,7 +166,7 @@ export const CanvasNodeView = ({
           </svg>
         </button>
       </div>
-      <div className="node-body">
+      <div className="node-body" onMouseDown={(e) => e.stopPropagation()}>
         {node.type === "file" ? (
           <FileNodeBody node={node} onUpdate={onUpdate} workspaceId={workspaceId} />
         ) : node.type === "terminal" ? (
