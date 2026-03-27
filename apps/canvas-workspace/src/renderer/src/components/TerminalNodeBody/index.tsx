@@ -1,9 +1,10 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import type { CanvasNode, TerminalNodeData } from '../../types';
 import { TERMINAL_OPTIONS } from '../../config/terminalTheme';
 import { AI_TOOL_PATTERN, writeCanvasContext } from '../../utils/canvasContextWriter';
+import { NodeMentionPicker } from '../NodeMentionPicker';
 
 interface Props {
   node: CanvasNode;
@@ -32,6 +33,7 @@ const serializeBuffer = (term: Terminal): string => {
 };
 
 export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, workspaceName, onUpdate }: Props) => {
+  const [pickerOpen, setPickerOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -84,6 +86,14 @@ export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, work
       term.write(lastLines + '\r\n');
       term.writeln('\x1b[2m--- new session ---\x1b[0m\r\n');
     }
+
+    term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      if (e.type === 'keydown' && e.key === ';' && e.ctrlKey && !e.altKey && !e.metaKey) {
+        setPickerOpen(true);
+        return false;
+      }
+      return true;
+    });
 
     requestAnimationFrame(() => {
       try { fitAddon.fit(); } catch { /* ignore */ }
@@ -179,8 +189,27 @@ export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, work
     return () => observer.disconnect();
   }, []);
 
+  const handleMentionSelect = useCallback((selected: CanvasNode) => {
+    setPickerOpen(false);
+    const api = window.canvasWorkspace?.pty;
+    if (api) void api.write(sessionId, selected.title);
+    termRef.current?.focus();
+  }, [sessionId]);
+
+  const handleMentionClose = useCallback(() => {
+    setPickerOpen(false);
+    termRef.current?.focus();
+  }, []);
+
   return (
     <div className="terminal-body-wrap">
+      {pickerOpen && (
+        <NodeMentionPicker
+          nodes={allNodes ?? []}
+          onSelect={handleMentionSelect}
+          onClose={handleMentionClose}
+        />
+      )}
       <div
         ref={containerRef}
         className="terminal-xterm-container"
