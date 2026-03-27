@@ -1,0 +1,32 @@
+import type { CanvasNode, FileNodeData, TerminalNodeData, FrameNodeData } from '../types';
+
+let nodeIdCounter = 0;
+export const genId = (): string => `node-${Date.now()}-${++nodeIdCounter}`;
+
+const NODE_DEFAULTS: Record<CanvasNode['type'], { title: string; width: number; height: number }> = {
+  file:     { title: 'Untitled', width: 420, height: 360 },
+  terminal: { title: 'Terminal', width: 480, height: 300 },
+  frame:    { title: 'Frame',    width: 600, height: 400 },
+};
+
+export const createNodeData = (type: CanvasNode['type']): FileNodeData | TerminalNodeData | FrameNodeData => {
+  switch (type) {
+    case 'file':     return { filePath: '', content: '', saved: false, modified: false };
+    case 'terminal': return { sessionId: '' };
+    case 'frame':    return { color: '#9065b0' };
+  }
+};
+
+export const createDefaultNode = (type: CanvasNode['type'], x: number, y: number): CanvasNode => {
+  const def = NODE_DEFAULTS[type];
+  return {
+    id: genId(),
+    type,
+    title: def.title,
+    x,
+    y,
+    width: def.width,
+    height: def.height,
+    data: createNodeData(type),
+  };
+};

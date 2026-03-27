@@ -1,25 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { CanvasNode, CanvasTransform, CanvasSaveData, FrameNodeData } from "../types";
-
-let nodeIdCounter = 0;
-const genId = () => `node-${Date.now()}-${++nodeIdCounter}`;
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { CanvasNode, CanvasTransform, CanvasSaveData, FrameNodeData } from '../types';
+import { genId, createDefaultNode, createNodeData } from '../utils/nodeFactory';
+import { useNodeHistory } from './useNodeHistory';
 
 const SAVE_DEBOUNCE_MS = 800;
-const MAX_HISTORY = 100;
-const DEFAULT_CANVAS_ID = "default";
+const DEFAULT_CANVAS_ID = 'default';
 
 export const useNodes = (
   canvasId = DEFAULT_CANVAS_ID,
   onRestoreTransform?: (t: CanvasTransform) => void
 ) => {
-  const [nodes, setNodes] = useState<CanvasNode[]>([]);
-  const [loaded, setLoaded] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const nodesRef = useRef(nodes);
-  nodesRef.current = nodes;
   const transformRef = useRef<CanvasTransform>({ x: 0, y: 0, scale: 1 });
-  const historyRef = useRef<CanvasNode[][]>([]);
-  const historyIndexRef = useRef(-1);
 
   const scheduleSave = useCallback(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -29,32 +21,22 @@ export const useNodes = (
       const payload: CanvasSaveData = {
         nodes: nodesRef.current,
         transform: transformRef.current,
-        savedAt: new Date().toISOString()
+        savedAt: new Date().toISOString(),
       };
       void api.save(canvasId, payload);
     }, SAVE_DEBOUNCE_MS);
   }, [canvasId]);
 
+  const [loaded, setLoaded] = useState(false);
+
+  const {
+    nodes, setNodes, nodesRef, historyRef, historyIndexRef,
+    applyNodes, commitHistory, undo, redo,
+  } = useNodeHistory(scheduleSave);
+
   const setTransformForSave = useCallback(
     (t: CanvasTransform) => {
       transformRef.current = t;
-      scheduleSave();
-    },
-    [scheduleSave]
-  );
-
-  // Central mutation point — optionally pushes a history snapshot
-  const applyNodes = useCallback(
-    (newNodes: CanvasNode[], addToHistory = true) => {
-      if (addToHistory) {
-        const trimmed = historyRef.current.slice(0, historyIndexRef.current + 1);
-        trimmed.push(newNodes);
-        if (trimmed.length > MAX_HISTORY) trimmed.shift();
-        historyIndexRef.current = trimmed.length - 1;
-        historyRef.current = trimmed;
-      }
-      setNodes(newNodes);
-      nodesRef.current = newNodes;
       scheduleSave();
     },
     [scheduleSave]
@@ -66,6 +48,7 @@ export const useNodes = (
       const empty: CanvasNode[] = [];
       historyRef.current = [empty];
       historyIndexRef.current = 0;
+      setNodes(empty);
       setLoaded(true);
       return;
     }
@@ -93,25 +76,10 @@ export const useNodes = (
   }, [canvasId, onRestoreTransform]);
 
   const addNode = useCallback(
-    (type: "file" | "terminal" | "frame", x: number, y: number) => {
-      const node: CanvasNode = {
-        id: genId(),
-        type,
-        title: type === "file" ? "Untitled" : type === "terminal" ? "Terminal" : "Frame",
-        x,
-        y,
-        width: type === "file" ? 420 : type === "terminal" ? 480 : 600,
-        height: type === "file" ? 360 : type === "terminal" ? 300 : 400,
-        data:
-          type === "file"
-            ? { filePath: "", content: "", saved: false, modified: false }
-            : type === "terminal"
-              ? { sessionId: "" }
-              : { color: "#9065b0" }
-      };
+    (type: CanvasNode['type'], x: number, y: number) => {
+      const node = createDefaultNode(type, x, y);
 
-      // Auto-create note file for file nodes
-      if (type === "file") {
+      if (type === 'file') {
         const api = window.canvasWorkspace?.file;
         if (api) {
           void api.createNote(canvasId).then((res) => {
@@ -119,14 +87,7 @@ export const useNodes = (
               setNodes((prev) => {
                 const updated = prev.map((n) =>
                   n.id === node.id
-                    ? {
-                        ...n,
-                        title: res.fileName?.replace(/\.md$/, "") || n.title,
-                        data: {
-                          ...n.data,
-                          filePath: res.filePath ?? ''
-                        }
-                      }
+                    ? { ...n, title: res.fileName?.replace(/\.md$/, '') || n.title, data: { ...n.data, filePath: res.filePath ?? '' } }
                     : n
                 );
                 nodesRef.current = updated;
@@ -141,21 +102,21 @@ export const useNodes = (
       applyNodes([...nodesRef.current, node]);
       return node;
     },
-    [applyNodes, scheduleSave, canvasId]
+    [applyNodes, scheduleSave, canvasId, setNodes, nodesRef]
   );
 
   const updateNode = useCallback(
     (id: string, patch: Partial<CanvasNode>) => {
       applyNodes(nodesRef.current.map((n) => (n.id === id ? { ...n, ...patch } : n)));
     },
-    [applyNodes]
+    [applyNodes, nodesRef]
   );
 
   const removeNode = useCallback(
     (id: string) => {
       applyNodes(nodesRef.current.filter((n) => n.id !== id));
     },
-    [applyNodes]
+    [applyNodes, nodesRef]
   );
 
   const removeNodes = useCallback(
@@ -163,17 +124,14 @@ export const useNodes = (
       if (ids.length === 0) return;
       applyNodes(nodesRef.current.filter((n) => !ids.includes(n.id)));
     },
-    [applyNodes]
+    [applyNodes, nodesRef]
   );
 
   const moveNode = useCallback(
     (id: string, x: number, y: number) => {
-      applyNodes(
-        nodesRef.current.map((n) => (n.id === id ? { ...n, x, y } : n)),
-        false
-      );
+      applyNodes(nodesRef.current.map((n) => (n.id === id ? { ...n, x, y } : n)), false);
     },
-    [applyNodes]
+    [applyNodes, nodesRef]
   );
 
   const moveNodes = useCallback(
@@ -186,48 +144,15 @@ export const useNodes = (
         false
       );
     },
-    [applyNodes]
+    [applyNodes, nodesRef]
   );
 
   const resizeNode = useCallback(
     (id: string, width: number, height: number) => {
-      applyNodes(
-        nodesRef.current.map((n) => (n.id === id ? { ...n, width, height } : n)),
-        false
-      );
+      applyNodes(nodesRef.current.map((n) => (n.id === id ? { ...n, width, height } : n)), false);
     },
-    [applyNodes]
+    [applyNodes, nodesRef]
   );
-
-  // Call after drag/resize ends to commit the final position to history
-  const commitHistory = useCallback(() => {
-    const current = nodesRef.current;
-    const last = historyRef.current[historyIndexRef.current];
-    if (current === last) return;
-    const trimmed = historyRef.current.slice(0, historyIndexRef.current + 1);
-    trimmed.push(current);
-    if (trimmed.length > MAX_HISTORY) trimmed.shift();
-    historyIndexRef.current = trimmed.length - 1;
-    historyRef.current = trimmed;
-  }, []);
-
-  const undo = useCallback(() => {
-    if (historyIndexRef.current <= 0) return;
-    historyIndexRef.current--;
-    const snapshot = historyRef.current[historyIndexRef.current];
-    setNodes(snapshot);
-    nodesRef.current = snapshot;
-    scheduleSave();
-  }, [scheduleSave]);
-
-  const redo = useCallback(() => {
-    if (historyIndexRef.current >= historyRef.current.length - 1) return;
-    historyIndexRef.current++;
-    const snapshot = historyRef.current[historyIndexRef.current];
-    setNodes(snapshot);
-    nodesRef.current = snapshot;
-    scheduleSave();
-  }, [scheduleSave]);
 
   const duplicateNode = useCallback(
     (id: string) => {
@@ -238,12 +163,9 @@ export const useNodes = (
         id: genId(),
         x: source.x + 24,
         y: source.y + 24,
-        data:
-          source.type === 'file'
-            ? { filePath: '', content: '', saved: false, modified: false }
-            : source.type === 'terminal'
-              ? { sessionId: '' }
-              : { ...(source.data as FrameNodeData) },
+        data: source.type === 'frame'
+          ? { ...(source.data as FrameNodeData) }
+          : createNodeData(source.type),
       };
       if (newNode.type === 'file') {
         const api = window.canvasWorkspace?.file;
@@ -267,7 +189,7 @@ export const useNodes = (
       applyNodes([...nodesRef.current, newNode]);
       return newNode;
     },
-    [applyNodes, scheduleSave, canvasId]
+    [applyNodes, scheduleSave, canvasId, setNodes, nodesRef]
   );
 
   const pasteNodes = useCallback(
@@ -278,12 +200,9 @@ export const useNodes = (
         id: genId(),
         x: source.x + offsetX,
         y: source.y + offsetY,
-        data:
-          source.type === 'file'
-            ? { filePath: '', content: '', saved: false, modified: false }
-            : source.type === 'terminal'
-              ? { sessionId: '' }
-              : { ...(source.data as FrameNodeData) },
+        data: source.type === 'frame'
+          ? { ...(source.data as FrameNodeData) }
+          : createNodeData(source.type),
       }));
       newNodes.forEach((newNode) => {
         if (newNode.type === 'file') {
@@ -309,7 +228,7 @@ export const useNodes = (
       applyNodes([...nodesRef.current, ...newNodes]);
       return newNodes;
     },
-    [applyNodes, scheduleSave, canvasId]
+    [applyNodes, scheduleSave, canvasId, setNodes, nodesRef]
   );
 
   return {
