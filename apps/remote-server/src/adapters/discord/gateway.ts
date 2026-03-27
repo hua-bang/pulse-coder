@@ -202,6 +202,22 @@ export class DiscordDmGateway {
           return;
         }
 
+        if (event.code === 4004) {
+          console.error('[discord-gateway] Authentication failed (4004). Check DISCORD_BOT_TOKEN and restart the service.');
+          this.isStopped = true;
+          this.isStarted = false;
+          this.clearReconnect();
+          return;
+        }
+
+        if (event.code === 4014) {
+          console.error('[discord-gateway] Invalid intents (4014). Check DISCORD_* intent settings and restart the service.');
+          this.isStopped = true;
+          this.isStarted = false;
+          this.clearReconnect();
+          return;
+        }
+
         console.warn(`[discord-gateway] Gateway closed (${event.code}): ${event.reason || 'no reason'}`);
         this.scheduleReconnect();
       });
