@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
 import type { Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
@@ -13,6 +14,7 @@ import { SlashCommandMenu, type SlashCommandDef } from './SlashCommandMenu';
 interface Props {
   node: CanvasNode;
   onUpdate: (id: string, patch: Partial<CanvasNode>) => void;
+  workspaceId?: string;
 }
 
 const AUTO_SAVE_MS = 1500;
@@ -84,7 +86,7 @@ interface BubbleState {
   y: number;
 }
 
-export const FileNodeBody = ({ node, onUpdate }: Props) => {
+export const FileNodeBody = ({ node, onUpdate, workspaceId }: Props) => {
   const data = node.data as FileNodeData;
   const [modified, setModified] = useState(false);
   const [statusText, setStatusText] = useState('');
@@ -96,6 +98,8 @@ export const FileNodeBody = ({ node, onUpdate }: Props) => {
   nodeIdRef.current = node.id;
   const prevContentRef = useRef(data.content);
   const containerRef = useRef<HTMLDivElement>(null);
+  const workspaceIdRef = useRef(workspaceId);
+  workspaceIdRef.current = workspaceId;
 
   // Slash command menu state
   interface SlashMenuState { x: number; y: number; query: string; index: number; slashFrom: number }
@@ -127,12 +131,47 @@ export const FileNodeBody = ({ node, onUpdate }: Props) => {
   const editor = useEditor({
     extensions: [
       StarterKit,
+      Image.configure({ inline: false }),
       Placeholder.configure({ placeholder: 'Start writing…' }),
       TaskList,
       TaskItem.configure({ nested: true }),
       Markdown.configure({ html: false, transformPastedText: true }),
     ],
     content: data.content || '',
+    editorProps: {
+      handlePaste: (view, event) => {
+        const items = Array.from(event.clipboardData?.items ?? []);
+        const imageItem = items.find((i) => i.type.startsWith('image/'));
+        if (!imageItem) return false;
+        event.preventDefault();
+        const blob = imageItem.getAsFile();
+        if (!blob) return false;
+        const reader = new FileReader();
+        reader.onload = async () => {
+          const dataUrl = reader.result as string;
+          const base64 = dataUrl.split(',')[1];
+          if (!base64) return;
+          const ext = imageItem.type.replace('image/', '').split(';')[0] ?? 'png';
+          const api = window.canvasWorkspace?.file;
+          if (!api) return;
+          // Derive workspaceId from file path if prop is not provided
+          const wsId =
+            workspaceIdRef.current ??
+            dataRef.current.filePath.match(/canvas[/\\]([^/\\]+)[/\\]/)?.[1] ??
+            'default';
+          const res = await api.saveImage(wsId, base64, ext);
+          if (!res.ok || !res.filePath) return;
+          const src = `file://${res.filePath}`;
+          const { state, dispatch } = view;
+          const imageNode = state.schema.nodes['image']?.create({ src });
+          if (imageNode) {
+            dispatch(state.tr.replaceSelectionWith(imageNode));
+          }
+        };
+        reader.readAsDataURL(blob);
+        return true;
+      },
+    },
     onUpdate: ({ editor }) => {
       const markdown = getMarkdown(editor);
       prevContentRef.current = markdown;

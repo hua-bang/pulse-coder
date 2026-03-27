@@ -167,7 +167,7 @@ export const CanvasNodeView = ({
       </div>
       <div className="node-body">
         {node.type === "file" ? (
-          <FileNodeBody node={node} onUpdate={onUpdate} />
+          <FileNodeBody node={node} onUpdate={onUpdate} workspaceId={workspaceId} />
         ) : node.type === "terminal" ? (
           <TerminalNodeBody node={node} allNodes={allNodes} rootFolder={rootFolder} workspaceId={workspaceId} workspaceName={workspaceName} onUpdate={onUpdate} />
         ) : (

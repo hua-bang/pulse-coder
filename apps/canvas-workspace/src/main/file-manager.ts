@@ -149,6 +149,26 @@ export const setupFileManagerIpc = () => {
     }
   });
 
+  // Save an image (base64) to the workspace images directory
+  ipcMain.handle(
+    "file:saveImage",
+    async (_event, payload: { workspaceId?: string; data: string; ext?: string }) => {
+      try {
+        const wsId = payload.workspaceId ?? "default";
+        const imagesDir = join(STORE_DIR, wsId, "images");
+        await fs.mkdir(imagesDir, { recursive: true });
+        const ext = payload.ext ?? "png";
+        const fileName = `img-${Date.now()}.${ext}`;
+        const filePath = join(imagesDir, fileName);
+        const buffer = Buffer.from(payload.data, "base64");
+        await fs.writeFile(filePath, buffer);
+        return { ok: true, filePath, fileName };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    }
+  );
+
   // Save-as dialog
   ipcMain.handle(
     "file:saveAsDialog",

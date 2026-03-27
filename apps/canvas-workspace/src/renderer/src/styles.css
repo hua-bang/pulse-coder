@@ -961,6 +961,19 @@ body {
   font-size: 0.85em;
 }
 
+.note-tiptap-editor .ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  display: block;
+  margin: 8px 0;
+}
+
+.note-tiptap-editor .ProseMirror img.ProseMirror-selectednode {
+  outline: 2px solid var(--accent-file);
+  outline-offset: 2px;
+}
+
 /* ---- Bubble Menu ---- */
 
 .note-bubble-menu {

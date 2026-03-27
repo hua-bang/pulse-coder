@@ -79,6 +79,11 @@ export interface FileApi {
     fileName?: string;
     error?: string;
   }>;
+  saveImage: (
+    workspaceId: string | undefined,
+    data: string,
+    ext?: string
+  ) => Promise<{ ok: boolean; filePath?: string; fileName?: string; error?: string }>;
 }
 
 export interface DialogApi {
