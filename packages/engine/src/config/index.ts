@@ -11,10 +11,13 @@ export const CoderAI = (process.env.USE_ANTHROPIC
     apiKey: process.env.ANTHROPIC_API_KEY || '',
     baseURL: process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com/v1'
   })
+  // Use .chat (→ /v1/chat/completions) instead of .responses (→ /v1/responses).
+  // The Responses API is designed for stateful agentic sessions but causes
+  // newer GPT models to over-explore. Proxies also don't support /v1/responses.
   : createOpenAI({
     apiKey: process.env.OPENAI_API_KEY || '',
     baseURL: process.env.OPENAI_API_URL || 'https://api.openai.com/v1'
-  }).responses) as (model: string) => LanguageModel;
+  }).chat) as (model: string) => LanguageModel;
 
 /**
  * Construct a LLMProviderFactory from a named ModelType using environment variables.
@@ -34,10 +37,11 @@ export function buildProvider(type: ModelType): LLMProviderFactory {
       headers: { 'user-agent': 'claude-code/2.1.63' },
     }) as LLMProviderFactory;
   }
+  // Use .chat (→ /v1/chat/completions) for the same reasons as CoderAI above.
   return createOpenAI({
     apiKey: process.env.OPENAI_API_KEY || '',
     baseURL: process.env.OPENAI_API_URL || 'https://api.openai.com/v1',
-  }).responses as LLMProviderFactory;
+  }).chat as LLMProviderFactory;
 }
 
 export const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || process.env.OPENAI_MODEL || 'novita/deepseek/deepseek_v3';
