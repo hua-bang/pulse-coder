@@ -186,7 +186,7 @@ apps/canvas-workspace    ← 可视化层，接入 orchestrator（Phase 3）
 - [x] artifact cleanup 方法
 - [x] 聚合策略 `last`
 - [x] agent-teams-plugin 改为 thin adapter（调用 orchestrator）
-- [ ] CLI 新增 `/team` 模式命令，接入 orchestrator
+- [x] CLI 新增 `/team` 模式命令，接入 orchestrator
 - [ ] OrchestratorSession：会话生命周期管理（规划/确认/执行/暂停）
 - [ ] 执行状态持久化与断点续跑
 - [ ] remote-server 节点进度推送（Feishu/Discord）

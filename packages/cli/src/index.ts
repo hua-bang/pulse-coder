@@ -2,7 +2,10 @@ import { PulseAgent } from 'pulse-coder-engine';
 import { createJsExecutor, createRunJsTool } from 'pulse-sandbox/src';
 import * as readline from 'readline';
 import type { Context, TaskListService } from 'pulse-coder-engine';
+import { generateTextAI } from 'pulse-coder-engine';
 import { getAcpState, runAcp } from 'pulse-coder-acp';
+import { Orchestrator, EngineAgentRunner } from 'pulse-coder-orchestrator';
+import type { OrchestrationInput, OrchestratorLogger } from 'pulse-coder-orchestrator';
 import { SessionCommands } from './session-commands.js';
 import { InputManager } from './input-manager.js';
 import { SkillCommands } from './skill-commands.js';
@@ -26,6 +29,7 @@ const LOCAL_COMMANDS = new Set([
   'mode',
   'plan',
   'execute',
+  'team',
   'save',
   'exit',
 ]);
@@ -133,6 +137,82 @@ class CoderCLI {
     }
   }
 
+  private createOrchestrator(): Orchestrator {
+    const runner = new EngineAgentRunner(() => this.agent.getTools());
+
+    const llmCall = async (systemPrompt: string, userPrompt: string): Promise<string> => {
+      const result = await generateTextAI(
+        [{ role: 'user', content: userPrompt }],
+        {},
+        { systemPrompt },
+      );
+      return result.text?.trim() ?? '';
+    };
+
+    const logger: OrchestratorLogger = {
+      debug: () => {},
+      info: (msg) => console.log(`\x1b[36m[orchestrator]\x1b[0m ${msg}`),
+      warn: (msg) => console.warn(`\x1b[33m[orchestrator]\x1b[0m ${msg}`),
+      error: (msg) => console.error(`\x1b[31m[orchestrator]\x1b[0m ${msg}`),
+    };
+
+    return new Orchestrator({ runner, llmCall, logger });
+  }
+
+  private parseTeamArgs(args: string[]): { route?: OrchestrationInput['route']; task: string } {
+    let route: OrchestrationInput['route'] | undefined;
+    const rest: string[] = [];
+
+    for (const arg of args) {
+      if (arg.startsWith('--route=')) {
+        route = arg.slice('--route='.length) as OrchestrationInput['route'];
+      } else {
+        rest.push(arg);
+      }
+    }
+
+    return { route, task: rest.join(' ') };
+  }
+
+  async runTeam(args: string[]): Promise<void> {
+    const { route, task } = this.parseTeamArgs(args);
+    if (!task) {
+      console.log('\n❌ Please provide a task description');
+      console.log('Usage: /team <task>');
+      console.log('       /team --route=plan <task>');
+      return;
+    }
+
+    console.log('\n\x1b[36m[orchestrator]\x1b[0m Starting team run...');
+
+    const orchestrator = this.createOrchestrator();
+    const startTime = Date.now();
+
+    try {
+      const result = await orchestrator.run({
+        task,
+        route: route ?? 'auto',
+      });
+
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`\n\x1b[36m[orchestrator]\x1b[0m Completed in ${elapsed}s — ${result.roles.length} roles, ${result.graph.nodes.length} nodes`);
+
+      // Print per-node summary
+      for (const node of result.graph.nodes) {
+        const nr = result.results[node.id];
+        if (!nr) continue;
+        const icon = nr.status === 'success' ? '✓' : nr.status === 'skipped' ? '⊘' : '✗';
+        const dur = (nr.durationMs / 1000).toFixed(1);
+        console.log(`  ${icon} ${node.id} (${node.role}) ${nr.status} [${dur}s]`);
+      }
+
+      // Print aggregated output
+      console.log('\n' + result.aggregate);
+    } catch (error: any) {
+      console.error(`\n\x1b[31m[orchestrator]\x1b[0m Error: ${error.message}`);
+    }
+  }
+
   private async handleCommand(command: string, args: string[]): Promise<void> {
     try {
       switch (command.toLowerCase()) {
@@ -154,6 +234,8 @@ class CoderCLI {
           console.log('/mode - Show current plan mode');
           console.log('/plan - Switch to planning mode');
           console.log('/execute - Switch to executing mode');
+          console.log('/team <task> - Run a multi-agent team (bypasses LLM, calls orchestrator directly)');
+          console.log('/team --route=plan <task> - Use LLM to plan the task graph dynamically');
           console.log('/save - Save current session explicitly');
           console.log('/exit - Exit the application');
           console.log('Esc (while processing) - Stop current response and accept next input');
@@ -494,7 +576,16 @@ class CoderCLI {
         }
 
         if (!forceAcp) {
-          if (normalizedCommand === 'skills') {
+          if (normalizedCommand === 'team') {
+            isProcessing = true;
+            try {
+              await this.runTeam(args);
+            } finally {
+              isProcessing = false;
+              rl.prompt();
+            }
+            return;
+          } else if (normalizedCommand === 'skills') {
             const transformedMessage = await this.skillCommands.transformSkillsCommandToMessage(args);
             if (!transformedMessage) {
               rl.prompt();

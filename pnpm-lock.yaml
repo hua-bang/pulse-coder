@@ -232,6 +232,9 @@ importers:
       pulse-coder-memory-plugin:
         specifier: workspace:*
         version: link:../memory-plugin
+      pulse-coder-orchestrator:
+        specifier: workspace:*
+        version: link:../orchestrator
       pulse-sandbox:
         specifier: workspace:*
         version: link:../pulse-sandbox

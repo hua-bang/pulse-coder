@@ -64,6 +64,6 @@ export type {
 export * from './shared/types.js';
 export { loop } from './core/loop.js';
 export type { LoopOptions, LoopHooks, CompactionEvent } from './core/loop.js';
-export { streamTextAI } from './ai/index.js';
+export { streamTextAI, generateTextAI } from './ai/index.js';
 export { maybeCompactContext } from './context/index.js';
 export * from './tools/index.js';
