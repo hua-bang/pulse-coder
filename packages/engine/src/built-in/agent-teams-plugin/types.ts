@@ -41,7 +41,7 @@ export interface TeamRunInput {
   context?: Record<string, any>;
   roles?: TeamRole[];
   graph?: TaskGraph;
-  route?: 'auto' | 'all';
+  route?: 'auto' | 'all' | 'plan';
   includeRoles?: TeamRole[];
   excludeRoles?: TeamRole[];
   roleTools?: Record<string, string>;
