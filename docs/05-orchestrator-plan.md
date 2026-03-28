@@ -32,7 +32,7 @@
 
 ## 路线规划
 
-### Phase 1：`packages/orchestrator`（核心编排层）
+### Phase 1：`packages/orchestrator`（核心编排层）✅
 
 **目标**：从 engine 层解耦，成为独立 package，CLI / remote-server / canvas-workspace 均可接入。
 
@@ -43,16 +43,76 @@
 - 统一执行状态事件流（`pending` / `running` / `success` / `failed`）
 
 主要迁移内容（从 agent-teams-plugin 搬过来，去掉 EnginePluginContext 依赖）：
-- `scheduler.ts` → 依赖 `OrchestratorContext` 而非 engine context
+- `scheduler.ts` → 依赖 `AgentRunner` 接口而非 engine context
 - `graph.ts` / `planner.ts` / `artifact-store.ts` 基本可直接复用
-- `router.ts` 可继续保留在 engine plugin 作为 thin adapter
+- `EngineAgentRunner` adapter 连接 engine 工具系统
 
 补充能力：
 - 每个 TaskNode 可指定独立的模型 / system prompt / 工具集
 - artifact cleanup（按 runId TTL 清理）
 - 聚合策略扩展：`concat` / `last` / `summary`（LLM 汇总）
 
-### Phase 2：`apps/canvas-workspace` 可视化层
+### Phase 2：remote-server / CLI 接入
+
+**目标**：将 `agent-teams-plugin` 降级为 thin adapter，CLI/remote-server 直接驱动 orchestrator，
+绕过 LLM tool 调用，实现中间过程可见。
+
+#### 执行模式切换
+
+team 模式通过**模式命令**触发，而非 LLM 工具调用：
+
+```
+/team <task>              → 直接走 orchestrator，实时输出节点进度
+/team --route=plan <task> → LLM 动态规划 graph 再执行
+普通对话                   → 单 engine 模式（默认）
+```
+
+工具调用模式（现有）保留作为 LLM 自主触发的备用路径。
+
+#### 中间过程可见
+
+CLI 监听 orchestrator logger 事件，实时打印节点状态：
+
+```
+[orchestrator] Starting: research (researcher)
+[orchestrator] ✓ research completed (12.3s)
+[orchestrator] Starting: execute (executor)
+[orchestrator] Starting: review (reviewer)   ← 并行
+[orchestrator] ✓ review completed (8.1s)
+[orchestrator] ✓ execute completed (21.4s)
+```
+
+remote-server 则通过 Feishu/Discord 推送每个节点进度消息。
+
+#### Team 任务的会话生命周期
+
+team 任务不是一次性调用，而是有状态的多轮会话：
+
+```
+1. 规划阶段（多轮澄清）
+   用户发起 /team 任务
+   → orchestrator 通过多轮对话澄清目标、范围、约束
+   → 逐步完善 TaskGraph
+
+2. 确认阶段
+   → 展示生成的 TaskGraph 让用户 review
+   → 用户确认或调整后再执行
+
+3. 执行阶段
+   → 执行 TaskGraph，实时推送进度
+   → 某节点遇到歧义时暂停，反问用户后继续
+
+4. 续跑能力
+   → 会话状态持久化
+   → 中断后可从断点恢复
+```
+
+对应 orchestrator 需要补充的能力：
+- `OrchestratorSession`：持有会话状态（规划/确认/执行/暂停）
+- 与现有 `clarification-queue` 对齐，提升到编排层
+- 执行状态持久化（runId + 节点状态快照）
+
+### Phase 3：`apps/canvas-workspace` 可视化层
 
 **目标**：将 TaskGraph 映射为 Canvas 上的节点 + 边，支持可视化编排与实时执行监控。
 
@@ -67,13 +127,8 @@
 4. 节点产物可直接在 Canvas 上预览（File 节点联动）
 
 与 engine 通信方案：
-- 优先通过 remote-server HTTP API（`/internal/agent/run`）
+- 优先通过 remote-server HTTP API
 - 或在 Electron main process 直接引入 orchestrator package
-
-### Phase 3：remote-server / CLI 接入
-
-将 `agent-teams-plugin` 降级为 thin adapter，核心逻辑迁移到 orchestrator。
-remote-server 的 `agent-runner.ts` 可直接调用 orchestrator 而不是通过工具调用。
 
 ---
 
@@ -82,18 +137,24 @@ remote-server 的 `agent-runner.ts` 可直接调用 orchestrator 而不是通过
 ```
 packages/engine          ← 单 agent 执行器，保持轻量
 packages/orchestrator    ← 多 agent 编排，依赖 engine
-apps/remote-server       ← 接入 orchestrator
-packages/cli             ← 接入 orchestrator
-apps/canvas-workspace    ← 可视化层，接入 orchestrator
+apps/remote-server       ← 接入 orchestrator（Phase 2）
+packages/cli             ← 接入 orchestrator（Phase 2）
+apps/canvas-workspace    ← 可视化层，接入 orchestrator（Phase 3）
 ```
 
 ---
 
 ## 近期待办
 
-- [ ] 补全 artifact cleanup（TTL 清理 runId 目录）
-- [ ] 聚合策略补充 `last`
-- [ ] 初始化 `packages/orchestrator` 骨架
-- [ ] 定义 `OrchestratorContext` 接口，替换 `EnginePluginContext` 依赖
+- [x] packages/orchestrator 骨架搭建
+- [x] AgentRunner 接口 + EngineAgentRunner adapter
+- [x] 核心模块迁移（scheduler/graph/router/planner/artifact-store/aggregator）
+- [x] artifact cleanup 方法
+- [x] 聚合策略 `last`
+- [ ] agent-teams-plugin 改为 thin adapter（调用 orchestrator）
+- [ ] CLI 新增 `/team` 模式命令，接入 orchestrator
+- [ ] OrchestratorSession：会话生命周期管理（规划/确认/执行/暂停）
+- [ ] 执行状态持久化与断点续跑
+- [ ] remote-server 节点进度推送（Feishu/Discord）
 - [ ] canvas-workspace 新增连线/边基础能力
 - [ ] canvas-workspace 新增 Agent 节点类型
