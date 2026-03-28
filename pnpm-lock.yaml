@@ -326,6 +326,28 @@ importers:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@25.0.10)
 
+  packages/orchestrator:
+    dependencies:
+      pulse-coder-engine:
+        specifier: workspace:*
+        version: link:../engine
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.0.10
+        version: 25.0.10
+      tsup:
+        specifier: ^8.0.0
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@25.0.10)
+
   packages/plugin-kit:
     dependencies:
       pulse-coder-engine:
