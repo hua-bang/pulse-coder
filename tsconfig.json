@@ -13,6 +13,8 @@
     "allowSyntheticDefaultImports": true,
     "noEmit": true,
     "paths": {
+      "pulse-coder-orchestrator": ["./packages/orchestrator/src/index.ts"],
+      "pulse-coder-orchestrator/*": ["./packages/orchestrator/src/*"],
       "pulse-coder-engine": ["./packages/engine/src/index.ts"],
       "pulse-coder-engine/*": ["./packages/engine/src/*"],
       "pulse-coder-plugin-kit": ["./packages/plugin-kit/src/index.ts"],

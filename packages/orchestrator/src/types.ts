@@ -12,9 +12,11 @@ export interface TaskNode {
   id: string;
   role: TeamRole;
   deps: string[];
-  input: string;
+  input?: string;
   optional?: boolean;
-  tool?: string;
+  /** 覆盖该节点使用的 agent 名称（不填则从 roleAgents 映射查找） */
+  agent?: string;
+  /** node 粒度的 prompt 指令，会前置拼接到 task 中 */
   instruction?: string;
 }
 
@@ -26,7 +28,7 @@ export interface NodeResult {
   nodeId: string;
   role: TeamRole;
   status: TaskNodeStatus;
-  toolName?: string;
+  agentName?: string;
   output?: string;
   error?: string;
   attempts: number;
@@ -36,23 +38,30 @@ export interface NodeResult {
   skippedReason?: string;
 }
 
-export interface TeamRunInput {
+export type AggregateStrategy = 'concat' | 'last';
+
+export interface OrchestrationInput {
   task: string;
   context?: Record<string, any>;
+  /** 明确指定角色列表 */
   roles?: TeamRole[];
+  /** 直接传入自定义 TaskGraph（优先级最高） */
   graph?: TaskGraph;
+  /** auto=关键词路由, all=全角色, plan=LLM动态规划 */
   route?: 'auto' | 'all' | 'plan';
   includeRoles?: TeamRole[];
   excludeRoles?: TeamRole[];
-  roleTools?: Record<string, string>;
+  /** 角色到 agent 名称的映射，可覆盖默认 registry */
+  roleAgents?: Record<string, string>;
   maxConcurrency?: number;
   nodeTimeoutMs?: number;
   retries?: number;
-  aggregate?: 'concat';
+  aggregate?: AggregateStrategy;
 }
 
-export interface TeamRunOutput {
+export interface OrchestrationResult {
   task: string;
+  runId: string;
   roles: TeamRole[];
   graph: TaskGraph;
   results: Record<string, NodeResult>;

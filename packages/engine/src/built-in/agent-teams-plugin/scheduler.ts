@@ -1,16 +1,19 @@
 import type { NodeResult, TaskGraph, TaskNode } from './types';
 import type { EnginePluginContext } from '../../plugin/EnginePlugin';
+import type { ArtifactStore } from './artifact-store';
 
 export interface ScheduleOptions {
   context: EnginePluginContext;
   graph: TaskGraph;
   task: string;
+  runId: string;
   maxConcurrency: number;
   retries: number;
   nodeTimeoutMs: number;
   roleTools: Record<string, string>;
   tools: Record<string, any>;
   runContext?: Record<string, any>;
+  artifactStore?: ArtifactStore;
 }
 
 export async function runTaskGraph(options: ScheduleOptions): Promise<Record<string, NodeResult>> {
@@ -52,7 +55,7 @@ export async function runTaskGraph(options: ScheduleOptions): Promise<Record<str
   };
 
   const runNode = async (node: TaskNode) => {
-    const { context, task, roleTools, tools, runContext } = options;
+    const { context, task, roleTools, tools, runContext, artifactStore, runId } = options;
     const now = Date.now();
     const result: NodeResult = {
       nodeId: node.id,
@@ -94,9 +97,33 @@ export async function runTaskGraph(options: ScheduleOptions): Promise<Record<str
       return;
     }
 
+    // 收集上游 artifact 文件路径
+    const depArtifacts = artifactStore
+      ? node.deps
+          .map(dep => {
+            const r = results[dep];
+            if (r?.status === 'success') {
+              return { role: r.role, nodeId: dep, path: artifactStore.getPath(runId, dep) };
+            }
+            return null;
+          })
+          .filter((d): d is { role: string; nodeId: string; path: string } => d !== null)
+      : [];
+
+    const depFilesNote =
+      depArtifacts.length > 0
+        ? '\n\n上游结果文件：\n' +
+          depArtifacts.map(d => `- [${d.role}] ${d.path}`).join('\n') +
+          '\n请先阅读上述文件，再执行任务。'
+        : '';
+
+    const taskInput = node.instruction
+      ? `${node.instruction}\n\n${node.input ?? task}${depFilesNote}`
+      : `${node.input ?? task}${depFilesNote}`;
+
     const runOnce = async () => {
       const input = {
-        task: node.input ?? task,
+        task: taskInput,
         context: {
           task,
           role: node.role,
@@ -120,6 +147,16 @@ export async function runTaskGraph(options: ScheduleOptions): Promise<Record<str
         result.endedAt = Date.now();
         result.durationMs = result.endedAt - result.startedAt;
         results[node.id] = result;
+
+        // 写入 artifact
+        if (artifactStore && result.output) {
+          try {
+            await artifactStore.write(runId, node.id, node.role, result.output);
+          } catch {
+            // artifact 写入失败不影响主流程
+          }
+        }
+
         completed.add(node.id);
         return;
       } catch (error) {

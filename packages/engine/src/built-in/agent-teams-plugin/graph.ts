@@ -14,6 +14,7 @@ export function buildTaskGraph(options: GraphBuildOptions): TaskGraph {
   const { task, roles } = options;
   const nodes: TaskNode[] = [];
 
+  // researcher 先跑，无依赖
   if (roles.includes('researcher')) {
     nodes.push({
       id: 'research',
@@ -24,7 +25,8 @@ export function buildTaskGraph(options: GraphBuildOptions): TaskGraph {
     });
   }
 
-  const executeDeps = nodes.map(node => node.id);
+  // executor 依赖 researcher（如有），否则无依赖
+  const executeDeps = roles.includes('researcher') ? ['research'] : [];
   if (roles.includes('executor')) {
     nodes.push({
       id: 'execute',
@@ -34,34 +36,35 @@ export function buildTaskGraph(options: GraphBuildOptions): TaskGraph {
     });
   }
 
-  const reviewDeps = nodes.length > 0 ? [nodes[nodes.length - 1].id] : [];
+  // executor 完成后的基准节点（用于 reviewer/writer/tester 的共同依赖）
+  const postExecuteDeps: string[] = roles.includes('executor') ? ['execute'] : executeDeps;
+
+  // reviewer / writer / tester 都只依赖 postExecuteDeps，互相之间并行
   if (roles.includes('reviewer')) {
     nodes.push({
       id: 'review',
       role: 'reviewer',
-      deps: reviewDeps,
+      deps: [...postExecuteDeps],
       input: task,
       optional: true
     });
   }
 
-  const writeDeps = nodes.length > 0 ? [nodes[nodes.length - 1].id] : [];
   if (roles.includes('writer')) {
     nodes.push({
       id: 'write',
       role: 'writer',
-      deps: writeDeps,
+      deps: [...postExecuteDeps],
       input: task,
       optional: true
     });
   }
 
-  const testDeps = nodes.length > 0 ? [nodes[nodes.length - 1].id] : [];
   if (roles.includes('tester')) {
     nodes.push({
       id: 'test',
       role: 'tester',
-      deps: testDeps,
+      deps: [...postExecuteDeps],
       input: task,
       optional: true
     });

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { randomUUID } from 'crypto';
 
 import type { EnginePlugin, EnginePluginContext } from '../../plugin/EnginePlugin';
 import type { Tool } from '../../shared/types';
@@ -8,6 +9,8 @@ import { buildTaskGraph, validateTaskGraph } from './graph';
 import { routeRoles } from './router';
 import { runTaskGraph } from './scheduler';
 import { aggregateResults } from './aggregator';
+import { LocalArtifactStore } from './artifact-store';
+import { planTaskGraph } from './planner';
 import type { TeamRole, TeamRunInput, TeamRunOutput, TaskGraph } from './types';
 
 const TEAM_RUN_INPUT_SCHEMA = z.object({
@@ -15,7 +18,7 @@ const TEAM_RUN_INPUT_SCHEMA = z.object({
   context: z.any().optional().describe('任务上下文信息'),
   roles: z.array(z.string()).optional().describe('明确指定的角色列表'),
   graph: z.any().optional().describe('自定义 TaskGraph'),
-  route: z.enum(['auto', 'all']).optional().describe('自动路由或全角色执行'),
+  route: z.enum(['auto', 'all', 'plan']).optional().describe('auto=关键词路由, all=全角色, plan=LLM动态规划'),
   includeRoles: z.array(z.string()).optional().describe('强制包含的角色'),
   excludeRoles: z.array(z.string()).optional().describe('排除的角色'),
   roleTools: z.record(z.string(), z.string()).optional().describe('角色到工具名称映射'),
@@ -37,12 +40,15 @@ export const builtInAgentTeamsPlugin: EnginePlugin = {
   async initialize(context: EnginePluginContext): Promise<void> {
     const registry = new RoleRegistry();
 
+    const artifactStore = new LocalArtifactStore();
+
     const tool: Tool<TeamRunInput, TeamRunOutput> = {
       name: 'agent_teams_run',
       description: 'Run a fixed DAG agent team with role routing and aggregation.',
       defer_loading: true,
       inputSchema: TEAM_RUN_INPUT_SCHEMA,
       execute: async (input) => {
+        const runId = randomUUID();
         const roleTools = registry.resolveRoleTools(input.roleTools);
         const tools = context.getTools();
         const availableRoles = Object.keys(roleTools) as TeamRole[];
@@ -67,6 +73,9 @@ export const builtInAgentTeamsPlugin: EnginePlugin = {
         let graph: TaskGraph;
         if (input.graph) {
           graph = input.graph as TaskGraph;
+        } else if (input.route === 'plan') {
+          context.logger.info('[AgentTeams] Planning task graph with LLM...');
+          graph = await planTaskGraph({ task: input.task, availableRoles });
         } else {
           graph = buildTaskGraph({ task: input.task, roles });
         }
@@ -80,12 +89,14 @@ export const builtInAgentTeamsPlugin: EnginePlugin = {
           context,
           graph,
           task: input.task,
+          runId,
           maxConcurrency: input.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY,
           retries: input.retries ?? DEFAULT_RETRIES,
           nodeTimeoutMs: input.nodeTimeoutMs ?? DEFAULT_TIMEOUT_MS,
           roleTools,
           tools,
-          runContext: input.context
+          runContext: input.context,
+          artifactStore
         });
 
         return {
