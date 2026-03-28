@@ -5,6 +5,9 @@ import { fileURLToPath } from "url";
 import { setupPtyIpc, killAllPty } from "./pty-manager";
 import { setupCanvasStoreIpc } from "./canvas-store";
 import { setupFileManagerIpc } from "./file-manager";
+import { startMCPServer } from "./mcp-server";
+import { ensureMCPRegistered } from "./mcp-registration";
+import { setupFileWatcherIpc, teardownFileWatcher } from "./file-watcher";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const preloadPath = join(currentDir, "../preload/index.mjs");
@@ -96,6 +99,9 @@ app.whenReady().then(() => {
   setupPtyIpc();
   setupCanvasStoreIpc();
   setupFileManagerIpc();
+  setupFileWatcherIpc();
+  startMCPServer();
+  void ensureMCPRegistered();
 
   createWindow();
 
@@ -108,6 +114,7 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   killAllPty();
+  teardownFileWatcher();
   if (process.platform !== "darwin") {
     app.quit();
   }

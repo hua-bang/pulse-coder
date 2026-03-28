@@ -65,7 +65,10 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
       ipcRenderer.invoke("canvas:delete", { id }),
 
     getDir: (id: string) =>
-      ipcRenderer.invoke("canvas:getDir", { id })
+      ipcRenderer.invoke("canvas:getDir", { id }),
+
+    watchWorkspace: (workspaceId: string) =>
+      ipcRenderer.invoke("canvas:watchWorkspace", { workspaceId })
   },
 
   file: {
@@ -87,7 +90,16 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
       ipcRenderer.invoke("file:saveAsDialog", { defaultName, content }),
 
     saveImage: (workspaceId: string | undefined, data: string, ext?: string) =>
-      ipcRenderer.invoke("file:saveImage", { workspaceId, data, ext })
+      ipcRenderer.invoke("file:saveImage", { workspaceId, data, ext }),
+
+    onChanged: (callback: (filePath: string, content: string) => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        payload: { filePath: string; content: string }
+      ) => callback(payload.filePath, payload.content);
+      ipcRenderer.on("canvas:file-changed", handler);
+      return () => ipcRenderer.removeListener("canvas:file-changed", handler);
+    }
   },
 
   dialog: {

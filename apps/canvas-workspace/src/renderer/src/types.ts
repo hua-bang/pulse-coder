@@ -84,6 +84,7 @@ export interface FileApi {
     data: string,
     ext?: string
   ) => Promise<{ ok: boolean; filePath?: string; fileName?: string; error?: string }>;
+  onChanged: (callback: (filePath: string, content: string) => void) => () => void;
 }
 
 export interface DialogApi {
@@ -117,6 +118,7 @@ export interface CanvasWorkspaceApi {
     list: () => Promise<{ ok: boolean; ids?: string[]; error?: string }>;
     delete: (id: string) => Promise<{ ok: boolean; error?: string }>;
     getDir: (id: string) => Promise<{ ok: boolean; dir?: string; error?: string }>;
+    watchWorkspace: (workspaceId: string) => Promise<{ ok: boolean }>;
   };
   file: FileApi;
   dialog: DialogApi;
