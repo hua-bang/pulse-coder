@@ -190,7 +190,7 @@ export class SubAgentPlugin implements EnginePlugin {
         // 避免初始化阶段的静态快照导致后注册的插件工具缺失。
         const tools = { ...BuiltinToolsMap, ...context.getTools() };
         const tag = `[agent:${config.name}]`;
-        const log = (msg: string) => process.stdout.write(`\x1b[35m${tag}\x1b[0m ${msg}\n`);
+        const log = (msg: string) => process.stdout.write(`  \x1b[35m${tag}\x1b[0m ${msg}\n`);
         try {
           log(`Running: ${task.slice(0, 80)}${task.length > 80 ? '...' : ''}`);
           const result = await this.agentRunner.runAgent(config, task, taskContext, tools, {
