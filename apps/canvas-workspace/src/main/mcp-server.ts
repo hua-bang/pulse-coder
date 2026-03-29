@@ -2,12 +2,16 @@ import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { execInSession, hasSession } from './pty-manager';
 
 export const MCP_PORT = 3333;
 
 const STORE_DIR = join(homedir(), '.pulse-coder', 'canvas');
 
 // --- Types ---
+
+type NodeType = 'file' | 'terminal' | 'frame';
+type NodeCapability = 'read' | 'write' | 'exec';
 
 interface CanvasNodeData {
   filePath?: string;
@@ -16,12 +20,13 @@ interface CanvasNodeData {
   cwd?: string;
   color?: string;
   label?: string;
+  sessionId?: string;
   [key: string]: unknown;
 }
 
 interface CanvasNode {
   id: string;
-  type: 'file' | 'terminal' | 'frame';
+  type: NodeType;
   title: string;
   data: CanvasNodeData;
 }
@@ -39,6 +44,18 @@ interface WorkspaceEntry {
 
 interface WorkspaceManifest {
   entries: WorkspaceEntry[];
+}
+
+// --- Node capability mapping ---
+
+const NODE_CAPABILITIES: Record<NodeType, NodeCapability[]> = {
+  file: ['read', 'write'],
+  terminal: ['read', 'exec'],
+  frame: ['read', 'write'],
+};
+
+function getNodeCapabilities(type: NodeType): NodeCapability[] {
+  return NODE_CAPABILITIES[type] ?? ['read'];
 }
 
 // --- Canvas data access ---
@@ -81,26 +98,46 @@ async function listWorkspaceIds(): Promise<string[]> {
   }
 }
 
-// --- Node providers ---
+// --- Node IO providers ---
 
-async function readNode(node: CanvasNode): Promise<string> {
+interface NodeReadResult {
+  type: NodeType;
+  capabilities: NodeCapability[];
+  [key: string]: unknown;
+}
+
+async function readNode(node: CanvasNode): Promise<NodeReadResult> {
+  const capabilities = getNodeCapabilities(node.type);
+
   switch (node.type) {
     case 'file': {
+      let content = node.data.content ?? '';
       if (node.data.filePath) {
         try {
-          return await fs.readFile(node.data.filePath, 'utf-8');
+          content = await fs.readFile(node.data.filePath, 'utf-8');
         } catch {
           // fall through to in-memory content
         }
       }
-      return node.data.content ?? '';
+      const ext = node.data.filePath?.split('.').pop() ?? '';
+      return { type: 'file', capabilities, path: node.data.filePath ?? '', content, language: ext };
     }
     case 'terminal':
-      return node.data.scrollback ?? '';
+      return {
+        type: 'terminal',
+        capabilities,
+        cwd: node.data.cwd ?? '',
+        scrollback: node.data.scrollback ?? '',
+      };
     case 'frame':
-      return JSON.stringify({ label: node.data.label ?? '', color: node.data.color ?? '' });
+      return {
+        type: 'frame',
+        capabilities,
+        label: node.data.label ?? '',
+        color: node.data.color ?? '',
+      };
     default:
-      return '';
+      return { type: node.type, capabilities };
   }
 }
 
@@ -138,7 +175,7 @@ async function writeNode(
       }
     }
     case 'terminal':
-      return { ok: false, error: 'Terminal nodes are read-only via MCP' };
+      return { ok: false, error: 'Terminal nodes do not support write. Use canvas_exec to send commands.' };
     default:
       return { ok: false, error: 'Unknown node type' };
   }
@@ -150,7 +187,7 @@ const TOOLS = [
   {
     name: 'canvas_list',
     description:
-      'List all nodes in the canvas workspace. Returns node IDs, types, titles, and which workspace they belong to.',
+      'List all nodes in the canvas workspace. Returns node IDs, types, titles, capabilities (read/write/exec), and which workspace they belong to.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -164,7 +201,7 @@ const TOOLS = [
   {
     name: 'canvas_read',
     description:
-      'Read the content of a canvas node. File nodes return markdown content, terminal nodes return scrollback buffer, frame nodes return JSON with label and color.',
+      'Read a canvas node. Returns structured JSON with type, capabilities, and content. File nodes include path/content/language. Terminal nodes include cwd/scrollback. Frame nodes include label/color.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -177,7 +214,7 @@ const TOOLS = [
   {
     name: 'canvas_write',
     description:
-      'Write content to a canvas node. File nodes accept markdown text. Frame nodes accept JSON: { label?: string, color?: string }. Terminal nodes are read-only.',
+      'Write content to a content-type canvas node. File nodes accept markdown/code text. Frame nodes accept JSON: { label?: string, color?: string }. Use canvas_exec for terminal nodes.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -187,8 +224,55 @@ const TOOLS = [
       },
       required: ['workspaceId', 'nodeId', 'content']
     }
+  },
+  {
+    name: 'canvas_exec',
+    description:
+      'Execute a command in an interactive-type canvas node (terminal). Sends the command to the PTY session and returns the output.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace ID' },
+        nodeId: { type: 'string', description: 'Terminal node ID to execute in' },
+        command: { type: 'string', description: 'Shell command to execute' },
+        timeout: { type: 'number', description: 'Timeout in ms (default: 30000)' }
+      },
+      required: ['workspaceId', 'nodeId', 'command']
+    }
+  },
+  {
+    name: 'canvas_create',
+    description:
+      'Create a new canvas node. Returns the created node ID. Supported types: file, terminal, frame.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace ID' },
+        type: { type: 'string', enum: ['file', 'terminal', 'frame'], description: 'Node type to create' },
+        title: { type: 'string', description: 'Node title (optional, has defaults per type)' },
+        x: { type: 'number', description: 'X position on canvas (optional, auto-placed if omitted)' },
+        y: { type: 'number', description: 'Y position on canvas (optional, auto-placed if omitted)' },
+        data: {
+          type: 'object',
+          description: 'Initial data. File: { content?: string }. Frame: { color?: string, label?: string }. Terminal: { cwd?: string }.'
+        }
+      },
+      required: ['workspaceId', 'type']
+    }
   }
 ];
+
+// --- Helpers ---
+
+function autoPlaceX(nodes: Array<{ x?: number; width?: number }>): number {
+  if (nodes.length === 0) return 100;
+  let maxRight = 0;
+  for (const n of nodes) {
+    const right = (n.x ?? 0) + (n.width ?? 400);
+    if (right > maxRight) maxRight = right;
+  }
+  return maxRight + 40; // 40px gap
+}
 
 // --- MCP tool dispatch ---
 
@@ -213,6 +297,7 @@ async function handleToolCall(
           nodeId: string;
           type: string;
           title: string;
+          capabilities: NodeCapability[];
         }> = [];
 
         for (const wsId of ids) {
@@ -224,7 +309,8 @@ async function handleToolCall(
               workspaceName: nameMap.get(wsId) ?? wsId,
               nodeId: node.id,
               type: node.type,
-              title: node.title
+              title: node.title,
+              capabilities: getNodeCapabilities(node.type),
             });
           }
         }
@@ -243,7 +329,8 @@ async function handleToolCall(
         if (!canvas) { text = `Error: workspace not found: ${workspaceId}`; break; }
         const node = canvas.nodes.find(n => n.id === nodeId);
         if (!node) { text = `Error: node not found: ${nodeId}`; break; }
-        text = await readNode(node);
+        const result = await readNode(node);
+        text = JSON.stringify(result, null, 2);
         break;
       }
 
@@ -253,8 +340,120 @@ async function handleToolCall(
           text = 'Error: workspaceId, nodeId, and content are required';
           break;
         }
-        const result = await writeNode(workspaceId, nodeId, content);
-        text = result.ok ? 'OK' : `Error: ${result.error}`;
+        const writeResult = await writeNode(workspaceId, nodeId, content);
+        text = writeResult.ok ? 'OK' : `Error: ${writeResult.error}`;
+        break;
+      }
+
+      case 'canvas_exec': {
+        const { workspaceId, nodeId, command } = args;
+        if (!workspaceId || !nodeId || !command) {
+          text = 'Error: workspaceId, nodeId, and command are required';
+          break;
+        }
+        const canvas = await loadCanvas(workspaceId);
+        if (!canvas) { text = `Error: workspace not found: ${workspaceId}`; break; }
+        const node = canvas.nodes.find(n => n.id === nodeId);
+        if (!node) { text = `Error: node not found: ${nodeId}`; break; }
+        if (node.type !== 'terminal') {
+          text = `Error: canvas_exec only works on terminal nodes, got "${node.type}". Use canvas_write for content nodes.`;
+          break;
+        }
+
+        const sessionId = node.data.sessionId;
+        if (!sessionId || !hasSession(sessionId)) {
+          text = 'Error: terminal node has no active PTY session. The terminal must be open in the canvas UI first.';
+          break;
+        }
+
+        const timeoutMs = args.timeout ? Number(args.timeout) : undefined;
+        const execResult = await execInSession(sessionId, command, { timeout: timeoutMs });
+        if (execResult.ok) {
+          text = execResult.output ?? '';
+        } else {
+          text = `Error: ${execResult.error}`;
+        }
+        break;
+      }
+
+      case 'canvas_create': {
+        const { workspaceId } = args;
+        const nodeType = args.type as NodeType | undefined;
+        if (!workspaceId || !nodeType) {
+          text = 'Error: workspaceId and type are required';
+          break;
+        }
+        if (!['file', 'terminal', 'frame'].includes(nodeType)) {
+          text = `Error: unsupported node type "${nodeType}". Supported: file, terminal, frame.`;
+          break;
+        }
+
+        const canvas = await loadCanvas(workspaceId);
+        if (!canvas) { text = `Error: workspace not found: ${workspaceId}`; break; }
+
+        // Generate node ID
+        const nodeId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+        // Default dimensions per type
+        const defaults: Record<NodeType, { title: string; width: number; height: number }> = {
+          file:     { title: 'Untitled', width: 420, height: 360 },
+          terminal: { title: 'Terminal', width: 480, height: 300 },
+          frame:    { title: 'Frame',    width: 600, height: 400 },
+        };
+        const def = defaults[nodeType];
+
+        // Auto-place: find the rightmost node and place to its right, or use provided position
+        const x = args.x !== undefined ? Number(args.x) : autoPlaceX(canvas.nodes);
+        const y = args.y !== undefined ? Number(args.y) : 100;
+
+        // Build initial data
+        const inputData = args.data ? (typeof args.data === 'string' ? JSON.parse(args.data) : args.data) : {};
+        let data: CanvasNodeData;
+        switch (nodeType) {
+          case 'file':
+            data = { filePath: '', content: (inputData as Record<string, string>).content ?? '', saved: false, modified: false };
+            break;
+          case 'terminal':
+            data = { sessionId: '', cwd: (inputData as Record<string, string>).cwd ?? '' };
+            break;
+          case 'frame':
+            data = { color: (inputData as Record<string, string>).color ?? '#9065b0', label: (inputData as Record<string, string>).label ?? '' };
+            break;
+        }
+
+        const newNode: CanvasNode & { x: number; y: number; width: number; height: number } = {
+          id: nodeId,
+          type: nodeType,
+          title: args.title ?? def.title,
+          x,
+          y,
+          width: def.width,
+          height: def.height,
+          data,
+        };
+
+        canvas.nodes.push(newNode as unknown as CanvasNode);
+        canvas.savedAt = new Date().toISOString();
+        await saveCanvas(workspaceId, canvas);
+
+        // If file node, create a workspace note file
+        if (nodeType === 'file' && data.content) {
+          const notesDir = join(STORE_DIR, workspaceId, 'notes');
+          await fs.mkdir(notesDir, { recursive: true });
+          const noteFile = join(notesDir, `${nodeId}.md`);
+          await fs.writeFile(noteFile, data.content, 'utf-8');
+          data.filePath = noteFile;
+          canvas.savedAt = new Date().toISOString();
+          await saveCanvas(workspaceId, canvas);
+        }
+
+        text = JSON.stringify({
+          ok: true,
+          nodeId,
+          type: nodeType,
+          title: newNode.title,
+          capabilities: getNodeCapabilities(nodeType),
+        }, null, 2);
         break;
       }
 
