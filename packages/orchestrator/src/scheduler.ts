@@ -58,20 +58,20 @@ export async function runTaskGraph(options: ScheduleOptions): Promise<Record<str
 
     logger.info(`Starting: ${node.id} (${node.role}) → ${agentName}`);
 
-    // 收集上游 artifact 文件路径
-    const depArtifacts = artifactStore
-      ? node.deps
-          .map(dep => {
-            const r = results[dep];
-            return r?.status === 'success'
-              ? { role: r.role, path: artifactStore.getPath(runId, dep) }
-              : null;
-          })
-          .filter((d): d is { role: string; path: string } => d !== null)
-      : [];
+    // Collect upstream results — inline the output so the agent doesn't need to read files
+    const depOutputs = node.deps
+      .map(dep => {
+        const r = results[dep];
+        return r?.status === 'success' && r.output
+          ? { role: r.role, nodeId: dep, output: r.output }
+          : null;
+      })
+      .filter((d): d is { role: string; nodeId: string; output: string } => d !== null);
 
-    const depNote = depArtifacts.length > 0
-      ? '\n\n上游结果文件：\n' + depArtifacts.map(d => `- [${d.role}] ${d.path}`).join('\n') + '\n请先阅读上述文件，再执行任务。'
+    const depNote = depOutputs.length > 0
+      ? '\n\n--- Upstream results ---\n' + depOutputs.map(d =>
+          `### [${d.role}] ${d.nodeId}\n${d.output}`
+        ).join('\n\n') + '\n--- End of upstream results ---\n\nUse the upstream results above to inform your work.'
       : '';
 
     const taskInput = node.instruction
