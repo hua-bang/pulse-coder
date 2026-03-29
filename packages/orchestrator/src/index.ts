@@ -21,6 +21,6 @@ export { LocalArtifactStore } from './artifact-store';
 export { buildTaskGraph, validateTaskGraph } from './graph';
 export { routeRoles } from './router';
 export { planTaskGraph } from './planner';
-export { aggregateResults } from './aggregator';
+export { aggregateResults, aggregateResultsAsync } from './aggregator';
 
 export { EngineAgentRunner } from './adapters/engine-agent-runner';

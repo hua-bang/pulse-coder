@@ -25,17 +25,18 @@ export async function runTaskGraph(options: ScheduleOptions): Promise<Record<str
 
   const pending = new Set(nodes.map(n => n.id));
   const inFlight = new Map<string, Promise<void>>();
-  const completed = new Set<string>();
-  const failed = new Set<string>();
+  const resolved = new Set<string>();  // completed or skipped-optional — downstream can proceed
+  const hardFailed = new Set<string>(); // non-optional failures — blocks dependents
   const nodeById = new Map(nodes.map(n => [n.id, n]));
 
   const canRun = (node: TaskNode) =>
-    failed.size === 0 && node.deps.every(dep => completed.has(dep));
+    node.deps.every(dep => resolved.has(dep));
 
   const markSkipped = (node: TaskNode, reason: string) => {
     const now = Date.now();
     results[node.id] = { nodeId: node.id, role: node.role, status: 'skipped', attempts: 0, startedAt: now, endedAt: now, durationMs: 0, skippedReason: reason };
     pending.delete(node.id);
+    resolved.add(node.id);
   };
 
   const runNode = async (node: TaskNode) => {
@@ -99,7 +100,7 @@ export async function runTaskGraph(options: ScheduleOptions): Promise<Record<str
           try { await artifactStore.write(runId, node.id, node.role, result.output); } catch { /* non-fatal */ }
         }
 
-        completed.add(node.id);
+        resolved.add(node.id);
         logger.info(`Node ${node.id} (${node.role}) completed in ${result.durationMs}ms`);
         return;
       } catch (err) {
@@ -108,16 +109,21 @@ export async function runTaskGraph(options: ScheduleOptions): Promise<Record<str
     }
 
     const msg = lastError instanceof Error ? lastError.message : String(lastError ?? 'Unknown error');
-    result.status = node.optional ? 'skipped' : 'failed';
     result.error = msg;
-    result.skippedReason = node.optional ? msg : undefined;
     result.endedAt = Date.now();
     result.durationMs = result.endedAt - result.startedAt;
-    results[node.id] = result;
-    if (result.status === 'failed') {
-      failed.add(node.id);
+
+    if (node.optional) {
+      result.status = 'skipped';
+      result.skippedReason = msg;
+      resolved.add(node.id);  // optional failure does not block downstream
+      logger.warn(`Node ${node.id} (${node.role}) failed (optional, skipped): ${msg}`);
+    } else {
+      result.status = 'failed';
+      hardFailed.add(node.id);
       logger.error(`Node ${node.id} (${node.role}) failed: ${msg}`);
     }
+    results[node.id] = result;
   };
 
   while (pending.size > 0) {
@@ -126,7 +132,12 @@ export async function runTaskGraph(options: ScheduleOptions): Promise<Record<str
       .filter((n): n is TaskNode => !!n && canRun(n));
 
     if (runnable.length === 0) {
-      if (failed.size > 0) {
+      if (inFlight.size > 0) {
+        // Wait for in-flight nodes to finish — they may unblock pending nodes
+        await Promise.race(inFlight.values());
+        continue;
+      }
+      if (hardFailed.size > 0) {
         for (const id of pending) {
           const node = nodeById.get(id);
           if (node) markSkipped(node, 'Blocked by failed dependency');

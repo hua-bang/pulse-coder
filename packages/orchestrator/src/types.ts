@@ -38,7 +38,7 @@ export interface NodeResult {
   skippedReason?: string;
 }
 
-export type AggregateStrategy = 'concat' | 'last';
+export type AggregateStrategy = 'concat' | 'last' | 'llm';
 
 export interface OrchestrationInput {
   task: string;

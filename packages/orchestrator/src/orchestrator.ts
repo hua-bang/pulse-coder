@@ -7,7 +7,7 @@ import { buildTaskGraph, validateTaskGraph } from './graph';
 import { routeRoles } from './router';
 import { planTaskGraph } from './planner';
 import { runTaskGraph } from './scheduler';
-import { aggregateResults } from './aggregator';
+import { aggregateResultsAsync } from './aggregator';
 import { defaultLogger } from './runner';
 
 const DEFAULT_ROLE_AGENTS: Record<string, string> = {
@@ -54,14 +54,19 @@ export class Orchestrator {
 
     this.logger.info(`Starting orchestration run ${runId}: ${input.task.slice(0, 80)}`);
 
-    // 决定角色列表
+    const route = input.route ?? 'plan';
+
+    // Determine role list
     let roles: TeamRole[];
     if (input.roles?.length) {
       roles = input.roles;
-    } else if (input.route === 'all') {
+    } else if (route === 'all') {
       roles = availableRoles;
-    } else {
+    } else if (route === 'auto') {
       roles = routeRoles(input.task, availableRoles);
+    } else {
+      // 'plan' mode: all roles are available for the planner to choose from
+      roles = availableRoles;
     }
 
     if (input.includeRoles?.length) {
@@ -72,11 +77,11 @@ export class Orchestrator {
       roles = roles.filter(r => !excluded.has(r));
     }
 
-    // 构建 TaskGraph
+    // Build TaskGraph
     let graph: TaskGraph;
     if (input.graph) {
       graph = input.graph;
-    } else if (input.route === 'plan') {
+    } else if (route === 'plan') {
       if (!this.llmCall) throw new Error('llmCall is required for route="plan"');
       this.logger.info('Planning task graph with LLM...');
       graph = await planTaskGraph({ task: input.task, availableRoles: roles, llmCall: this.llmCall });
@@ -105,7 +110,8 @@ export class Orchestrator {
       logger: this.logger,
     });
 
-    const aggregate = aggregateResults(results, input.aggregate ?? 'concat');
+    const aggregateStrategy = input.aggregate ?? 'llm';
+    const aggregate = await aggregateResultsAsync(results, aggregateStrategy, this.llmCall);
     this.logger.info(`Orchestration run ${runId} completed`);
 
     return { task: input.task, runId, roles, graph, results, aggregate };

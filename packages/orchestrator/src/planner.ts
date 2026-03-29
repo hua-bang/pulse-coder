@@ -3,38 +3,46 @@ import type { TaskGraph, TeamRole } from './types';
 export interface PlannerOptions {
   task: string;
   availableRoles: TeamRole[];
-  /** 调用 LLM 的函数，由外部注入，解耦对 engine ai 模块的直接依赖 */
+  /** LLM call function, injected externally to decouple from engine ai module */
   llmCall: (systemPrompt: string, userPrompt: string) => Promise<string>;
 }
 
-const SYSTEM_PROMPT = `你是一个 agent team 规划器。
-根据用户描述的任务，输出一个合理的 TaskGraph JSON，决定需要哪些角色、执行顺序和依赖关系。
+const SYSTEM_PROMPT = `You are a task graph planner for a multi-agent system.
+Given a user task, output a TaskGraph JSON that assigns the right agents and execution order.
 
-TaskGraph 格式：
+TaskGraph format:
 {
   "nodes": [
     {
-      "id": "唯一标识符",
-      "role": "角色名",
-      "deps": ["依赖的节点 id"],
-      "input": "该节点的具体任务描述（可选）",
-      "instruction": "该节点 agent 的执行指令（可选，用于差异化 prompt）",
-      "optional": true
+      "id": "unique_identifier",
+      "role": "role_name",
+      "deps": ["dependency_node_ids"],
+      "input": "specific sub-task description for this node (REQUIRED)",
+      "optional": true/false
     }
   ]
 }
 
-规则：
-- deps 必须引用已存在的节点 id，不能有环
-- 没有依赖关系的节点会并行执行
-- optional=true 的节点失败不会阻断后续流程
-- 只使用 availableRoles 中列出的角色
-- 直接输出 JSON，不要加任何说明文字`;
+Available roles and when to use them:
+- researcher: read-only analysis, code investigation, information gathering. Use for any task that needs understanding before action.
+- executor: code changes, implementation, refactoring. Only include when the task requires modifying code.
+- reviewer: read-only code review, quality checks. Use after executor, or standalone for review-only tasks.
+- writer: documentation updates. Only include when docs need updating.
+- tester: write and run tests. Only include when tests are needed.
+
+Rules:
+- deps must reference existing node ids, no cycles allowed.
+- Nodes without dependency relationships run in parallel.
+- Set optional=true for nodes whose failure should not block downstream.
+- Only use roles from the availableRoles list.
+- The "input" field MUST contain a specific, actionable sub-task description tailored to that node's role. Do NOT just copy the original task verbatim.
+- For read-only tasks (review, analyze, summarize), do NOT include executor.
+- Output raw JSON only, no markdown fences, no explanation.`;
 
 export async function planTaskGraph(options: PlannerOptions): Promise<TaskGraph> {
   const { task, availableRoles, llmCall } = options;
 
-  const userPrompt = `任务：${task}\n\n可用角色：${availableRoles.join(', ')}\n\n请输出 TaskGraph JSON：`;
+  const userPrompt = `Task: ${task}\n\nAvailable roles: ${availableRoles.join(', ')}\n\nOutput TaskGraph JSON:`;
   const raw = (await llmCall(SYSTEM_PROMPT, userPrompt)).trim();
 
   const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/) ?? null;
