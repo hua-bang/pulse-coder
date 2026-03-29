@@ -151,6 +151,12 @@ class AgentRunner {
       onText: callbacks?.onText,
       onToolCall: callbacks?.onToolCall,
       onToolResult: callbacks?.onToolResult,
+      onCompacted: (newMessages) => {
+        subContext.messages = newMessages;
+      },
+      onResponse: (messages) => {
+        subContext.messages.push(...messages);
+      },
     });
   }
 }
