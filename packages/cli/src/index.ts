@@ -191,8 +191,9 @@ class CoderCLI {
     const { route, task } = this.parseTeamArgs(args);
     if (!task) {
       console.log('\n❌ Please provide a task description');
-      console.log('Usage: /team <task>');
-      console.log('       /team --route=plan <task>');
+      console.log('Usage: /team <task>                  (default: LLM plans the DAG)');
+      console.log('       /team --route=auto <task>      (keyword-based routing)');
+      console.log('       /team --route=all <task>       (all roles participate)');
       return;
     }
 
@@ -218,7 +219,7 @@ class CoderCLI {
     try {
       const result = await orchestrator.run({
         task,
-        route: route ?? 'auto',
+        ...(route ? { route } : {}),
       });
 
       clearInterval(heartbeat);
@@ -264,8 +265,8 @@ class CoderCLI {
           console.log('/mode - Show current plan mode');
           console.log('/plan - Switch to planning mode');
           console.log('/execute - Switch to executing mode');
-          console.log('/team <task> - Run a multi-agent team (bypasses LLM, calls orchestrator directly)');
-          console.log('/team --route=plan <task> - Use LLM to plan the task graph dynamically');
+          console.log('/team <task> - Run a multi-agent team (LLM plans DAG by default)');
+          console.log('/team --route=auto <task> - Use keyword-based routing instead of LLM planning');
           console.log('/save - Save current session explicitly');
           console.log('/exit - Exit the application');
           console.log('Esc (while processing) - Stop current response and accept next input');
