@@ -197,10 +197,19 @@ export class SubAgentPlugin implements EnginePlugin {
         const log = (msg: string) => process.stdout.write(`  \x1b[35m${tag}\x1b[0m ${msg}\n`);
         try {
           log(`Running: ${task.slice(0, 80)}${task.length > 80 ? '...' : ''}`);
+          const summarizeArgs = (args: any): string => {
+            if (!args || typeof args !== 'object') return '';
+            // Show the most informative field for common tools
+            const hint = args.file_path ?? args.path ?? args.pattern ?? args.command ?? args.query;
+            if (typeof hint === 'string') return ` ${hint.length > 60 ? hint.slice(0, 60) + '...' : hint}`;
+            return '';
+          };
+
           const result = await this.agentRunner.runAgent(config, task, taskContext, tools, {
             onToolCall: (toolCall) => {
               const name = toolCall?.toolName ?? toolCall?.name ?? 'tool';
-              log(`🔧 ${name}`);
+              const hint = summarizeArgs(toolCall?.args);
+              log(`🔧 ${name}${hint}`);
             },
             onToolResult: (toolResult) => {
               const name = (toolResult as any)?.toolName ?? (toolResult as any)?.name ?? 'tool';
