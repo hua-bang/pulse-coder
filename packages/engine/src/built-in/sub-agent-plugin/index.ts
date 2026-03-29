@@ -120,7 +120,12 @@ class AgentRunner {
     config: AgentConfig,
     task: string,
     context?: Record<string, any>,
-    tools?: Record<string, any>
+    tools?: Record<string, any>,
+    callbacks?: {
+      onText?: (delta: string) => void;
+      onToolCall?: (toolCall: any) => void;
+      onToolResult?: (toolResult: any) => void;
+    }
   ): Promise<string> {
     const subContext: Context = {
       messages: [
@@ -135,7 +140,13 @@ class AgentRunner {
       });
     }
 
-    return await loop(subContext, { tools, systemPrompt: config.systemPrompt });
+    return await loop(subContext, {
+      tools,
+      systemPrompt: config.systemPrompt,
+      onText: callbacks?.onText,
+      onToolCall: callbacks?.onToolCall,
+      onToolResult: callbacks?.onToolResult,
+    });
   }
 }
 
@@ -178,13 +189,24 @@ export class SubAgentPlugin implements EnginePlugin {
         // 延迟求值：在工具真正被调用时合并 builtin 工具与所有已注册插件工具，
         // 避免初始化阶段的静态快照导致后注册的插件工具缺失。
         const tools = { ...BuiltinToolsMap, ...context.getTools() };
+        const tag = `[agent:${config.name}]`;
+        const log = (msg: string) => process.stdout.write(`\x1b[35m${tag}\x1b[0m ${msg}\n`);
         try {
-          context.logger.info(`Running agent ${config.name}: ${task}`);
-          const result = await this.agentRunner.runAgent(config, task, taskContext, tools);
-          context.logger.info(`Agent ${config.name} completed successfully`);
+          log(`Running: ${task.slice(0, 80)}${task.length > 80 ? '...' : ''}`);
+          const result = await this.agentRunner.runAgent(config, task, taskContext, tools, {
+            onToolCall: (toolCall) => {
+              const name = toolCall?.toolName ?? toolCall?.name ?? 'tool';
+              log(`🔧 ${name}`);
+            },
+            onToolResult: (toolResult) => {
+              const name = (toolResult as any)?.toolName ?? (toolResult as any)?.name ?? 'tool';
+              log(`✅ ${name}`);
+            },
+          });
+          log('Done');
           return result;
         } catch (error) {
-          context.logger.error(`Agent ${config.name} failed`, error as Error);
+          log(`❌ Failed: ${error}`);
           throw new Error(`Agent ${config.name} failed: ${error}`);
         }
       }
