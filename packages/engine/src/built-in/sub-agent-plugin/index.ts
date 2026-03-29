@@ -6,6 +6,7 @@ import type { Context } from '../../shared/types.js';
 import { loop } from '../../core/loop';
 import { BuiltinToolsMap } from '../../tools';
 import type { Tool } from '../../shared/types';
+import { AGENT_BASE_RULES } from '../../prompt/agent-base';
 
 const DEFAULT_SUB_AGENT_MAX_STEPS = 30;
 
@@ -145,7 +146,7 @@ class AgentRunner {
 
     return await loop(subContext, {
       tools,
-      systemPrompt: config.systemPrompt,
+      systemPrompt: `${AGENT_BASE_RULES}\n\n${config.systemPrompt}`,
       maxSteps,
       onText: callbacks?.onText,
       onToolCall: callbacks?.onToolCall,
