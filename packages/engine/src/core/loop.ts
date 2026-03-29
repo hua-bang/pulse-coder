@@ -60,6 +60,40 @@ export interface LoopOptions {
   hooks?: LoopHooks;
 }
 
+/**
+ * Wraps read/ls tools to warn the model when it accesses the same path more than once.
+ * The seenPaths map persists for the lifetime of a single loop() call.
+ */
+function wrapToolsWithReadDedup(
+  tools: Record<string, Tool>,
+  seenPaths: Map<string, number>,
+): Record<string, Tool> {
+  const READ_TOOL_NAMES = new Set(['read', 'ls']);
+  const wrapped: Record<string, Tool> = {};
+  for (const [name, t] of Object.entries(tools)) {
+    if (!READ_TOOL_NAMES.has(name)) {
+      wrapped[name] = t;
+      continue;
+    }
+    wrapped[name] = {
+      ...t,
+      execute: async (input: any, ctx: any) => {
+        const pathKey = input?.filePath ?? input?.path ?? name;
+        const count = seenPaths.get(pathKey) ?? 0;
+        seenPaths.set(pathKey, count + 1);
+        const output = await t.execute(input, ctx);
+        if (count > 0) {
+          const note = `[You have already accessed "${pathKey}" ${count} time(s) in this session. Avoid redundant reads unless strictly necessary.]`;
+          if (typeof output === 'string') return `${output}\n${note}`;
+          if (output && typeof output === 'object') return { ...output, _note: note };
+        }
+        return output;
+      },
+    };
+  }
+  return wrapped;
+}
+
 /** Wraps tools so each execute() passes through beforeToolCall / afterToolCall hooks. */
 function wrapToolsWithHooks(
   tools: Record<string, Tool>,
@@ -176,6 +210,7 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
   let errorCount = 0;
   let totalSteps = 0;
   let compactionAttempts = 0;
+  const seenPaths = new Map<string, number>();
 
   const loopHooks = options?.hooks ?? {};
 
@@ -229,6 +264,9 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
           }
         }
       }
+
+      // Inject read/ls deduplication warnings
+      tools = wrapToolsWithReadDedup(tools, seenPaths);
 
       // Wrap tools with beforeToolCall / afterToolCall hooks
       const beforeToolHooks = loopHooks.beforeToolCall ?? [];

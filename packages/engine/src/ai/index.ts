@@ -7,6 +7,14 @@ import type { Tool as CoderTool, ToolExecutionContext, LLMProviderFactory, Syste
 
 const providerOptions = { openai: { store: false, reasoningEffort: OPENAI_REASONING_EFFORT } }
 
+const GPT_EXPLORATION_CONSTRAINT = `
+## File exploration discipline
+- Read only the files that are directly required for the current task. Do not speculatively explore the codebase.
+- Never read the same file more than once unless you have a specific reason to re-verify changed content.
+- Start acting as soon as you have sufficient context; do not keep exploring for completeness or reassurance.
+- Prefer targeted reads (specific file you know you need) over broad directory listings.
+`.trim();
+
 /** Resolve a SystemPromptOption into a final string. */
 const resolveSystemPrompt = (option: SystemPromptOption | undefined): string => {
   const base = generateSystemPrompt();
@@ -97,9 +105,10 @@ export const streamTextAI = (messages: ModelMessage[], tools: Record<string, Cod
     : messages;
 
   const baseSystemPrompt = resolveSystemPrompt(options?.systemPrompt);
+  const gptExtra = options?.modelType !== 'claude' ? `\n\n${GPT_EXPLORATION_CONSTRAINT}` : '';
   const finalSystemPrompt = extraSystemParts.length > 0
-    ? `${baseSystemPrompt}\n\n${extraSystemParts.join('\n\n')}`
-    : baseSystemPrompt;
+    ? `${baseSystemPrompt}${gptExtra}\n\n${extraSystemParts.join('\n\n')}`
+    : `${baseSystemPrompt}${gptExtra}`;
 
   return streamText({
     model: provider(model),
