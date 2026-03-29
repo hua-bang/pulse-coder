@@ -58,6 +58,9 @@ export interface LoopOptions {
 
   /** Engine hook arrays - managed by Engine, not by callers directly. */
   hooks?: LoopHooks;
+
+  /** Override the global MAX_STEPS for this loop invocation. */
+  maxSteps?: number;
 }
 
 /** Wraps tools so each execute() passes through beforeToolCall / afterToolCall hooks. */
@@ -372,7 +375,7 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
       }
 
       if (finishReason === 'tool-calls') {
-        if (totalSteps >= MAX_STEPS) {
+        if (totalSteps >= (options?.maxSteps ?? MAX_STEPS)) {
           return text || 'Max steps reached, task may be incomplete.';
         }
         continue;

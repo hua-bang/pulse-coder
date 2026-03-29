@@ -7,6 +7,8 @@ import { loop } from '../../core/loop';
 import { BuiltinToolsMap } from '../../tools';
 import type { Tool } from '../../shared/types';
 
+const DEFAULT_SUB_AGENT_MAX_STEPS = 30;
+
 interface AgentConfig {
   name: string;
   description: string;
@@ -125,7 +127,8 @@ class AgentRunner {
       onText?: (delta: string) => void;
       onToolCall?: (toolCall: any) => void;
       onToolResult?: (toolResult: any) => void;
-    }
+    },
+    maxSteps?: number,
   ): Promise<string> {
     const subContext: Context = {
       messages: [
@@ -143,6 +146,7 @@ class AgentRunner {
     return await loop(subContext, {
       tools,
       systemPrompt: config.systemPrompt,
+      maxSteps,
       onText: callbacks?.onText,
       onToolCall: callbacks?.onToolCall,
       onToolResult: callbacks?.onToolResult,
@@ -202,7 +206,7 @@ export class SubAgentPlugin implements EnginePlugin {
               const name = (toolResult as any)?.toolName ?? (toolResult as any)?.name ?? 'tool';
               log(`✅ ${name}`);
             },
-          });
+          }, DEFAULT_SUB_AGENT_MAX_STEPS);
           log('Done');
           return result;
         } catch (error) {
