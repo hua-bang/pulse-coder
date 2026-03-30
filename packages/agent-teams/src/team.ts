@@ -242,7 +242,7 @@ export class Team {
     timeoutMs: number,
   ): Promise<void> {
     let idleWaitCount = 0;
-    const maxIdleWaits = 30; // 30s of idle before giving up
+    const maxIdleWaits = 300; // 5min of true idle (no in-progress tasks) before giving up
 
     while (Date.now() - startTime < timeoutMs) {
       // Step 1: Process incoming messages
@@ -294,18 +294,25 @@ export class Team {
         }
 
         // Wait briefly and retry
-        idleWaitCount++;
         await new Promise(r => setTimeout(r, 1000));
 
         // Check again
         if (this.taskList.isAllDone()) break;
 
-        // No progress possible after extended wait
+        // No progress possible: nothing claimable and nothing in progress
         const claimable = this.taskList.getClaimable();
         const inProgress = this.taskList.getByStatus('in_progress');
         if (claimable.length === 0 && inProgress.length === 0) break;
 
-        // Give up after too many idle cycles
+        // If there are in-progress tasks that might unblock deps, reset idle counter —
+        // only count toward timeout when truly nothing is happening
+        if (inProgress.length > 0) {
+          idleWaitCount = 0;
+        } else {
+          idleWaitCount++;
+        }
+
+        // Give up after too many truly-idle cycles (no in-progress tasks)
         if (idleWaitCount >= maxIdleWaits) {
           this.emit({
             type: 'teammate:idle',
