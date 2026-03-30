@@ -8,6 +8,7 @@ const DEBOUNCE_MS = 300;
 
 let activeWatcher: FSWatcher | null = null;
 let activeWorkspaceId: string | null = null;
+let watchGeneration = 0;
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function sendToRenderer(channel: string, payload: unknown): void {
@@ -15,6 +16,7 @@ function sendToRenderer(channel: string, payload: unknown): void {
 }
 
 function stopWatcher(): void {
+  ++watchGeneration;
   if (activeWatcher) {
     activeWatcher.close();
     activeWatcher = null;
@@ -27,9 +29,15 @@ function stopWatcher(): void {
 function startWatcher(workspaceId: string): void {
   stopWatcher();
 
+  // Increment generation so stale async callbacks become no-ops
+  const gen = ++watchGeneration;
   const notesDir = join(STORE_DIR, workspaceId, 'notes');
 
   void fs.mkdir(notesDir, { recursive: true }).then(() => {
+    // Guard: if another startWatcher/stopWatcher call happened while we were
+    // awaiting mkdir, this callback is stale — bail out to avoid orphaned watchers.
+    if (gen !== watchGeneration) return;
+
     activeWorkspaceId = workspaceId;
 
     try {
