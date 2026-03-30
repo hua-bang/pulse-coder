@@ -113,15 +113,12 @@ async function runTeam(args: string[]) {
       concurrency,
       onPlan: async (plan) => {
         printPlan(plan);
-        printPhase(2, `Spawning ${plan.teammates.length} teammates`);
+        // Phase 2-5 are emitted by TeamLead via team:phase events
         return true;
       },
     });
 
-    // Phase 3 & 4 headers are shown by the display via events
-
-    // ── Synthesis ──
-    printPhase(5, 'Synthesis');
+    // ── Synthesis output ──
     console.log('');
     console.log(synthesis);
     console.log('');

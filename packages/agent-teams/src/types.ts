@@ -150,6 +150,7 @@ export type TeamEventType =
   | 'task:failed'
   | 'message:sent'
   | 'message:received'
+  | 'team:phase'
   | 'team:started'
   | 'team:completed'
   | 'team:cleanup';

@@ -522,7 +522,8 @@ export class Team {
     };
   }
 
-  private emit(event: TeamEvent): void {
+  /** Emit an event to all registered handlers. */
+  emit(event: TeamEvent): void {
     for (const handler of this.eventHandlers) {
       try {
         handler(event);

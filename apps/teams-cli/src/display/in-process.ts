@@ -224,7 +224,11 @@ export class InProcessDisplay {
         this.printProgressBar();
         break;
 
-      // ── Team lifecycle ────────────────────────────────────
+      // ── Phase & Team lifecycle ─────────────────────────────
+      case 'team:phase':
+        this.log(`\n  ${c.bold}${c.cyan}[${event.data.phase}]${c.reset} ${c.bold}${event.data.label}${c.reset}\n`);
+        break;
+
       case 'team:started':
         this.teamStartTime = event.timestamp;
         this.startTicker();
