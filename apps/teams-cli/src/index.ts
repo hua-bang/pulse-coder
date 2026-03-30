@@ -62,7 +62,22 @@ async function main() {
 
 async function runTeam(args: string[]) {
   const verbose = args.includes('--verbose') || args.includes('-v');
-  const filteredArgs = args.filter(a => a !== '--verbose' && a !== '-v');
+
+  // Parse --concurrency N
+  let concurrency = 0; // 0 = unlimited
+  const concIdx = args.indexOf('--concurrency');
+  if (concIdx !== -1 && args[concIdx + 1]) {
+    concurrency = parseInt(args[concIdx + 1], 10);
+    if (isNaN(concurrency) || concurrency < 1) {
+      console.error('Error: --concurrency must be a positive integer.');
+      process.exit(1);
+    }
+  }
+
+  const filteredArgs = args.filter((a, i) =>
+    a !== '--verbose' && a !== '-v' &&
+    a !== '--concurrency' && (concIdx === -1 || i !== concIdx + 1)
+  );
   const taskDescription = filteredArgs.join(' ');
 
   if (!taskDescription) {
@@ -88,13 +103,14 @@ async function runTeam(args: string[]) {
     await lead.initialize();
 
     // ── Header ──
-    printBanner(taskDescription);
+    printBanner(taskDescription, concurrency);
 
     // ── Phase 1: Plan ──
     printPhase(1, 'Planning');
     const runStart = Date.now();
 
     const { plan, synthesis } = await lead.orchestrate(taskDescription, {
+      concurrency,
       onPlan: async (plan) => {
         printPlan(plan);
         printPhase(2, `Spawning ${plan.teammates.length} teammates`);
@@ -345,10 +361,11 @@ async function interactiveMode() {
 
 // ─── Display helpers ──────────────────────────────────────────────
 
-function printBanner(task: string): void {
+function printBanner(task: string, concurrency?: number): void {
   console.log('');
   console.log(`${c.bold}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${c.reset}`);
-  console.log(`${c.bold}  Pulse Agent Teams${c.reset}`);
+  const concLabel = concurrency ? `${c.dim}  concurrency: ${concurrency}${c.reset}` : '';
+  console.log(`${c.bold}  Pulse Agent Teams${c.reset}${concLabel}`);
   console.log(`${c.bold}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${c.reset}`);
   console.log(`${c.dim}  ${task}${c.reset}`);
   console.log('');
@@ -398,10 +415,14 @@ ${c.dim}Usage:${c.reset}
   pulse-teams "<task>"           Shorthand for 'run'
   pulse-teams --help             Show this help
 
+${c.dim}Options:${c.reset}
+  --concurrency N                Max teammates running in parallel (default: all)
+  --verbose, -v                  Show LLM output from teammates
+
 ${c.dim}Examples:${c.reset}
   pulse-teams run "Review this codebase for security issues"
+  pulse-teams run "Audit the codebase" --concurrency 2
   pulse-teams plan "Refactor the auth module for testability"
-  pulse-teams "Investigate the login timeout bug from different angles"
 `);
 }
 

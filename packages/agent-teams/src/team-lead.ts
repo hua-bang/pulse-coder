@@ -103,6 +103,8 @@ export class TeamLead {
     options?: {
       onPlan?: (plan: Awaited<ReturnType<typeof planTeam>>) => Promise<boolean>;
       timeoutMs?: number;
+      /** Max teammates running concurrently (0 = unlimited). Useful for API RPM limits. */
+      concurrency?: number;
     },
   ): Promise<{ plan: Awaited<ReturnType<typeof planTeam>>; results: Record<string, string>; synthesis: string }> {
     // Phase 1: Plan
@@ -134,7 +136,10 @@ export class TeamLead {
 
     // Phase 4: Run
     this.logger.info('Phase 4: Running team...');
-    const { results, stats } = await this.team.run({ timeoutMs: options?.timeoutMs });
+    const { results, stats } = await this.team.run({
+      timeoutMs: options?.timeoutMs,
+      concurrency: options?.concurrency,
+    });
 
     // Phase 5: Synthesize
     this.logger.info('Phase 5: Synthesizing results...');

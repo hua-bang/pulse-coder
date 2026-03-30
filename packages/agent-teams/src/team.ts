@@ -201,26 +201,68 @@ export class Team {
    * 2. When a task completes, dependent tasks become unblocked
    * 3. Continues until all tasks are done or no progress can be made
    */
-  async run(options?: { timeoutMs?: number }): Promise<{ results: Record<string, string>; stats: ReturnType<TaskList['stats']> }> {
+  async run(options?: { timeoutMs?: number; concurrency?: number }): Promise<{ results: Record<string, string>; stats: ReturnType<TaskList['stats']> }> {
     this._status = 'running';
     this.emit({ type: 'team:started', timestamp: Date.now(), data: { name: this.name } });
 
     const timeoutMs = options?.timeoutMs || 30 * 60 * 1000; // 30min default
+    const concurrency = options?.concurrency || 0; // 0 = unlimited
     const startTime = Date.now();
     const results: Record<string, string> = {};
 
-    // Start all teammates running in parallel
-    const runners = Array.from(this.teammates.values()).map(teammate =>
-      this.runTeammateLoop(teammate, results, startTime, timeoutMs)
-    );
+    const allTeammates = Array.from(this.teammates.values());
 
-    await Promise.allSettled(runners);
+    if (concurrency > 0 && concurrency < allTeammates.length) {
+      // Run with concurrency limit using a pool
+      await this.runWithConcurrencyLimit(allTeammates, results, startTime, timeoutMs, concurrency);
+    } else {
+      // Unlimited: run all in parallel
+      const runners = allTeammates.map(teammate =>
+        this.runTeammateLoop(teammate, results, startTime, timeoutMs)
+      );
+      await Promise.allSettled(runners);
+    }
 
     const stats = this.taskList.stats();
     this._status = stats.failed > 0 ? 'failed' : 'completed';
 
     this.emit({ type: 'team:completed', timestamp: Date.now(), data: { stats } });
     return { results, stats };
+  }
+
+  /**
+   * Run teammate loops with a concurrency limit.
+   * At most `limit` teammates run simultaneously; when one finishes, the next starts.
+   */
+  private async runWithConcurrencyLimit(
+    teammates: Teammate[],
+    results: Record<string, string>,
+    startTime: number,
+    timeoutMs: number,
+    limit: number,
+  ): Promise<void> {
+    const queue = [...teammates];
+    const active = new Set<Promise<void>>();
+
+    const startNext = (): void => {
+      if (queue.length === 0) return;
+      const teammate = queue.shift()!;
+      const p = this.runTeammateLoop(teammate, results, startTime, timeoutMs).then(() => {
+        active.delete(p);
+      });
+      active.add(p);
+    };
+
+    // Fill initial pool
+    for (let i = 0; i < Math.min(limit, queue.length); i++) {
+      startNext();
+    }
+
+    // As each finishes, start the next
+    while (active.size > 0) {
+      await Promise.race(active);
+      startNext();
+    }
   }
 
   /**
