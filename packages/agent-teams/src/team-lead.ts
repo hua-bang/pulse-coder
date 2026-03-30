@@ -290,6 +290,12 @@ ${taskSummaries}
     try {
       const result = await this.engine.run(this.context, {
         systemPrompt: 'You are a team lead synthesizing results from your teammates. Be concise and structured.',
+        onCompacted: (newMessages) => {
+          this.context.messages = newMessages;
+        },
+        onResponse: (messages) => {
+          this.context.messages.push(...messages);
+        },
       });
       return result;
     } catch (err: any) {

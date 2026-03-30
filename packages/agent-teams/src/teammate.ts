@@ -121,18 +121,18 @@ export class Teammate {
           fullOutput += delta;
           this.onOutput?.(this.id, delta);
         },
+        onCompacted: (newMessages) => {
+          this.context.messages = newMessages;
+        },
+        onResponse: (messages) => {
+          this.context.messages.push(...messages);
+        },
       });
 
       // Use the result text (engine.run returns string)
       if (!fullOutput && resultText) {
         fullOutput = resultText;
       }
-
-      // Append assistant message to context for multi-turn
-      this.context.messages.push({
-        role: 'assistant',
-        content: fullOutput,
-      });
 
       this.setStatus('idle');
       return fullOutput;
