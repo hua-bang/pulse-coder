@@ -6,6 +6,13 @@ import { homedir } from 'os';
 const STORE_DIR = join(homedir(), '.pulse-coder', 'canvas');
 const DEBOUNCE_MS = 300;
 
+/**
+ * FileWatcher is currently disabled to diagnose canvas editing issues.
+ * Set to `true` to re-enable watching workspace notes directories for
+ * external file changes.
+ */
+const FILE_WATCHER_ENABLED = false;
+
 let activeWatcher: FSWatcher | null = null;
 let activeWorkspaceId: string | null = null;
 let watchGeneration = 0;
@@ -27,6 +34,11 @@ function stopWatcher(): void {
 }
 
 function startWatcher(workspaceId: string): void {
+  if (!FILE_WATCHER_ENABLED) {
+    activeWorkspaceId = workspaceId;
+    return;
+  }
+
   stopWatcher();
 
   // Increment generation so stale async callbacks become no-ops
