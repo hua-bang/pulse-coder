@@ -270,6 +270,9 @@ importers:
       pulse-coder-acp:
         specifier: workspace:*
         version: link:../acp
+      pulse-coder-agent-teams:
+        specifier: workspace:*
+        version: link:../agent-teams
       pulse-coder-engine:
         specifier: workspace:*
         version: link:../engine

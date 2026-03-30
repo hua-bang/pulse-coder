@@ -1,8 +1,7 @@
 import { createInterface } from 'node:readline';
 import { randomUUID } from 'node:crypto';
-import { Team, TeamLead } from 'pulse-coder-agent-teams';
+import { Team, TeamLead, InProcessDisplay } from 'pulse-coder-agent-teams';
 import type { TeamConfig, TeammateOptions, CreateTaskInput, TeamPlan } from 'pulse-coder-agent-teams';
-import { InProcessDisplay } from './display/in-process.js';
 
 // ─── ANSI Colors ──────────────────────────────────────────────────
 const c = {

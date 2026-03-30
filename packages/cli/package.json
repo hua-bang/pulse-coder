@@ -19,6 +19,7 @@
   ],
   "dependencies": {
     "pulse-coder-acp": "workspace:*",
+    "pulse-coder-agent-teams": "workspace:*",
     "pulse-coder-engine": "workspace:*",
     "pulse-coder-memory-plugin": "workspace:*",
     "pulse-coder-orchestrator": "workspace:*",

@@ -5,6 +5,8 @@ import type { Context, TaskListService } from 'pulse-coder-engine';
 import { generateTextAI } from 'pulse-coder-engine';
 import { getAcpState, runAcp } from 'pulse-coder-acp';
 import { Orchestrator, EngineAgentRunner } from 'pulse-coder-orchestrator';
+import { TeamLead, InProcessDisplay } from 'pulse-coder-agent-teams';
+import type { TeamPlan } from 'pulse-coder-agent-teams';
 import type { OrchestrationInput, OrchestratorLogger, TaskGraph, TeamRole } from 'pulse-coder-orchestrator';
 import { SessionCommands } from './session-commands.js';
 import { InputManager } from './input-manager.js';
@@ -30,6 +32,7 @@ const LOCAL_COMMANDS = new Set([
   'plan',
   'execute',
   'team',
+  'teams',
   'save',
   'exit',
 ]);
@@ -276,6 +279,96 @@ class CoderCLI {
     }
   }
 
+  async runAgentTeams(args: string[], rl: readline.Interface): Promise<void> {
+    // Parse --concurrency N
+    let concurrency = 0;
+    const concIdx = args.indexOf('--concurrency');
+    if (concIdx !== -1 && args[concIdx + 1]) {
+      concurrency = parseInt(args[concIdx + 1], 10);
+      if (isNaN(concurrency) || concurrency < 1) {
+        console.log('\n❌ --concurrency must be a positive integer');
+        return;
+      }
+    }
+
+    const verbose = args.includes('--verbose') || args.includes('-v');
+    const filteredArgs = args.filter((a, i) =>
+      a !== '--verbose' && a !== '-v' &&
+      a !== '--concurrency' && (concIdx === -1 || i !== concIdx + 1)
+    );
+    const task = filteredArgs.join(' ').trim();
+
+    if (!task) {
+      console.log('\n❌ Please provide a task description');
+      console.log('Usage: /teams <task> [--concurrency N] [--verbose]');
+      return;
+    }
+
+    const cyan = '\x1b[36m';
+    const bold = '\x1b[1m';
+    const dim = '\x1b[2m';
+    const reset = '\x1b[0m';
+
+    const lead = new TeamLead({
+      teamName: `team-${Date.now()}`,
+      logger: { debug() {}, info() {}, warn(m: string) { console.warn(m); }, error(m: string) { console.error(m); } },
+      defaultTeammateEngineOptions: { disableBuiltInPlugins: true },
+    });
+
+    const display = new InProcessDisplay(lead.team, { showOutput: verbose });
+    display.start();
+
+    try {
+      await lead.initialize();
+
+      console.log(`\n${bold}━━━ Agent Teams ━━━${reset}${concurrency ? `  ${dim}concurrency: ${concurrency}${reset}` : ''}`);
+      console.log(`${dim}  ${task}${reset}\n`);
+      console.log(`  ${bold}${cyan}[1]${reset} ${bold}Planning${reset}\n`);
+
+      const { synthesis } = await lead.orchestrate(task, {
+        concurrency,
+        onPlan: async (plan: TeamPlan) => {
+          // Print plan summary
+          console.log(`  ${dim}Teammates: ${plan.teammates.map(t => t.name).join(', ')}${reset}`);
+          console.log(`  ${dim}Tasks: ${plan.tasks.length}${reset}\n`);
+          return true;
+        },
+      });
+
+      console.log('\n' + synthesis + '\n');
+
+      // Follow-up loop
+      while (true) {
+        const input = await new Promise<string>((resolve) =>
+          rl.question(`\n${cyan}Follow-up (empty to exit):${reset} `, resolve)
+        );
+        const trimmed = input.trim();
+        if (!trimmed || trimmed === 'exit' || trimmed === 'quit') break;
+
+        try {
+          console.log(`\n  ${bold}${cyan}[1]${reset} ${bold}Planning follow-up${reset}\n`);
+          const { synthesis: followUpSynthesis } = await lead.followUp(trimmed, {
+            concurrency,
+            onPlan: async (plan: TeamPlan) => {
+              console.log(`  ${dim}Tasks: ${plan.tasks.length}${reset}\n`);
+              return true;
+            },
+          });
+          console.log('\n' + followUpSynthesis + '\n');
+        } catch (err: any) {
+          console.error(`\n❌ Follow-up failed: ${err.message}`);
+        }
+      }
+
+      await lead.team.cleanup();
+    } catch (err: any) {
+      console.error(`\n❌ Agent teams failed: ${err.message}`);
+      try { await lead.team.cleanup(); } catch { /* best effort */ }
+    } finally {
+      display.stop();
+    }
+  }
+
   private async handleCommand(command: string, args: string[]): Promise<void> {
     try {
       switch (command.toLowerCase()) {
@@ -299,6 +392,8 @@ class CoderCLI {
           console.log('/execute - Switch to executing mode');
           console.log('/team <task> - Run a multi-agent team (LLM plans DAG by default)');
           console.log('/team --route=auto <task> - Use keyword-based routing instead of LLM planning');
+          console.log('/teams <task> - Run agent teams (independent engines, parallel execution)');
+          console.log('/teams <task> --concurrency N - Limit parallel teammates');
           console.log('/save - Save current session explicitly');
           console.log('/exit - Exit the application');
           console.log('Esc (while processing) - Stop current response and accept next input');
@@ -643,6 +738,15 @@ class CoderCLI {
             isProcessing = true;
             try {
               await this.runTeam(args);
+            } finally {
+              isProcessing = false;
+              rl.prompt();
+            }
+            return;
+          } else if (normalizedCommand === 'teams') {
+            isProcessing = true;
+            try {
+              await this.runAgentTeams(args, rl);
             } finally {
               isProcessing = false;
               rl.prompt();

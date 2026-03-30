@@ -10,6 +10,9 @@ export { TaskList } from './task-list.js';
 export { planTeam, buildTeammateOptionsFromPlan } from './planner.js';
 export type { PlannerOptions, TeamPlan } from './planner.js';
 
+// Display
+export { InProcessDisplay } from './display/in-process.js';
+
 // Types
 export type {
   EngineOptions,
