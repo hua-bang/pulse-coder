@@ -15,25 +15,24 @@ export function buildTaskGraph(options: GraphBuildOptions): TaskGraph {
   const nodes: TaskNode[] = [];
 
   if (roles.includes('researcher')) {
-    nodes.push({ id: 'research', role: 'researcher', deps: [], input: task, optional: true });
+    nodes.push({ id: 'research', role: 'researcher', deps: [], input: `Research and analyze: ${task}`, optional: true });
   }
 
   const executeDeps = roles.includes('researcher') ? ['research'] : [];
   if (roles.includes('executor')) {
-    nodes.push({ id: 'execute', role: 'executor', deps: executeDeps, input: task });
+    nodes.push({ id: 'execute', role: 'executor', deps: executeDeps, input: `Implement changes: ${task}` });
   }
 
-  // reviewer / writer / tester 共同依赖 executor，互相并行
   const postExecuteDeps: string[] = roles.includes('executor') ? ['execute'] : executeDeps;
 
   if (roles.includes('reviewer')) {
-    nodes.push({ id: 'review', role: 'reviewer', deps: [...postExecuteDeps], input: task, optional: true });
+    nodes.push({ id: 'review', role: 'reviewer', deps: [...postExecuteDeps], input: `Review the changes made for: ${task}`, optional: true });
   }
   if (roles.includes('writer')) {
-    nodes.push({ id: 'write', role: 'writer', deps: [...postExecuteDeps], input: task, optional: true });
+    nodes.push({ id: 'write', role: 'writer', deps: [...postExecuteDeps], input: `Update documentation for: ${task}`, optional: true });
   }
   if (roles.includes('tester')) {
-    nodes.push({ id: 'test', role: 'tester', deps: [...postExecuteDeps], input: task, optional: true });
+    nodes.push({ id: 'test', role: 'tester', deps: [...postExecuteDeps], input: `Write and run tests for: ${task}`, optional: true });
   }
 
   return { nodes };
