@@ -5,7 +5,7 @@ import type { Context, TaskListService } from 'pulse-coder-engine';
 import { generateTextAI } from 'pulse-coder-engine';
 import { getAcpState, runAcp } from 'pulse-coder-acp';
 import { Orchestrator, EngineAgentRunner } from 'pulse-coder-orchestrator';
-import type { OrchestrationInput, OrchestratorLogger, TaskGraph, TeamRole } from 'pulse-coder-orchestrator';
+import type { OrchestrationInput, OrchestratorLogger, TaskGraph, TeamRole, NodeStateEvent } from 'pulse-coder-orchestrator';
 import { SessionCommands } from './session-commands.js';
 import { InputManager } from './input-manager.js';
 import { SkillCommands } from './skill-commands.js';
@@ -137,7 +137,7 @@ class CoderCLI {
     }
   }
 
-  private createOrchestrator(activeNodes: Set<string>): Orchestrator {
+  private createOrchestrator(taskList: Map<string, { role: string; input?: string; state: string; durationMs?: number }>): Orchestrator {
     const runner = new EngineAgentRunner(() => this.agent.getTools());
 
     const llmCall = async (systemPrompt: string, userPrompt: string): Promise<string> => {
@@ -154,50 +154,80 @@ class CoderCLI {
     const red = '\x1b[31m';
     const reset = '\x1b[0m';
 
+    const stateIcons: Record<string, string> = {
+      pending: '○',
+      running: '◉',
+      success: '✓',
+      failed: '✗',
+      skipped: '⊘',
+    };
+
+    const stateColors: Record<string, string> = {
+      pending: '\x1b[2m',    // dim
+      running: '\x1b[36m',   // cyan
+      success: '\x1b[32m',   // green
+      failed: '\x1b[31m',    // red
+      skipped: '\x1b[33m',   // yellow
+    };
+
+    const printTaskList = () => {
+      const counts = { pending: 0, running: 0, success: 0, failed: 0, skipped: 0 } as Record<string, number>;
+      for (const t of taskList.values()) counts[t.state] = (counts[t.state] ?? 0) + 1;
+
+      const parts: string[] = [];
+      if (counts.success) parts.push(`\x1b[32m${counts.success} done${reset}`);
+      if (counts.running) parts.push(`\x1b[36m${counts.running} running${reset}`);
+      if (counts.pending) parts.push(`\x1b[2m${counts.pending} pending${reset}`);
+      if (counts.failed) parts.push(`\x1b[31m${counts.failed} failed${reset}`);
+      if (counts.skipped) parts.push(`\x1b[33m${counts.skipped} skipped${reset}`);
+
+      console.log(`\n${cyan}[orchestrator]${reset} Task List [${parts.join(' | ')}]`);
+      for (const [id, t] of taskList) {
+        const icon = stateIcons[t.state] ?? '?';
+        const color = stateColors[t.state] ?? '';
+        const dur = t.durationMs != null ? ` ${(t.durationMs / 1000).toFixed(1)}s` : '';
+        const desc = t.input ? ` — ${t.input.length > 60 ? t.input.slice(0, 60) + '...' : t.input}` : '';
+        console.log(`  ${color}${icon} ${id}${reset} (${t.role})${dur}${desc}`);
+      }
+    };
+
     const logger: OrchestratorLogger = {
       debug: () => {},
-      info: (msg) => {
-        // Track active nodes for heartbeat display
-        const startMatch = msg.match(/^Starting: (\S+)/);
-        if (startMatch) activeNodes.add(startMatch[1]);
-        const doneMatch = msg.match(/^Node (\S+)/);
-        if (doneMatch) activeNodes.delete(doneMatch[1]);
-
-        console.log(`${cyan}[orchestrator]${reset} ${msg}`);
-      },
+      info: (msg) => console.log(`${cyan}[orchestrator]${reset} ${msg}`),
       warn: (msg) => console.warn(`${yellow}[orchestrator]${reset} ${msg}`),
       error: (msg) => console.error(`${red}[orchestrator]${reset} ${msg}`),
       onGraphReady: (graph: TaskGraph, roles: TeamRole[]) => {
-        const dim = '\x1b[2m';
         const bold = '\x1b[1m';
-        const rst = '\x1b[0m';
+        const dim = '\x1b[2m';
 
-        console.log(`\n${cyan}[orchestrator]${rst} ${bold}Execution Plan${rst}`);
-        console.log(`${cyan}[orchestrator]${rst} Roles: ${roles.join(', ')}`);
-        console.log(`${cyan}[orchestrator]${rst} Nodes:`);
-
-        // Build adjacency for display
+        // Populate task list from graph
         for (const node of graph.nodes) {
-          const deps = node.deps.length > 0 ? ` (after: ${node.deps.join(', ')})` : ' (start)';
-          const opt = node.optional ? ` ${dim}[optional]${rst}` : '';
-          const input = node.input ? `\n${cyan}[orchestrator]${rst}   task: ${dim}${node.input.length > 80 ? node.input.slice(0, 80) + '...' : node.input}${rst}` : '';
-          console.log(`${cyan}[orchestrator]${rst}   - ${bold}${node.id}${rst} (${node.role})${deps}${opt}${input}`);
+          taskList.set(node.id, { role: node.role, input: node.input, state: 'pending' });
         }
 
-        // Show DAG flow as a simple arrow chain
+        // Show DAG flow
         const layers: string[][] = [];
         const placed = new Set<string>();
-        const nodeMap = new Map(graph.nodes.map(n => [n.id, n]));
         while (placed.size < graph.nodes.length) {
           const layer = graph.nodes
             .filter(n => !placed.has(n.id) && n.deps.every(d => placed.has(d)))
             .map(n => n.id);
-          if (layer.length === 0) break; // safety: avoid infinite loop on cycles
+          if (layer.length === 0) break;
           layers.push(layer);
           layer.forEach(id => placed.add(id));
         }
         const flow = layers.map(l => l.length === 1 ? l[0] : `[${l.join(' | ')}]`).join(' → ');
-        console.log(`${cyan}[orchestrator]${rst} Flow: ${flow}\n`);
+
+        console.log(`\n${cyan}[orchestrator]${reset} ${bold}Execution Plan${reset}`);
+        console.log(`${cyan}[orchestrator]${reset} Flow: ${flow}`);
+        printTaskList();
+        console.log('');
+      },
+      onNodeStateChange: (event: NodeStateEvent) => {
+        const t = taskList.get(event.nodeId);
+        if (t) t.state = event.state;
+        // Print updated task list on every state change
+        printTaskList();
       },
     };
 
@@ -230,23 +260,13 @@ class CoderCLI {
     }
 
     const cyan = '\x1b[36m';
-    const dim = '\x1b[2m';
     const reset = '\x1b[0m';
 
     console.log(`\n${cyan}[orchestrator]${reset} Starting team run...`);
 
-    const activeNodes = new Set<string>();
-    const orchestrator = this.createOrchestrator(activeNodes);
+    const taskList = new Map<string, { role: string; input?: string; state: string; durationMs?: number }>();
+    const orchestrator = this.createOrchestrator(taskList);
     const startTime = Date.now();
-
-    // Heartbeat: show elapsed time + active nodes every 5 seconds
-    const heartbeat = setInterval(() => {
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
-      const active = activeNodes.size > 0
-        ? ` running: ${Array.from(activeNodes).join(', ')}`
-        : '';
-      process.stdout.write(`${dim}[orchestrator] ${elapsed}s elapsed${active}${reset}\n`);
-    }, 5000);
 
     try {
       const result = await orchestrator.run({
@@ -254,24 +274,19 @@ class CoderCLI {
         ...(route ? { route } : {}),
       });
 
-      clearInterval(heartbeat);
-
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(`\n${cyan}[orchestrator]${reset} Completed in ${elapsed}s — ${result.roles.length} roles, ${result.graph.nodes.length} nodes`);
-
-      // Print per-node summary
+      // Update task list with final durations
       for (const node of result.graph.nodes) {
         const nr = result.results[node.id];
-        if (!nr) continue;
-        const icon = nr.status === 'success' ? '✓' : nr.status === 'skipped' ? '⊘' : '✗';
-        const dur = (nr.durationMs / 1000).toFixed(1);
-        console.log(`  ${icon} ${node.id} (${node.role}) ${nr.status} [${dur}s]`);
+        const t = taskList.get(node.id);
+        if (nr && t) t.durationMs = nr.durationMs;
       }
+
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`\n${cyan}[orchestrator]${reset} Completed in ${elapsed}s`);
 
       // Print aggregated output
       console.log('\n' + result.aggregate);
     } catch (error: any) {
-      clearInterval(heartbeat);
       console.error(`\n${cyan}[orchestrator]${reset} Error: ${error.message}`);
     }
   }

@@ -15,6 +15,18 @@ export interface AgentRunner {
   getAvailableAgents(): string[];
 }
 
+export type NodeState = 'pending' | 'running' | 'success' | 'failed' | 'skipped';
+
+export interface NodeStateEvent {
+  nodeId: string;
+  role: string;
+  state: NodeState;
+  /** Total nodes in the graph */
+  total: number;
+  /** Counts per state */
+  counts: Record<NodeState, number>;
+}
+
 export interface OrchestratorLogger {
   debug(message: string, meta?: any): void;
   info(message: string, meta?: any): void;
@@ -22,6 +34,8 @@ export interface OrchestratorLogger {
   error(message: string, error?: Error, meta?: any): void;
   /** Called after graph is built and validated, before execution starts */
   onGraphReady?(graph: import('./types').TaskGraph, roles: import('./types').TeamRole[]): void;
+  /** Called whenever a node changes state */
+  onNodeStateChange?(event: NodeStateEvent): void;
 }
 
 export const defaultLogger: OrchestratorLogger = {

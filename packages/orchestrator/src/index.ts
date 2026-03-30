@@ -12,7 +12,7 @@ export type {
   OrchestrationResult,
 } from './types';
 
-export type { AgentRunner, AgentRunInput, OrchestratorLogger } from './runner';
+export type { AgentRunner, AgentRunInput, OrchestratorLogger, NodeState, NodeStateEvent } from './runner';
 export { defaultLogger } from './runner';
 
 export type { ArtifactStore } from './artifact-store';

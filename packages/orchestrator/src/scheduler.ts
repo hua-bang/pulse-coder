@@ -1,5 +1,5 @@
 import type { NodeResult, TaskGraph, TaskNode } from './types';
-import type { AgentRunner, OrchestratorLogger } from './runner';
+import type { AgentRunner, OrchestratorLogger, NodeState } from './runner';
 import type { ArtifactStore } from './artifact-store';
 
 export interface ScheduleOptions {
@@ -25,9 +25,27 @@ export async function runTaskGraph(options: ScheduleOptions): Promise<Record<str
 
   const pending = new Set(nodes.map(n => n.id));
   const inFlight = new Map<string, Promise<void>>();
-  const resolved = new Set<string>();  // completed or skipped-optional — downstream can proceed
-  const hardFailed = new Set<string>(); // non-optional failures — blocks dependents
+  const resolved = new Set<string>();
+  const hardFailed = new Set<string>();
   const nodeById = new Map(nodes.map(n => [n.id, n]));
+
+  // State tracking for task list
+  const nodeStates = new Map<string, NodeState>();
+  for (const n of nodes) nodeStates.set(n.id, 'pending');
+
+  const emitState = (nodeId: string, state: NodeState) => {
+    nodeStates.set(nodeId, state);
+    const counts: Record<NodeState, number> = { pending: 0, running: 0, success: 0, failed: 0, skipped: 0 };
+    for (const s of nodeStates.values()) counts[s]++;
+    const node = nodeById.get(nodeId);
+    logger.onNodeStateChange?.({
+      nodeId,
+      role: node?.role ?? '',
+      state,
+      total: nodes.length,
+      counts,
+    });
+  };
 
   const canRun = (node: TaskNode) =>
     node.deps.every(dep => resolved.has(dep));
@@ -37,6 +55,7 @@ export async function runTaskGraph(options: ScheduleOptions): Promise<Record<str
     results[node.id] = { nodeId: node.id, role: node.role, status: 'skipped', attempts: 0, startedAt: now, endedAt: now, durationMs: 0, skippedReason: reason };
     pending.delete(node.id);
     resolved.add(node.id);
+    emitState(node.id, 'skipped');
   };
 
   const runNode = async (node: TaskNode) => {
@@ -47,16 +66,24 @@ export async function runTaskGraph(options: ScheduleOptions): Promise<Record<str
     const agentName = node.agent ?? roleAgents[node.role];
     if (!agentName) {
       const reason = `Missing agent for role ${node.role}`;
-      result.status = node.optional ? 'skipped' : 'failed';
       result.error = reason;
-      result.skippedReason = node.optional ? reason : undefined;
       result.endedAt = Date.now();
       result.durationMs = result.endedAt - result.startedAt;
+      if (node.optional) {
+        result.status = 'skipped';
+        result.skippedReason = reason;
+        resolved.add(node.id);
+        emitState(node.id, 'skipped');
+      } else {
+        result.status = 'failed';
+        hardFailed.add(node.id);
+        emitState(node.id, 'failed');
+      }
       results[node.id] = result;
-      if (result.status === 'failed') failed.add(node.id);
       return;
     }
 
+    emitState(node.id, 'running');
     logger.info(`Starting: ${node.id} (${node.role}) → ${agentName}`);
 
     // Collect upstream results — inline the output so the agent doesn't need to read files
@@ -101,6 +128,7 @@ export async function runTaskGraph(options: ScheduleOptions): Promise<Record<str
         }
 
         resolved.add(node.id);
+        emitState(node.id, 'success');
         logger.info(`Node ${node.id} (${node.role}) completed in ${result.durationMs}ms`);
         return;
       } catch (err) {
@@ -116,11 +144,13 @@ export async function runTaskGraph(options: ScheduleOptions): Promise<Record<str
     if (node.optional) {
       result.status = 'skipped';
       result.skippedReason = msg;
-      resolved.add(node.id);  // optional failure does not block downstream
+      resolved.add(node.id);
+      emitState(node.id, 'skipped');
       logger.warn(`Node ${node.id} (${node.role}) failed (optional, skipped): ${msg}`);
     } else {
       result.status = 'failed';
       hardFailed.add(node.id);
+      emitState(node.id, 'failed');
       logger.error(`Node ${node.id} (${node.role}) failed: ${msg}`);
     }
     results[node.id] = result;
@@ -133,7 +163,6 @@ export async function runTaskGraph(options: ScheduleOptions): Promise<Record<str
 
     if (runnable.length === 0) {
       if (inFlight.size > 0) {
-        // Wait for in-flight nodes to finish — they may unblock pending nodes
         await Promise.race(inFlight.values());
         continue;
       }
