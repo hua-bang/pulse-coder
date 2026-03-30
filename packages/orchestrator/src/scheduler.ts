@@ -112,13 +112,23 @@ export async function runTaskGraph(options: ScheduleOptions): Promise<Record<str
         ).join('\n\n') + '\n--- End of upstream results ---\n\nUse the upstream results above to inform your work.'
       : '';
 
-    const tasksNote = artifactStore
-      ? `\n\n--- Team progress ---\nTo check overall team progress, read: ${artifactStore.getTasksPath(runId)}\n--- End of team progress ---`
-      : '';
+    const teamContext = [
+      `\n\n--- Team context ---`,
+      `You are node **${node.id}** (role: ${node.role}) in a multi-agent team.`,
+      `Overall task: ${task}`,
+      node.deps.length > 0
+        ? `Your dependencies: ${node.deps.join(', ')} (completed before you started).`
+        : `You have no dependencies — you are a starting node.`,
+      artifactStore
+        ? `Team progress file: ${artifactStore.getTasksPath(runId)} (read this to see status of all nodes).`
+        : '',
+      `When you are done, output your results following your Output format. The orchestrator will mark your task as complete.`,
+      `--- End of team context ---`,
+    ].filter(Boolean).join('\n');
 
     const taskInput = node.instruction
-      ? `${node.instruction}\n\n${node.input ?? task}${depNote}${tasksNote}`
-      : `${node.input ?? task}${depNote}${tasksNote}`;
+      ? `${node.instruction}\n\n${node.input ?? task}${depNote}${teamContext}`
+      : `${node.input ?? task}${depNote}${teamContext}`;
 
     const runOnce = async () => {
       result.attempts += 1;
