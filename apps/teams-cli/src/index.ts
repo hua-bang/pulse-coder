@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline';
 import { randomUUID } from 'node:crypto';
-import { Team } from 'pulse-coder-agent-teams';
-import type { TeamConfig, TeammateOptions, CreateTaskInput } from 'pulse-coder-agent-teams';
+import { Team, TeamLead } from 'pulse-coder-agent-teams';
+import type { TeamConfig, TeammateOptions, CreateTaskInput, TeamPlan } from 'pulse-coder-agent-teams';
 import { InProcessDisplay } from './display/in-process.js';
 
 // ─── Logger ────────────────────────────────────────────────────────
@@ -28,6 +28,9 @@ async function main() {
     case 'run':
       await runTeam(args.slice(1));
       break;
+    case 'plan':
+      await planOnly(args.slice(1));
+      break;
     case 'interactive':
       await interactiveMode();
       break;
@@ -38,10 +41,11 @@ async function main() {
   }
 }
 
+// ─── Run mode (TeamLead automated flow) ────────────────────────────
+
 /**
- * Run a team with auto-configured teammates based on the task.
- *
- * Usage: pulse-teams run "Review PR #142 from security, performance, and test coverage angles"
+ * Run a team with TeamLead orchestrating.
+ * Flow: LLM plans → confirm → spawn → execute → synthesize
  */
 async function runTeam(args: string[]) {
   const taskDescription = args.join(' ');
@@ -52,44 +56,65 @@ async function runTeam(args: string[]) {
   }
 
   const teamName = `team-${Date.now()}`;
-  const team = new Team({ name: teamName, logger });
-  const display = new InProcessDisplay(team);
+  const lead = new TeamLead({
+    teamName,
+    logger,
+    defaultTeammateEngineOptions: { disableBuiltInPlugins: true },
+  });
+
+  const display = new InProcessDisplay(lead.team);
   display.start();
 
   try {
-    // Parse teammate hints from the task description or use defaults
-    const teammates = parseTeammateHints(taskDescription);
+    await lead.initialize();
 
-    console.log(`\nSpawning ${teammates.length} teammates...\n`);
+    const { plan, synthesis } = await lead.orchestrate(taskDescription, {
+      onPlan: async (plan) => {
+        printPlan(plan);
+        // Auto-approve in non-interactive mode
+        return true;
+      },
+    });
 
-    // Spawn teammates
-    await team.spawnTeammates(teammates);
+    console.log('\n' + '='.repeat(60));
+    console.log('  Synthesis');
+    console.log('='.repeat(60));
+    console.log(synthesis);
 
-    // Create a single top-level task that the lead would normally break down
-    // In a full implementation, the lead Engine would analyze and create sub-tasks
-    await team.createTasks([{
-      title: 'Complete assigned task',
-      description: taskDescription,
-    }]);
-
-    // Run the team
-    const { stats } = await team.run();
-
-    console.log(`\nTeam run finished. ${stats.completed}/${stats.total} tasks completed.`);
-
-    // Cleanup
-    await team.cleanup();
+    await lead.team.shutdownAll();
+    await lead.team.cleanup();
   } catch (err: any) {
     console.error(`\nTeam run failed: ${err.message}`);
-    try { await team.cleanup(); } catch { /* best effort */ }
+    try { await lead.team.shutdownAll(); await lead.team.cleanup(); } catch { /* best effort */ }
     process.exit(1);
   } finally {
     display.stop();
   }
 }
 
+// ─── Plan-only mode ────────────────────────────────────────────────
+
 /**
- * Interactive mode: create a team and manage it via REPL.
+ * Just plan, don't execute. Show the plan for review.
+ */
+async function planOnly(args: string[]) {
+  const taskDescription = args.join(' ');
+  if (!taskDescription) {
+    console.error('Error: Please provide a task description.');
+    process.exit(1);
+  }
+
+  const { planTeam } = await import('pulse-coder-agent-teams');
+
+  console.log('Planning team structure...\n');
+  const plan = await planTeam(taskDescription, { logger });
+  printPlan(plan);
+}
+
+// ─── Interactive mode ──────────────────────────────────────────────
+
+/**
+ * Interactive REPL with TeamLead support.
  */
 async function interactiveMode() {
   const rl = createInterface({
@@ -99,6 +124,7 @@ async function interactiveMode() {
   });
 
   let team: Team | null = null;
+  let lead: TeamLead | null = null;
   let display: InProcessDisplay | null = null;
 
   console.log('Pulse Agent Teams — Interactive Mode');
@@ -115,10 +141,16 @@ async function interactiveMode() {
       switch (cmd) {
         case 'create': {
           const name = rest || `team-${Date.now()}`;
-          team = new Team({ name, logger });
+          lead = new TeamLead({
+            teamName: name,
+            logger,
+            defaultTeammateEngineOptions: { disableBuiltInPlugins: true },
+          });
+          await lead.initialize();
+          team = lead.team;
           display = new InProcessDisplay(team);
           display.start();
-          console.log(`Team "${name}" created.`);
+          console.log(`Team "${name}" created with TeamLead.`);
           break;
         }
 
@@ -126,8 +158,32 @@ async function interactiveMode() {
           if (!team) { console.log('Create a team first: create <name>'); break; }
           const name = rest || `teammate-${team.members.length + 1}`;
           const id = randomUUID().slice(0, 8);
-          await team.spawnTeammate({ id, name, logger });
+          await team.spawnTeammate({ id, name, logger, engineOptions: { disableBuiltInPlugins: true } });
           console.log(`Spawned teammate: ${name} (${id})`);
+          break;
+        }
+
+        case 'plan': {
+          if (!rest) { console.log('Usage: plan <task description>'); break; }
+          const { planTeam } = await import('pulse-coder-agent-teams');
+          console.log('Planning...');
+          const plan = await planTeam(rest, { logger });
+          printPlan(plan);
+          break;
+        }
+
+        case 'orchestrate': {
+          if (!lead) { console.log('Create a team first: create <name>'); break; }
+          if (!rest) { console.log('Usage: orchestrate <task description>'); break; }
+          console.log('Orchestrating...');
+          const { synthesis } = await lead.orchestrate(rest, {
+            onPlan: async (plan) => {
+              printPlan(plan);
+              return true;
+            },
+          });
+          console.log('\n--- Synthesis ---');
+          console.log(synthesis);
           break;
         }
 
@@ -163,26 +219,62 @@ async function interactiveMode() {
           const tasks = team.getTaskList().getAll();
           if (tasks.length === 0) { console.log('No tasks.'); break; }
           for (const t of tasks) {
-            console.log(`  [${t.status}] ${t.title} (${t.id.slice(0, 8)}) → ${t.assignee || 'unassigned'}`);
+            const deps = t.deps.length > 0 ? ` (deps: ${t.deps.map(d => d.slice(0, 8)).join(', ')})` : '';
+            console.log(`  [${t.status}] ${t.title} (${t.id.slice(0, 8)}) -> ${t.assignee || 'unassigned'}${deps}`);
           }
           break;
         }
 
         case 'message': {
-          if (!team) { console.log('No active team.'); break; }
+          if (!lead) { console.log('No active team.'); break; }
           const [toId, ...msgParts] = rest.split(' ');
-          const mate = team.getTeammate(toId);
-          if (!mate) { console.log(`Teammate '${toId}' not found.`); break; }
-          mate.sendMessage(toId, msgParts.join(' '));
+          lead.sendMessage(toId, msgParts.join(' '));
           console.log(`Message sent to ${toId}.`);
+          break;
+        }
+
+        case 'broadcast': {
+          if (!lead) { console.log('No active team.'); break; }
+          lead.broadcast(rest);
+          console.log('Broadcast sent.');
+          break;
+        }
+
+        case 'inbox': {
+          if (!lead) { console.log('No active team.'); break; }
+          const msgs = lead.readMessages();
+          if (msgs.length === 0) { console.log('No unread messages.'); break; }
+          for (const m of msgs) {
+            console.log(`  [from: ${m.from}] (${m.type}) ${m.content}`);
+          }
+          break;
+        }
+
+        case 'approve': {
+          if (!lead) { console.log('No active team.'); break; }
+          const [mateId] = rest.split(' ');
+          if (!mateId) { console.log('Usage: approve <teammate-id>'); break; }
+          lead.approvePlan(mateId);
+          console.log(`Plan approved for ${mateId}.`);
+          break;
+        }
+
+        case 'reject': {
+          if (!lead) { console.log('No active team.'); break; }
+          const [rejId, ...feedbackParts] = rest.split(' ');
+          if (!rejId) { console.log('Usage: reject <teammate-id> <feedback>'); break; }
+          lead.rejectPlan(rejId, feedbackParts.join(' ') || 'Please revise.');
+          console.log(`Plan rejected for ${rejId}.`);
           break;
         }
 
         case 'cleanup': {
           if (!team) { console.log('No active team.'); break; }
+          await team.shutdownAll();
           await team.cleanup();
           display?.stop();
           team = null;
+          lead = null;
           display = null;
           console.log('Team cleaned up.');
           break;
@@ -195,7 +287,7 @@ async function interactiveMode() {
         case 'exit':
         case 'quit':
           if (team) {
-            try { await team.cleanup(); } catch { /* best effort */ }
+            try { await team.shutdownAll(); await team.cleanup(); } catch { /* best effort */ }
           }
           display?.stop();
           rl.close();
@@ -219,61 +311,20 @@ async function interactiveMode() {
 
 // ─── Helpers ───────────────────────────────────────────────────────
 
-/**
- * Parse teammate configuration hints from the task description.
- * Falls back to a default 3-teammate setup.
- */
-function parseTeammateHints(task: string): TeammateOptions[] {
-  const lower = task.toLowerCase();
-  const teammates: TeammateOptions[] = [];
-
-  // Try to detect role hints
-  const roleKeywords: Record<string, string[]> = {
-    'security-reviewer': ['security', 'vulnerability', 'auth'],
-    'performance-reviewer': ['performance', 'speed', 'optimize', 'latency'],
-    'test-reviewer': ['test', 'coverage', 'spec'],
-    'researcher': ['research', 'investigate', 'explore', 'analyze'],
-    'implementer': ['implement', 'build', 'create', 'develop', 'write'],
-    'architect': ['architecture', 'design', 'refactor', 'structure'],
-    'debugger': ['debug', 'bug', 'fix', 'error', 'issue'],
-  };
-
-  for (const [role, keywords] of Object.entries(roleKeywords)) {
-    if (keywords.some(kw => lower.includes(kw))) {
-      teammates.push({
-        id: randomUUID().slice(0, 8),
-        name: role,
-        spawnPrompt: `You are a ${role}. Focus on ${keywords.join(', ')} aspects of the task.`,
-        logger,
-      });
-    }
+function printPlan(plan: TeamPlan): void {
+  console.log('\n--- Team Plan ---');
+  console.log(`\nTeammates (${plan.teammates.length}):`);
+  for (const t of plan.teammates) {
+    console.log(`  - ${t.name}: ${t.role}${t.model ? ` [model: ${t.model}]` : ''}`);
   }
-
-  // If no specific roles detected, use a default team
-  if (teammates.length === 0) {
-    teammates.push(
-      {
-        id: randomUUID().slice(0, 8),
-        name: 'researcher',
-        spawnPrompt: 'You are a researcher. Investigate the problem space, gather context, and report findings.',
-        logger,
-      },
-      {
-        id: randomUUID().slice(0, 8),
-        name: 'implementer',
-        spawnPrompt: 'You are an implementer. Write code and implement solutions based on the task requirements.',
-        logger,
-      },
-      {
-        id: randomUUID().slice(0, 8),
-        name: 'reviewer',
-        spawnPrompt: 'You are a reviewer. Review work done by other teammates for correctness, quality, and completeness.',
-        logger,
-      },
-    );
+  console.log(`\nTasks (${plan.tasks.length}):`);
+  for (const t of plan.tasks) {
+    const deps = t.depNames?.length ? ` (after: ${t.depNames.join(', ')})` : '';
+    const assign = t.assignTo ? ` -> ${t.assignTo}` : '';
+    console.log(`  - ${t.title}${assign}${deps}`);
+    console.log(`    ${t.description.slice(0, 100)}${t.description.length > 100 ? '...' : ''}`);
   }
-
-  return teammates;
+  console.log('');
 }
 
 function printUsage(): void {
@@ -281,13 +332,15 @@ function printUsage(): void {
 Pulse Agent Teams CLI
 
 Usage:
-  pulse-teams run "<task>"     Run a team with auto-configured teammates
-  pulse-teams interactive      Start interactive team management REPL
-  pulse-teams "<task>"         Shorthand for 'run'
-  pulse-teams --help           Show this help
+  pulse-teams run "<task>"       Run a team with LLM-driven planning & execution
+  pulse-teams plan "<task>"      Plan only (show team structure, don't execute)
+  pulse-teams interactive        Start interactive team management REPL
+  pulse-teams "<task>"           Shorthand for 'run'
+  pulse-teams --help             Show this help
 
 Examples:
   pulse-teams run "Review PR #142 from security, performance, and test angles"
+  pulse-teams plan "Refactor the auth module for better testability"
   pulse-teams "Investigate the login timeout bug from different angles"
   pulse-teams interactive
 `);
@@ -295,17 +348,33 @@ Examples:
 
 function printInteractiveHelp(): void {
   console.log(`
-Commands:
-  create [name]              Create a new team
-  spawn [name]               Spawn a teammate
-  task <description>         Create a task
-  run                        Run the team (execute all tasks)
-  status                     Show team status
-  tasks                      List all tasks
-  message <id> <text>        Send a message to a teammate
-  cleanup                    Clean up the team
-  help                       Show this help
-  exit                       Exit
+Team Management:
+  create [name]                Create a new team with TeamLead
+  spawn [name]                 Spawn a teammate
+  cleanup                      Clean up the team
+
+Planning & Execution:
+  plan <description>           Generate a plan (preview only)
+  orchestrate <description>    Full flow: plan -> spawn -> execute -> synthesize
+  task <description>           Create a manual task
+  run                          Run the team (execute all tasks)
+
+Communication:
+  message <id> <text>          Send a message to a teammate
+  broadcast <text>             Broadcast to all teammates
+  inbox                        Read messages sent to the lead
+
+Plan Approval:
+  approve <teammate-id>        Approve a teammate's plan
+  reject <id> <feedback>       Reject with feedback
+
+Status:
+  status                       Show team status
+  tasks                        List all tasks
+
+General:
+  help                         Show this help
+  exit                         Exit
 `);
 }
 

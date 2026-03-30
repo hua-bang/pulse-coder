@@ -226,6 +226,14 @@ export class Team {
 
   /**
    * Internal loop for a single teammate: claim tasks, execute, repeat.
+   *
+   * Flow:
+   * 1. Process incoming messages (shutdown, plan approval, etc.)
+   * 2. If in plan mode, wait for approval before proceeding
+   * 3. Claim next available task
+   * 4. Execute the task
+   * 5. Auto-complete if the teammate didn't mark it via tool
+   * 6. Repeat
    */
   private async runTeammateLoop(
     teammate: Teammate,
@@ -233,16 +241,43 @@ export class Team {
     startTime: number,
     timeoutMs: number,
   ): Promise<void> {
+    let idleWaitCount = 0;
+    const maxIdleWaits = 30; // 30s of idle before giving up
+
     while (Date.now() - startTime < timeoutMs) {
-      // Check for unread messages first
+      // Step 1: Process incoming messages
       const messages = teammate.readMessages();
       for (const msg of messages) {
         if (msg.type === 'shutdown_request') {
+          this.emit({
+            type: 'teammate:idle',
+            timestamp: Date.now(),
+            data: { id: teammate.id, name: teammate.name, reason: 'shutdown_requested' },
+          });
           return;
+        }
+        // Plan approval responses are handled inside teammate.checkPlanApproval()
+        // Other messages are injected into the next run() call via readUnread
+      }
+
+      // Step 2: If in plan mode, wait for approval
+      if (teammate.planMode) {
+        const approval = teammate.checkPlanApproval();
+        if (approval) {
+          if (!approval.approved) {
+            // Rejected — re-run with feedback
+            await teammate.run(`Your plan was rejected. Feedback: ${approval.feedback}\n\nPlease revise your plan and resubmit.`);
+            continue;
+          }
+          // Approved — fall through to claim tasks
+        } else {
+          // Still waiting for approval
+          await new Promise(r => setTimeout(r, 1000));
+          continue;
         }
       }
 
-      // Try to claim a task
+      // Step 3: Try to claim a task
       const task = await teammate.claimTask();
       if (!task) {
         // No task available - check if all done
@@ -252,25 +287,39 @@ export class Team {
         if (this.hooks.onTeammateIdle) {
           const feedback = await this.hooks.onTeammateIdle(teammate.id, teammate.name);
           if (feedback) {
-            // Hook wants the teammate to keep working with feedback
+            idleWaitCount = 0;
             await teammate.run(feedback);
             continue;
           }
         }
 
         // Wait briefly and retry
+        idleWaitCount++;
         await new Promise(r => setTimeout(r, 1000));
 
         // Check again
         if (this.taskList.isAllDone()) break;
 
-        // No progress possible - check if all remaining tasks are blocked
+        // No progress possible after extended wait
         const claimable = this.taskList.getClaimable();
         const inProgress = this.taskList.getByStatus('in_progress');
         if (claimable.length === 0 && inProgress.length === 0) break;
 
+        // Give up after too many idle cycles
+        if (idleWaitCount >= maxIdleWaits) {
+          this.emit({
+            type: 'teammate:idle',
+            timestamp: Date.now(),
+            data: { id: teammate.id, name: teammate.name, reason: 'max_idle_reached' },
+          });
+          break;
+        }
+
         continue;
       }
+
+      // Reset idle counter on successful claim
+      idleWaitCount = 0;
 
       this.emit({
         type: 'task:claimed',
@@ -278,9 +327,22 @@ export class Team {
         data: { taskId: task.id, taskTitle: task.title, teammateId: teammate.id, teammateName: teammate.name },
       });
 
-      // Execute the task
+      // Step 4: Execute the task
       try {
-        const prompt = `Task: ${task.title}\n\nDescription: ${task.description}\n\nPlease complete this task. When done, use the team_complete_task tool to mark it complete with your result.`;
+        // Build context-aware prompt
+        const taskContext = this.buildTaskContext(task.id);
+        const prompt = [
+          `## Task: ${task.title}`,
+          ``,
+          task.description,
+          ``,
+          `Task ID: ${task.id}`,
+          taskContext ? `\n## Context from completed dependencies\n${taskContext}` : '',
+          ``,
+          `Complete this task thoroughly. When done, use the team_complete_task tool with task ID "${task.id}" and a result summary.`,
+          `You can also use team_send_message to share findings with other teammates, or team_notify_lead to report to the lead.`,
+        ].filter(Boolean).join('\n');
+
         const output = await teammate.run(prompt);
         results[task.id] = output;
 
@@ -306,6 +368,24 @@ export class Team {
         });
       }
     }
+  }
+
+  /**
+   * Build context from completed dependency tasks (results) for a given task.
+   */
+  private buildTaskContext(taskId: string): string {
+    const task = this.taskList.get(taskId);
+    if (!task || task.deps.length === 0) return '';
+
+    const depResults = task.deps
+      .map(depId => this.taskList.get(depId))
+      .filter((t): t is NonNullable<typeof t> => !!t && t.status === 'completed' && !!t.result)
+      .map(t => {
+        const result = t.result!.length > 1500 ? t.result!.slice(0, 1500) + '...(truncated)' : t.result!;
+        return `### ${t.title}\n${result}`;
+      });
+
+    return depResults.length > 0 ? depResults.join('\n\n') : '';
   }
 
   // ─── Cleanup ─────────────────────────────────────────────────────
