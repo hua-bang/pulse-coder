@@ -94,18 +94,11 @@ export class Teammate {
       : '';
 
     const toolGuidance = `
-## Tool Usage Guide
-You have access to the following tools for interacting with the codebase:
-- **bash**: Run shell commands. Use proper command syntax, e.g. \`grep -r "keyword" src/\` or \`find . -name "*.ts"\`. Do NOT type bare keywords — they are not commands.
-- **grep**: Search file contents. Use \`grep -r "pattern" path/\` to find code patterns.
-- **read**: Read file contents by path.
-- **ls**: List directory contents.
-- **edit / write**: Modify or create files.
-
-IMPORTANT: When searching for code patterns (e.g. looking for auth, XSS, SQL injection keywords):
-- Use \`grep -ri "pattern" src/\` — NOT just the keyword by itself
-- Use \`find . -name "*.ts" -exec grep -l "pattern" {} +\` for targeted searches
-- Never type bare words like \`sessionStorage\` or \`innerHTML\` as bash commands
+## Tool Usage Notes
+When using the bash tool, always quote regex patterns and special characters properly:
+- Use: \`grep -ri 'pattern' src/\` or \`rg 'pattern' src/\`
+- Wrap regex with single quotes: \`rg '(auth|login|session)' --type ts\`
+- Do NOT use unquoted parentheses or pipes in patterns — bash interprets them as shell syntax
 `;
 
     const systemContext = this.spawnPrompt

@@ -46,6 +46,8 @@ export class InProcessDisplay {
   /** Suppress the redundant "claimed" line when run_start follows immediately. */
   private pendingClaim: { ts: string; name: string; title: string } | null = null;
   private claimFlushTimer?: ReturnType<typeof setTimeout>;
+  /** Original stderr.write, saved during mute. */
+  private origStderrWrite?: typeof process.stderr.write;
 
   constructor(team: Team, options?: { showOutput?: boolean }) {
     this.team = team;
@@ -54,12 +56,43 @@ export class InProcessDisplay {
 
   start(): void {
     this.unsubscribe = this.team.on((event) => this.handleEvent(event));
+    this.muteStderr();
   }
 
   stop(): void {
     this.flushSpawned();
     this.flushClaim();
     this.unsubscribe?.();
+    this.unmuteStderr();
+  }
+
+  /**
+   * Suppress stderr output from child processes (e.g. bash tool errors)
+   * to prevent them from polluting the display.
+   */
+  private muteStderr(): void {
+    this.origStderrWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk: any, ...args: any[]): boolean => {
+      // Only suppress known bash/shell noise patterns
+      const str = typeof chunk === 'string' ? chunk : chunk.toString();
+      if (
+        str.includes('/bin/bash:') ||
+        str.includes('/bin/sh:') ||
+        str.includes('command not found') ||
+        str.includes('syntax error near unexpected token')
+      ) {
+        return true; // swallow
+      }
+      // Let real errors (Node.js, unhandled rejections, etc.) through
+      return this.origStderrWrite!(chunk, ...args as [any, any]);
+    };
+  }
+
+  private unmuteStderr(): void {
+    if (this.origStderrWrite) {
+      process.stderr.write = this.origStderrWrite;
+      this.origStderrWrite = undefined;
+    }
   }
 
   toggleOutput(): void {
