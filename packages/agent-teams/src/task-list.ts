@@ -91,13 +91,17 @@ export class TaskList {
           claimed = { ...task };
         }
       } else {
-        // Auto-claim: prefer tasks assigned to this teammate, then unassigned tasks
-        const candidates = tasks.filter(t =>
-          t.status === 'pending' && this.canClaim(t, teammateId) && this.isUnblocked(t, tasks)
+        // Auto-claim priority:
+        // 1. Tasks pre-assigned to me
+        // 2. Unassigned tasks
+        // 3. Work stealing: tasks assigned to others (if allowSteal)
+        const allPending = tasks.filter(t =>
+          t.status === 'pending' && this.isUnblocked(t, tasks)
         );
-        // Assigned-to-me tasks first
-        const mine = candidates.find(t => t.assignee === teammateId);
-        const target = mine || candidates.find(t => !t.assignee);
+        const mine = allPending.find(t => t.assignee === teammateId);
+        const unassigned = allPending.find(t => !t.assignee);
+        const stealable = allPending.find(t => t.assignee !== teammateId && t.assignee !== null);
+        const target = mine || unassigned || stealable;
 
         if (target) {
           target.status = 'in_progress';

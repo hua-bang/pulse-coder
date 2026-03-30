@@ -135,7 +135,8 @@ export class Team {
    */
   async shutdownTeammate(id: string): Promise<void> {
     const teammate = this.teammates.get(id);
-    if (!teammate) throw new Error(`Teammate '${id}' not found`);
+    if (!teammate) return; // Already removed or unknown — idempotent
+    if (teammate.status === 'stopped') return; // Already stopped
 
     // Send shutdown request via mailbox
     this.mailbox.send('lead', id, 'shutdown_request', 'Please shut down gracefully.');
@@ -146,8 +147,6 @@ export class Team {
       timestamp: Date.now(),
       data: { id, name: teammate.name },
     });
-
-    this.logger.info(`Teammate shut down: ${teammate.name}`);
   }
 
   /**
@@ -416,16 +415,8 @@ export class Team {
    * Shuts down all teammates and removes state files.
    */
   async cleanup(): Promise<void> {
-    // Check for active teammates
-    const active = this.getTeammates().filter(t => t.status === 'running');
-    if (active.length > 0) {
-      throw new Error(
-        `Cannot clean up: ${active.length} teammate(s) still running. ` +
-        `Shut them down first: ${active.map(t => t.name).join(', ')}`
-      );
-    }
-
-    await this.shutdownAll();
+    // Shut down any remaining teammates (idempotent)
+    try { await this.shutdownAll(); } catch { /* best effort */ }
     this.mailbox.clearAll();
     this.taskList.clear();
 

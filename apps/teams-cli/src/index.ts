@@ -6,11 +6,42 @@ import { InProcessDisplay } from './display/in-process.js';
 
 // ─── Logger ────────────────────────────────────────────────────────
 
+// Noise patterns to suppress during execution
+const SUPPRESS_PATTERNS = [
+  'Initializing engine',
+  'Initializing plugin system',
+  'Plugin system initialized',
+  'Missing recommended capability',
+  'MCP] No MCP',
+  'Scanning built-in',
+  'Loaded 0 skill',
+  'Skills] No skills',
+  'ToolSearch] Built-in',
+  'PlanMode] mode_entered',
+  'PlanMode] Built-in',
+  'TaskTracking] Registered',
+  'SubAgentPlugin loaded',
+  'AgentTeams] Built-in',
+  'RoleSoul] Built-in',
+  'PTC] Built-in',
+];
+
+const shouldSuppress = (msg: string): boolean =>
+  SUPPRESS_PATTERNS.some(p => msg.includes(p));
+
 const logger = {
   debug(msg: string) { /* silent by default */ },
-  info(msg: string) { console.log(`[info] ${msg}`); },
-  warn(msg: string) { console.warn(`[warn] ${msg}`); },
-  error(msg: string, err?: Error) { console.error(`[error] ${msg}`, err?.message || ''); },
+  info(msg: string) { if (!shouldSuppress(msg)) console.log(`${c.dim}[info]${c.reset} ${msg}`); },
+  warn(msg: string) { if (!shouldSuppress(msg)) console.warn(`${c.yellow}[warn]${c.reset} ${msg}`); },
+  error(msg: string, err?: Error) { console.error(`${c.red}[error]${c.reset} ${msg}`, err?.message || ''); },
+};
+
+// Re-export colors for logger
+const c = {
+  reset: '\x1b[0m',
+  dim: '\x1b[2m',
+  yellow: '\x1b[33m',
+  red: '\x1b[31m',
 };
 
 // ─── CLI ───────────────────────────────────────────────────────────
@@ -85,11 +116,10 @@ async function runTeam(args: string[]) {
     console.log('='.repeat(60));
     console.log(synthesis);
 
-    await lead.team.shutdownAll();
     await lead.team.cleanup();
   } catch (err: any) {
     console.error(`\nTeam run failed: ${err.message}`);
-    try { await lead.team.shutdownAll(); await lead.team.cleanup(); } catch { /* best effort */ }
+    try { await lead.team.cleanup(); } catch { /* best effort */ }
     process.exit(1);
   } finally {
     display.stop();

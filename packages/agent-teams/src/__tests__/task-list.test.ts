@@ -101,12 +101,14 @@ describe('TaskList', () => {
     expect(claimed!.id).toBe(t1.id);
   });
 
-  it('should prevent other teammates from claiming pre-assigned task', async () => {
+  it('should allow work stealing of pre-assigned tasks when no other options', async () => {
     await taskList.create({ title: 'T1', description: '', assignee: 'alice' }, 'lead');
 
-    // Bob cannot claim Alice's task
+    // Bob can steal Alice's task (work stealing) when there are no unassigned tasks
     const claimed = await taskList.claim('bob');
-    expect(claimed).toBeNull();
+    expect(claimed).not.toBeNull();
+    expect(claimed!.title).toBe('T1');
+    expect(claimed!.assignee).toBe('bob'); // Reassigned to Bob
   });
 
   it('should prioritize assigned tasks over unassigned ones', async () => {
@@ -117,6 +119,16 @@ describe('TaskList', () => {
     const claimed = await taskList.claim('alice');
     expect(claimed!.id).toBe(mine.id);
     expect(claimed!.title).toBe('Mine');
+  });
+
+  it('should prefer unassigned tasks over stealing from others', async () => {
+    const free = await taskList.create({ title: 'Free', description: '' }, 'lead');
+    await taskList.create({ title: 'Alices', description: '', assignee: 'alice' }, 'lead');
+
+    // Bob should get the unassigned task, not steal Alice's
+    const claimed = await taskList.claim('bob');
+    expect(claimed!.id).toBe(free.id);
+    expect(claimed!.title).toBe('Free');
   });
 
   it('should report stats', async () => {
