@@ -152,6 +152,11 @@ export class InProcessDisplay {
   // ─── Event handler ────────────────────────────────────────────
 
   private handleEvent(event: TeamEvent): void {
+    // Flush buffered spawn names before any non-spawn event
+    if (event.type !== 'teammate:spawned' && this.spawnedNames.length > 0) {
+      this.flushSpawned();
+    }
+
     const ts = this.fmtTime(event.timestamp);
 
     switch (event.type) {
