@@ -29,6 +29,9 @@
     "start": "pnpm --filter pulse-coder-cli start",
     "start:debug": "pnpm --filter pulse-coder-cli start:debug",
     "clean": "pnpm -r clean",
+    "preview:teams": "pnpm --filter pulse-coder-orchestrator build && pnpm --filter pulse-coder-engine build && pnpm --filter pulse-coder-agent-teams build && pnpm --filter @pulse-coder/teams-cli preview",
+    "preview:teams:run": "pnpm --filter pulse-coder-orchestrator build && pnpm --filter pulse-coder-engine build && pnpm --filter pulse-coder-agent-teams build && pnpm --filter @pulse-coder/teams-cli preview:run",
+    "preview:teams:plan": "pnpm --filter pulse-coder-orchestrator build && pnpm --filter pulse-coder-engine build && pnpm --filter pulse-coder-agent-teams build && pnpm --filter @pulse-coder/teams-cli preview:plan",
     "release": "node ./scripts/release-packages.mjs",
     "release:core": "node ./scripts/release-packages.mjs --packages=engine,cli"
   },
