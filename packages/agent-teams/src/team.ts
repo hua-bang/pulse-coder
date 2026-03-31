@@ -238,7 +238,12 @@ export class Team {
     }
 
     const stats = this.taskList.stats();
-    this._status = stats.failed > 0 ? 'failed' : 'completed';
+    this._status =
+      stats.pending > 0 || stats.in_progress > 0
+        ? 'failed'   // timed out or stalled with unfinished work
+        : stats.failed > 0
+          ? 'failed'
+          : 'completed';
 
     this.emit({ type: 'team:completed', timestamp: Date.now(), data: { stats } });
     return { results, stats };
