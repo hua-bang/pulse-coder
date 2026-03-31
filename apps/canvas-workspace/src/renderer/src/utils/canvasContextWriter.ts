@@ -36,6 +36,13 @@ const buildCanvasContext = (
     `Folder: ${workspaceFolder}`,
   ];
 
+  if (workspaceId) {
+    lines.push('', '## Workspace Isolation');
+    lines.push('', `Environment variable \`CURRENT_WORKSPACE_ID=${workspaceId}\` is injected into this terminal session.`);
+    lines.push('Use this to scope all canvas operations to the current workspace and avoid reading/writing nodes from other canvases.');
+    lines.push('When calling MCP canvas tools, always pass this workspace ID to ensure isolation.');
+  }
+
   if (canvasDir) {
     lines.push(`Canvas dir: ${canvasDir}`);
     lines.push(`Canvas data: ${canvasDir}/canvas.json`);
