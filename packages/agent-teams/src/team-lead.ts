@@ -137,12 +137,19 @@ export class TeamLead {
     this.emitPhase(3, `Creating ${plan.tasks.length} tasks`);
     const taskIdByTitle = await this.createTasksFromPlan(plan);
 
-    // Phase 4: Run
+    // Phase 4: Run (with lead monitor loop reading inbox concurrently)
     this.emitPhase(4, 'Executing');
+    const monitorAbort = new AbortController();
+    const monitorPromise = this.runLeadMonitorLoop(taskDescription, monitorAbort.signal);
+
     const { results, stats } = await this.team.run({
       timeoutMs: options?.timeoutMs,
       concurrency: options?.concurrency,
     });
+
+    // Stop the monitor loop now that all teammates have finished
+    monitorAbort.abort();
+    await monitorPromise;
 
     // Phase 5: Synthesize
     this.emitPhase(5, 'Synthesizing results');
@@ -193,11 +200,17 @@ export class TeamLead {
     // Create new tasks (resolve assignee names to existing teammate IDs)
     await this.createTasksFromPlan(plan);
 
-    // Run
+    // Run (with lead monitor loop reading inbox concurrently)
+    const monitorAbort = new AbortController();
+    const monitorPromise = this.runLeadMonitorLoop(instruction, monitorAbort.signal);
+
     const { results, stats } = await this.team.run({
       timeoutMs: options?.timeoutMs,
       concurrency: options?.concurrency,
     });
+
+    monitorAbort.abort();
+    await monitorPromise;
 
     // Synthesize
     const synthesis = await this.synthesizeResults(instruction, results, stats);
@@ -267,6 +280,72 @@ export class TeamLead {
    */
   rejectPlan(teammateId: string, feedback: string): void {
     this.team.getMailbox().send('lead', teammateId, 'plan_approval_response', JSON.stringify({ approved: false, feedback }));
+  }
+
+  // ─── Lead monitor loop ───────────────────────────────────────────
+
+  /**
+   * Concurrently monitors the lead's inbox during team.run().
+   *
+   * When teammates send messages via team_notify_lead, this loop picks
+   * them up and feeds them to the lead's Engine so it can respond
+   * (e.g. answer questions, send guidance, approve plans).
+   */
+  private async runLeadMonitorLoop(
+    taskDescription: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const pollIntervalMs = 3000;
+
+    while (!signal.aborted) {
+      // Wait before polling (also respects abort)
+      await new Promise<void>(r => {
+        const timer = setTimeout(r, pollIntervalMs);
+        signal.addEventListener('abort', () => { clearTimeout(timer); r(); }, { once: true });
+      });
+
+      if (signal.aborted) break;
+
+      const messages = this.readMessages();
+      if (messages.length === 0) continue;
+
+      // Build a prompt with the incoming messages
+      const messagesSummary = messages
+        .map(m => `[from: ${m.from}] (${m.type}) ${m.content}`)
+        .join('\n---\n');
+
+      const prompt = [
+        `You are the team lead coordinating a team working on: ${taskDescription}`,
+        ``,
+        `You have received messages from your teammates:`,
+        ``,
+        messagesSummary,
+        ``,
+        `Review these messages and take appropriate action:`,
+        `- If a teammate asks a question, respond via team_send_message.`,
+        `- If a teammate reports a finding, acknowledge it.`,
+        `- If a teammate submitted a plan (plan_approval_request), review and approve/reject it.`,
+        `- If no action is needed, simply acknowledge.`,
+        `Keep responses brief.`,
+      ].join('\n');
+
+      this.context.messages.push({ role: 'user', content: prompt });
+
+      try {
+        await this.engine.run(this.context, {
+          systemPrompt: 'You are a team lead. Respond to teammate messages concisely. Use your tools to communicate back.',
+          onCompacted: (newMessages) => {
+            this.context.messages = newMessages;
+          },
+          onResponse: (messages) => {
+            this.context.messages.push(...messages);
+          },
+        });
+      } catch (err: any) {
+        // Don't let monitor errors kill the whole orchestration
+        this.logger.error('Lead monitor loop error', err);
+      }
+    }
   }
 
   // ─── Internal ────────────────────────────────────────────────────
@@ -339,6 +418,12 @@ export class TeamLead {
       return `### Task: ${t.title} [${t.status}]\nAssignee: ${t.assignee || 'unassigned'}\nOutput:\n${truncated}`;
     }).join('\n\n---\n\n');
 
+    // Drain any remaining lead inbox messages that the monitor loop didn't get to
+    const remainingMessages = this.readMessages();
+    const messagesSection = remainingMessages.length > 0
+      ? `\n## Teammate Messages (unprocessed)\n${remainingMessages.map(m => `- [from: ${m.from}] ${m.content}`).join('\n')}\n`
+      : '';
+
     const synthesisPrompt = `You are the team lead. Your team has completed their work. Synthesize the results into a coherent summary.
 
 ## Original Task
@@ -347,11 +432,11 @@ ${originalTask}
 ## Team Results (${stats.completed}/${stats.total} completed, ${stats.failed} failed)
 
 ${taskSummaries}
-
+${messagesSection}
 ## Instructions
 - Provide a comprehensive synthesis of all teammates' findings/outputs.
 - Highlight key decisions, findings, and deliverables.
-- Note any failures or gaps.
+- Note any failures or gaps.${remainingMessages.length > 0 ? '\n- Incorporate any relevant teammate messages listed above.' : ''}
 - Keep it concise but thorough.`;
 
     this.context.messages.push({ role: 'user', content: synthesisPrompt });
