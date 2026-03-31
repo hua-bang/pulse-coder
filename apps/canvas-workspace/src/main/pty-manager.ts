@@ -137,3 +137,99 @@ export const killAllPty = () => {
     sessions.delete(id);
   }
 };
+
+// --- Exec API for MCP harness ---
+
+/**
+ * Execute a command in an existing PTY session and collect output.
+ * Uses a unique marker to delimit command output from the scrollback.
+ */
+export function execInSession(
+  sessionId: string,
+  command: string,
+  opts?: { timeout?: number }
+): Promise<{ ok: boolean; output?: string; error?: string }> {
+  const proc = sessions.get(sessionId);
+  if (!proc) {
+    return Promise.resolve({ ok: false, error: `PTY session not found: ${sessionId}` });
+  }
+
+  const timeout = opts?.timeout ?? 30_000;
+  const marker = `__HARNESS_${Date.now()}_${Math.random().toString(36).slice(2, 8)}__`;
+  const endMarker = `__HARNESS_END_${marker}__`;
+
+  return new Promise((resolve) => {
+    let output = '';
+    let capturing = false;
+    let resolved = false;
+
+    const cleanup = () => {
+      disposable.dispose();
+      clearTimeout(timer);
+    };
+
+    const finish = (result: { ok: boolean; output?: string; error?: string }) => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => {
+      finish({ ok: true, output: output.trim() });
+    }, timeout);
+
+    const disposable = proc.onData((data: string) => {
+      if (resolved) return;
+
+      // Start capturing after we see our start marker
+      if (!capturing) {
+        const markerIdx = data.indexOf(marker);
+        if (markerIdx !== -1) {
+          capturing = true;
+          // Capture everything after the marker line
+          const afterMarker = data.slice(markerIdx + marker.length);
+          const newlineIdx = afterMarker.indexOf('\n');
+          if (newlineIdx !== -1) {
+            output += afterMarker.slice(newlineIdx + 1);
+          }
+        }
+      } else {
+        output += data;
+      }
+
+      // Check for end marker
+      if (capturing && output.includes(endMarker)) {
+        const endIdx = output.indexOf(endMarker);
+        // Get output before the echo command for end marker
+        // The end marker echo command itself shows up, so trim it
+        let finalOutput = output.slice(0, endIdx);
+        // Remove the trailing echo command line (e.g. "echo __HARNESS_END_...__\r\n")
+        const lastNewline = finalOutput.lastIndexOf('\n');
+        if (lastNewline !== -1) {
+          const lastLine = finalOutput.slice(lastNewline + 1);
+          if (lastLine.includes('echo') && lastLine.includes(endMarker.slice(0, 20))) {
+            finalOutput = finalOutput.slice(0, lastNewline);
+          }
+        }
+        finish({ ok: true, output: finalOutput.trim() });
+      }
+    });
+
+    // Write: echo start marker, run command, echo end marker
+    proc.write(`echo ${marker}\r`);
+    proc.write(`${command}\r`);
+    proc.write(`echo ${endMarker}\r`);
+  });
+}
+
+/** Check if a PTY session exists */
+export function hasSession(sessionId: string): boolean {
+  return sessions.has(sessionId);
+}
+
+/** Get the PID of a PTY session (for cwd lookup etc.) */
+export function getSessionPid(sessionId: string): number | null {
+  const proc = sessions.get(sessionId);
+  return proc ? proc.pid : null;
+}
