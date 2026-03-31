@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import type { CanvasNode, TerminalNodeData } from '../../types';
+import type { CanvasNode, FileNodeData, TerminalNodeData } from '../../types';
 import { TERMINAL_OPTIONS } from '../../config/terminalTheme';
 import { AI_TOOL_PATTERN, writeCanvasContext } from '../../utils/canvasContextWriter';
 import { NodeMentionPicker } from '../NodeMentionPicker';
@@ -106,7 +106,7 @@ export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, work
     }
 
     const spawnCwd = initialCwd.current || rootFolder || undefined;
-    const result = await api.spawn(sessionId, term.cols, term.rows, spawnCwd);
+    const result = await api.spawn(sessionId, term.cols, term.rows, spawnCwd, workspaceIdRef.current);
     if (!result.ok) {
       term.writeln(`\x1b[31mFailed to spawn shell: ${result.error}\x1b[0m`);
       return;
@@ -192,7 +192,15 @@ export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, work
   const handleMentionSelect = useCallback((selected: CanvasNode) => {
     setPickerOpen(false);
     const api = window.canvasWorkspace?.pty;
-    if (api) void api.write(sessionId, selected.title);
+    if (api) {
+      const filePath = selected.type === 'file'
+        ? (selected.data as FileNodeData).filePath
+        : undefined;
+      const mention = filePath
+        ? `[@canvas-node:${selected.type}:${selected.id}](${filePath})`
+        : `[@canvas-node:${selected.type}:${selected.id}](${selected.title})`;
+      void api.write(sessionId, mention);
+    }
     termRef.current?.focus();
   }, [sessionId]);
 

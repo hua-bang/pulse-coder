@@ -16,8 +16,8 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
   version: "0.1.0",
 
   pty: {
-    spawn: (id: string, cols?: number, rows?: number, cwd?: string) =>
-      ipcRenderer.invoke("pty:spawn", { id, cols, rows, cwd }),
+    spawn: (id: string, cols?: number, rows?: number, cwd?: string, workspaceId?: string) =>
+      ipcRenderer.invoke("pty:spawn", { id, cols, rows, cwd, workspaceId }),
 
     write: (id: string, data: string) =>
       ipcRenderer.send("pty:write", { id, data }),

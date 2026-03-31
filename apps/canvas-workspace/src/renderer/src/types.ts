@@ -98,7 +98,8 @@ export interface CanvasWorkspaceApi {
       id: string,
       cols?: number,
       rows?: number,
-      cwd?: string
+      cwd?: string,
+      workspaceId?: string
     ) => Promise<{ ok: boolean; pid?: number; error?: string; reused?: boolean }>;
     write: (id: string, data: string) => void;
     resize: (id: string, cols: number, rows: number) => void;

@@ -50,9 +50,9 @@ export const setupPtyIpc = () => {
     "pty:spawn",
     (
       _event,
-      payload: { id: string; cols?: number; rows?: number; cwd?: string }
+      payload: { id: string; cols?: number; rows?: number; cwd?: string; workspaceId?: string }
     ) => {
-      const { id, cols = 80, rows = 24, cwd } = payload;
+      const { id, cols = 80, rows = 24, cwd, workspaceId } = payload;
 
       if (sessions.has(id)) {
         return { ok: true, reused: true };
@@ -60,12 +60,18 @@ export const setupPtyIpc = () => {
 
       try {
         const shell = defaultShell();
+        const spawnEnv: Record<string, string> = {
+          ...(process.env as Record<string, string>),
+        };
+        if (workspaceId) {
+          spawnEnv.CURRENT_WORKSPACE_ID = workspaceId;
+        }
         const proc = pty.spawn(shell, [], {
           name: "xterm-256color",
           cols,
           rows,
           cwd: cwd || homedir(),
-          env: process.env as Record<string, string>
+          env: spawnEnv
         });
 
         sessions.set(id, proc);
