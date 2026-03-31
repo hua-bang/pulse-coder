@@ -52,13 +52,16 @@ export class Mailbox {
 
   /**
    * Read all unread messages for a teammate.
+   * When `peek` is true the messages are returned but stay marked as unread,
+   * so a later non-peek call (e.g. inside `Teammate.run()`) will still see them.
    */
-  readUnread(recipientId: string): TeamMessage[] {
+  readUnread(recipientId: string, options?: { peek?: boolean }): TeamMessage[] {
+    const peek = options?.peek ?? false;
     const messages = this.readInbox(recipientId);
     const unread = messages.filter(m => !m.read);
 
-    // Mark as read
-    if (unread.length > 0) {
+    // Mark as read (unless peeking)
+    if (!peek && unread.length > 0) {
       const updated = messages.map(m => ({ ...m, read: true }));
       this.writeFile(recipientId, updated);
     }
@@ -68,6 +71,27 @@ export class Mailbox {
       .filter(m => m.from !== recipientId && !m.read);
 
     return [...unread, ...broadcasts];
+  }
+
+  /**
+   * Mark specific messages as read by their IDs.
+   * Useful when you peek at messages but only want to consume some of them.
+   */
+  markAsRead(recipientId: string, messageIds: string[]): void {
+    if (messageIds.length === 0) return;
+    const idSet = new Set(messageIds);
+    const messages = this.readInbox(recipientId);
+    let changed = false;
+    const updated = messages.map(m => {
+      if (idSet.has(m.id) && !m.read) {
+        changed = true;
+        return { ...m, read: true };
+      }
+      return m;
+    });
+    if (changed) {
+      this.writeFile(recipientId, updated);
+    }
   }
 
   /**

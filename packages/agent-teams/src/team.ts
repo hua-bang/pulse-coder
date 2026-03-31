@@ -302,10 +302,12 @@ export class Team {
     this.activeLoops.add(teammate.id);
     try {
     while (Date.now() - startTime < timeoutMs) {
-      // Step 1: Process incoming messages
-      const messages = teammate.readMessages();
+      // Step 1: Check for shutdown requests (peek so other messages stay
+      // unread and get injected into the next run() call by Teammate.run())
+      const messages = teammate.readMessages({ peek: true });
       for (const msg of messages) {
         if (msg.type === 'shutdown_request') {
+          this.mailbox.markAsRead(teammate.id, [msg.id]);
           this.emit({
             type: 'teammate:idle',
             timestamp: Date.now(),
@@ -313,8 +315,6 @@ export class Team {
           });
           return;
         }
-        // Plan approval responses are handled inside teammate.checkPlanApproval()
-        // Other messages are injected into the next run() call via readUnread
       }
 
       // Step 2: If in plan mode, wait for approval

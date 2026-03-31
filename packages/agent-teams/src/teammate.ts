@@ -172,17 +172,20 @@ ${cwdNote}`;
 
   /**
    * Read unread messages.
+   * When `peek` is true, messages are returned but stay marked as unread
+   * so they can still be consumed later (e.g. inside `run()`).
    */
-  readMessages(): TeamMessage[] {
-    return this.mailbox.readUnread(this.id);
+  readMessages(options?: { peek?: boolean }): TeamMessage[] {
+    return this.mailbox.readUnread(this.id, options);
   }
 
   /**
    * Check if there's a plan approval response and handle it.
+   * Uses peek so that non-approval messages stay unread for `run()` to consume.
    * Returns true if plan was approved.
    */
   checkPlanApproval(): { approved: boolean; feedback?: string } | null {
-    const messages = this.mailbox.readUnread(this.id);
+    const messages = this.mailbox.readUnread(this.id, { peek: true });
     for (const msg of messages) {
       if (msg.type === 'plan_approval_response') {
         try {
@@ -190,6 +193,8 @@ ${cwdNote}`;
           if (response.approved) {
             this._planMode = false;
           }
+          // Only mark this specific approval message as read
+          this.mailbox.markAsRead(this.id, [msg.id]);
           return response;
         } catch {
           // Malformed response
