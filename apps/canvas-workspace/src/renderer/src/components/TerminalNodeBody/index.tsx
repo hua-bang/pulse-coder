@@ -196,9 +196,8 @@ export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, work
       const filePath = selected.type === 'file'
         ? (selected.data as FileNodeData).filePath
         : undefined;
-      const mention = filePath
-        ? `[@canvas-node:${selected.type}:${selected.id}](${filePath})`
-        : `[@canvas-node:${selected.type}:${selected.id}](${selected.title})`;
+      const label = filePath ? filePath.split('/').pop() : selected.title;
+      const mention = `@[${label}](canvas:${selected.id})`;
       void api.write(sessionId, mention);
     }
     termRef.current?.focus();
