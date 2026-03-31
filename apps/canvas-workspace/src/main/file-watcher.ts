@@ -11,7 +11,7 @@ const DEBOUNCE_MS = 300;
  * Set to `true` to re-enable watching workspace notes directories for
  * external file changes.
  */
-const FILE_WATCHER_ENABLED = true;
+const FILE_WATCHER_ENABLED = false;
 
 let activeWatcher: FSWatcher | null = null;
 let activeWorkspaceId: string | null = null;

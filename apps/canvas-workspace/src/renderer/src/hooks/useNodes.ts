@@ -44,33 +44,34 @@ export const useNodes = (
     [scheduleSave]
   );
 
-  // Start watching the workspace notes directory for external file changes (e.g. from MCP writes).
-  // Only updates nodes that are not currently being edited by the user (modified === false).
-  useEffect(() => {
-    const storeApi = window.canvasWorkspace?.store;
-    const fileApi = window.canvasWorkspace?.file;
-    if (!storeApi || !fileApi) return;
-
-    void storeApi.watchWorkspace(canvasId);
-
-    const cleanup = fileApi.onChanged((filePath, content) => {
-      const node = nodesRef.current.find(
-        (n) =>
-          n.type === 'file' &&
-          (n.data as FileNodeData).filePath === filePath &&
-          !(n.data as FileNodeData).modified
-      );
-      if (!node) return;
-      const updated = nodesRef.current.map((n) =>
-        n.id === node.id
-          ? { ...n, data: { ...(n.data as FileNodeData), content, modified: false } }
-          : n
-      );
-      applyNodes(updated, false);
-    });
-
-    return cleanup;
-  }, [canvasId, applyNodes, nodesRef]);
+  // File-watcher sync is temporarily disabled.  The fs.watch-based watcher
+  // introduced race conditions with user edits (the onChanged callback could
+  // call applyNodes with stale nodesRef.current, reverting in-flight changes).
+  // To re-enable, flip FILE_WATCHER_ENABLED in file-watcher.ts and uncomment
+  // the block below.
+  //
+  // useEffect(() => {
+  //   const storeApi = window.canvasWorkspace?.store;
+  //   const fileApi = window.canvasWorkspace?.file;
+  //   if (!storeApi || !fileApi) return;
+  //   void storeApi.watchWorkspace(canvasId);
+  //   const cleanup = fileApi.onChanged((filePath, content) => {
+  //     const node = nodesRef.current.find(
+  //       (n) =>
+  //         n.type === 'file' &&
+  //         (n.data as FileNodeData).filePath === filePath &&
+  //         !(n.data as FileNodeData).modified
+  //     );
+  //     if (!node) return;
+  //     const updated = nodesRef.current.map((n) =>
+  //       n.id === node.id
+  //         ? { ...n, data: { ...(n.data as FileNodeData), content, modified: false } }
+  //         : n
+  //     );
+  //     applyNodes(updated, false);
+  //   });
+  //   return cleanup;
+  // }, [canvasId, applyNodes, nodesRef]);
 
   useEffect(() => {
     const api = window.canvasWorkspace?.store;
