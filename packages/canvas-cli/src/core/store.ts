@@ -22,7 +22,8 @@ export function getWorkspaceDir(workspaceId: string, storeDir?: string): string 
 export async function loadWorkspaceManifest(storeDir?: string): Promise<WorkspaceManifest> {
   try {
     const raw = await fs.readFile(manifestPath(storeDir), 'utf-8');
-    return JSON.parse(raw) as WorkspaceManifest;
+    const parsed = JSON.parse(raw) as WorkspaceManifest;
+    return { entries: parsed.entries ?? [] };
   } catch {
     return { entries: [] };
   }

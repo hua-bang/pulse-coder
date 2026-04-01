@@ -36,7 +36,7 @@ export async function generateContext(
   if (!canvas) return null;
 
   const manifest = await loadWorkspaceManifest(storeDir);
-  const entry = manifest.entries.find(e => e.id === workspaceId);
+  const entry = (manifest.entries ?? []).find(e => e.id === workspaceId);
   const workspaceName = entry?.name ?? workspaceId;
   const canvasDir = getWorkspaceDir(workspaceId, storeDir);
 
