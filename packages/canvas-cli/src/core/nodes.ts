@@ -150,7 +150,7 @@ export async function createNode(
       nodeData = { sessionId: '', cwd: (inputData as Record<string, string>).cwd ?? '' };
       break;
     case 'frame':
-      nodeData = { color: (inputData as Record<string, string>).color ?? '#9065b0', label: (inputData as Record<string, string>).label ?? '' };
+      nodeData = { color: (inputData as Record<string, string>).color ?? '#9575d4', label: (inputData as Record<string, string>).label ?? '' };
       break;
   }
 

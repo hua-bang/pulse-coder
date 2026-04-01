@@ -13,7 +13,7 @@ export const createNodeData = (type: CanvasNode['type']): FileNodeData | Termina
   switch (type) {
     case 'file':     return { filePath: '', content: '', saved: false, modified: false };
     case 'terminal': return { sessionId: '' };
-    case 'frame':    return { color: '#9065b0' };
+    case 'frame':    return { color: '#9575d4' };
   }
 };
 

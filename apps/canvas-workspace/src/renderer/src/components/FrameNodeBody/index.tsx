@@ -13,15 +13,15 @@ export const FrameNodeBody = ({ node: _node, onUpdate: _onUpdate }: Props) => {
 /* ---- Color picker (rendered in header) ---- */
 
 const COLOR_PRESETS = [
-  { name: "Red", value: "#e03e3e" },
-  { name: "Orange", value: "#d9730d" },
-  { name: "Yellow", value: "#cb912f" },
-  { name: "Green", value: "#0f7b6c" },
-  { name: "Cyan", value: "#2e9e9e" },
-  { name: "Blue", value: "#2383e2" },
-  { name: "Purple", value: "#9065b0" },
-  { name: "Pink", value: "#c84c8a" },
-  { name: "Gray", value: "#787774" }
+  { name: "Red", value: "#e8615a" },
+  { name: "Orange", value: "#e89545" },
+  { name: "Yellow", value: "#d4a030" },
+  { name: "Green", value: "#3eb889" },
+  { name: "Cyan", value: "#35aec2" },
+  { name: "Blue", value: "#5594e8" },
+  { name: "Purple", value: "#9575d4" },
+  { name: "Pink", value: "#e06aa0" },
+  { name: "Gray", value: "#8b96a4" }
 ];
 
 interface ColorPickerProps {
