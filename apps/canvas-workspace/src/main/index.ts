@@ -8,6 +8,7 @@ import { setupFileManagerIpc } from "./file-manager";
 import { startMCPServer } from "./mcp-server";
 import { ensureMCPRegistered } from "./mcp-registration";
 import { setupFileWatcherIpc, teardownFileWatcher } from "./file-watcher";
+import { setupSkillInstallerIpc } from "./skill-installer";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const preloadPath = join(currentDir, "../preload/index.mjs");
@@ -100,6 +101,7 @@ app.whenReady().then(() => {
   setupCanvasStoreIpc();
   setupFileManagerIpc();
   setupFileWatcherIpc();
+  setupSkillInstallerIpc();
   startMCPServer();
   void ensureMCPRegistered();
 

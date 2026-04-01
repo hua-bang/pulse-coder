@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import type { WorkspaceEntry } from '../hooks/useWorkspaces';
 
 interface Props {
@@ -66,6 +66,34 @@ export const Sidebar = ({
     setNewName('');
     setCreating(false);
   };
+
+  const [installStatus, setInstallStatus] = useState<'idle' | 'installing' | 'done' | 'partial'>('idle');
+  const [installMessage, setInstallMessage] = useState('');
+
+  const handleInstallSkills = useCallback(async () => {
+    const api = window.canvasWorkspace?.skills;
+    if (!api) return;
+
+    setInstallStatus('installing');
+    setInstallMessage('');
+
+    const result = await api.install();
+    if (!result.ok) {
+      setInstallStatus('idle');
+      setInstallMessage(`Failed: ${result.error}`);
+      return;
+    }
+
+    if (result.cliInstalled) {
+      setInstallStatus('done');
+      setInstallMessage('Canvas CLI and Skills installed successfully.');
+    } else {
+      setInstallStatus('partial');
+      setInstallMessage(
+        `Skills installed. To enable CLI, run:\n${result.manualCommand ?? 'pnpm --filter @pulse-coder/canvas-cli build && pnpm link --global --filter @pulse-coder/canvas-cli'}`
+      );
+    }
+  }, []);
 
   const pickFolder = async (wsId: string) => {
     const api = window.canvasWorkspace?.dialog;
@@ -189,6 +217,37 @@ export const Sidebar = ({
             </button>
           </div>
         </>
+      )}
+
+      {!collapsed && (
+        <div className="sidebar-install-section">
+          <button
+            className="sidebar-item sidebar-item--muted"
+            onClick={handleInstallSkills}
+            disabled={installStatus === 'installing'}
+            title="Install canvas CLI and skills for agent discovery"
+          >
+            <span className="sidebar-item-icon">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path
+                  d="M8 2v8M5 7l3 3 3-3M3 12h10"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
+            <span className="sidebar-item-name">
+              {installStatus === 'installing' ? 'Installing...' : 'Install for Agents'}
+            </span>
+          </button>
+          {installMessage && (
+            <div className="sidebar-install-message">
+              {installMessage}
+            </div>
+          )}
+        </div>
       )}
 
       <div className="sidebar-footer">

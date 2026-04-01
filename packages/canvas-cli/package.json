@@ -1,0 +1,39 @@
+{
+  "name": "@pulse-coder/canvas-cli",
+  "version": "0.0.1-alpha.1",
+  "description": "CLI for Pulse Canvas — agent communication channel for canvas workspaces",
+  "type": "commonjs",
+  "main": "./dist/index.cjs",
+  "bin": {
+    "pulse-canvas": "./dist/index.cjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.cjs"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "require": "./dist/core/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "files": [
+    "dist",
+    "skills"
+  ],
+  "dependencies": {
+    "commander": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.10",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}

@@ -1,0 +1,207 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { promises as fs } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { saveCanvas, loadCanvas } from '../store';
+import { readNode, writeNode, createNode, deleteNode, getNodeCapabilities } from '../nodes';
+import type { CanvasSaveData, CanvasNode } from '../types';
+
+let testDir: string;
+
+beforeEach(async () => {
+  testDir = join(tmpdir(), `canvas-cli-test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+  await fs.mkdir(testDir, { recursive: true });
+});
+
+afterEach(async () => {
+  await fs.rm(testDir, { recursive: true, force: true });
+});
+
+function makeCanvas(nodes: CanvasNode[]): CanvasSaveData {
+  return {
+    nodes,
+    transform: { x: 0, y: 0, scale: 1 },
+    savedAt: '2025-01-01T00:00:00.000Z',
+  };
+}
+
+function makeFileNode(id: string, content: string, filePath?: string): CanvasNode {
+  return {
+    id,
+    type: 'file',
+    title: 'Test File',
+    x: 0, y: 0, width: 420, height: 360,
+    data: { content, filePath: filePath ?? '' },
+  };
+}
+
+function makeFrameNode(id: string, label: string, color: string): CanvasNode {
+  return {
+    id,
+    type: 'frame',
+    title: 'Test Frame',
+    x: 0, y: 0, width: 600, height: 400,
+    data: { label, color },
+  };
+}
+
+function makeTerminalNode(id: string): CanvasNode {
+  return {
+    id,
+    type: 'terminal',
+    title: 'Test Terminal',
+    x: 0, y: 0, width: 480, height: 300,
+    data: { sessionId: '', cwd: '/home/user', scrollback: 'ls\nfile.txt' },
+  };
+}
+
+describe('getNodeCapabilities', () => {
+  it('returns correct capabilities', () => {
+    expect(getNodeCapabilities('file')).toEqual(['read', 'write']);
+    expect(getNodeCapabilities('terminal')).toEqual(['read', 'exec']);
+    expect(getNodeCapabilities('frame')).toEqual(['read', 'write']);
+  });
+});
+
+describe('readNode', () => {
+  it('reads file node with in-memory content', async () => {
+    const node = makeFileNode('n1', 'hello world');
+    const result = await readNode(node);
+    expect(result.type).toBe('file');
+    expect(result.content).toBe('hello world');
+  });
+
+  it('reads file node from disk when filePath exists', async () => {
+    const filePath = join(testDir, 'test.md');
+    await fs.writeFile(filePath, 'disk content', 'utf-8');
+    const node = makeFileNode('n1', 'in-memory', filePath);
+    const result = await readNode(node);
+    expect(result.content).toBe('disk content');
+  });
+
+  it('reads terminal node', async () => {
+    const node = makeTerminalNode('t1');
+    const result = await readNode(node);
+    expect(result.type).toBe('terminal');
+    expect(result.cwd).toBe('/home/user');
+    expect(result.scrollback).toBe('ls\nfile.txt');
+  });
+
+  it('reads frame node', async () => {
+    const node = makeFrameNode('f1', 'Important', '#ff0000');
+    const result = await readNode(node);
+    expect(result.type).toBe('frame');
+    expect(result.label).toBe('Important');
+    expect(result.color).toBe('#ff0000');
+  });
+});
+
+describe('writeNode', () => {
+  it('writes to file node in-memory', async () => {
+    const canvas = makeCanvas([makeFileNode('n1', 'old')]);
+    await saveCanvas('ws-1', canvas, testDir);
+
+    const result = await writeNode('ws-1', 'n1', 'new content', testDir);
+    expect(result.ok).toBe(true);
+
+    const updated = await loadCanvas('ws-1', testDir);
+    expect(updated!.nodes[0].data.content).toBe('new content');
+  });
+
+  it('writes to frame node with JSON', async () => {
+    const canvas = makeCanvas([makeFrameNode('f1', 'old', '#000')]);
+    await saveCanvas('ws-1', canvas, testDir);
+
+    const result = await writeNode('ws-1', 'f1', '{"label":"new label","color":"#fff"}', testDir);
+    expect(result.ok).toBe(true);
+
+    const updated = await loadCanvas('ws-1', testDir);
+    expect(updated!.nodes[0].data.label).toBe('new label');
+    expect(updated!.nodes[0].data.color).toBe('#fff');
+  });
+
+  it('rejects write to terminal node', async () => {
+    const canvas = makeCanvas([makeTerminalNode('t1')]);
+    await saveCanvas('ws-1', canvas, testDir);
+
+    const result = await writeNode('ws-1', 't1', 'hello', testDir);
+    expect(result.ok).toBe(false);
+  });
+
+  it('returns error for missing workspace', async () => {
+    const result = await writeNode('nonexistent', 'n1', 'data', testDir);
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe('createNode', () => {
+  it('creates a file node', async () => {
+    const canvas = makeCanvas([]);
+    await saveCanvas('ws-1', canvas, testDir);
+
+    const result = await createNode('ws-1', { type: 'file', title: 'New File' }, testDir);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.data.type).toBe('file');
+    expect(result.data.title).toBe('New File');
+
+    const updated = await loadCanvas('ws-1', testDir);
+    expect(updated!.nodes).toHaveLength(1);
+    expect(updated!.nodes[0].id).toBe(result.data.nodeId);
+  });
+
+  it('creates a frame node with data', async () => {
+    const canvas = makeCanvas([]);
+    await saveCanvas('ws-1', canvas, testDir);
+
+    const result = await createNode('ws-1', {
+      type: 'frame',
+      title: 'Group',
+      data: { color: '#ff0000', label: 'Core' },
+    }, testDir);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const updated = await loadCanvas('ws-1', testDir);
+    expect(updated!.nodes[0].data.color).toBe('#ff0000');
+    expect(updated!.nodes[0].data.label).toBe('Core');
+  });
+
+  it('auto-places nodes to the right', async () => {
+    const canvas = makeCanvas([
+      { ...makeFileNode('n1', ''), x: 100, width: 420 } as CanvasNode,
+    ]);
+    await saveCanvas('ws-1', canvas, testDir);
+
+    const result = await createNode('ws-1', { type: 'file' }, testDir);
+    expect(result.ok).toBe(true);
+
+    const updated = await loadCanvas('ws-1', testDir);
+    const newNode = updated!.nodes[1];
+    expect(newNode.x).toBe(560); // 100 + 420 + 40
+  });
+});
+
+describe('deleteNode', () => {
+  it('removes node from canvas', async () => {
+    const canvas = makeCanvas([makeFileNode('n1', 'keep'), makeFileNode('n2', 'delete')]);
+    await saveCanvas('ws-1', canvas, testDir);
+
+    const result = await deleteNode('ws-1', 'n2', testDir);
+    expect(result.ok).toBe(true);
+
+    const updated = await loadCanvas('ws-1', testDir);
+    expect(updated!.nodes).toHaveLength(1);
+    expect(updated!.nodes[0].id).toBe('n1');
+  });
+
+  it('returns error for missing node', async () => {
+    const canvas = makeCanvas([]);
+    await saveCanvas('ws-1', canvas, testDir);
+
+    const result = await deleteNode('ws-1', 'nonexistent', testDir);
+    expect(result.ok).toBe(false);
+  });
+});

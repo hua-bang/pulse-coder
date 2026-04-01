@@ -64,7 +64,7 @@ export const setupPtyIpc = () => {
           ...(process.env as Record<string, string>),
         };
         if (workspaceId) {
-          spawnEnv.CURRENT_WORKSPACE_ID = workspaceId;
+          spawnEnv.PULSE_CANVAS_WORKSPACE_ID = workspaceId;
         }
         const proc = pty.spawn(shell, [], {
           name: "xterm-256color",

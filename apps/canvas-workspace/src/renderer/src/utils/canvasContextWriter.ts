@@ -38,7 +38,7 @@ const buildCanvasContext = (
 
   if (workspaceId) {
     lines.push('', '## Workspace Isolation');
-    lines.push('', `Environment variable \`CURRENT_WORKSPACE_ID=${workspaceId}\` is injected into this terminal session.`);
+    lines.push('', `Environment variable \`PULSE_CANVAS_WORKSPACE_ID=${workspaceId}\` is injected into this terminal session.`);
     lines.push('Use this to scope all canvas operations to the current workspace and avoid reading/writing nodes from other canvases.');
     lines.push('When calling MCP canvas tools, always pass this workspace ID to ensure isolation.');
   }
@@ -109,7 +109,7 @@ const buildPointerSection = (canvasDir: string, wsId: string, label: string): st
     '',
     '> 读取上方文件获取画布结构、笔记列表和 Agent 指令。',
     '',
-    `**Workspace Isolation:** Environment variable \`CURRENT_WORKSPACE_ID=${wsId}\` is injected into this terminal.`,
+    `**Workspace Isolation:** Environment variable \`PULSE_CANVAS_WORKSPACE_ID=${wsId}\` is injected into this terminal.`,
     'Always use this workspace ID when calling canvas MCP tools to avoid cross-canvas reads/writes.',
     '',
   ];

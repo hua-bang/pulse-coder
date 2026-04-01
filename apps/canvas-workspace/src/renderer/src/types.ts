@@ -91,6 +91,20 @@ export interface DialogApi {
   openFolder: () => Promise<{ ok: boolean; canceled?: boolean; folderPath?: string; error?: string }>;
 }
 
+export interface SkillsInstallResult {
+  ok: boolean;
+  skillsInstalled: boolean;
+  skillsPath?: string;
+  cliInstalled: boolean;
+  manualCommand?: string | null;
+  cliError?: string | null;
+  error?: string;
+}
+
+export interface SkillsApi {
+  install: () => Promise<SkillsInstallResult>;
+}
+
 export interface CanvasWorkspaceApi {
   version: string;
   pty: {
@@ -123,6 +137,7 @@ export interface CanvasWorkspaceApi {
   };
   file: FileApi;
   dialog: DialogApi;
+  skills: SkillsApi;
 }
 
 declare global {

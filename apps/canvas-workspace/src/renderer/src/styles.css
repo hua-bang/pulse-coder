@@ -89,6 +89,23 @@ body {
   width: var(--sidebar-collapsed);
 }
 
+.sidebar-install-section {
+  padding: 4px 0;
+  border-top: 1px solid var(--border-light);
+}
+
+.sidebar-install-message {
+  font-size: 11px;
+  color: var(--text-secondary, #666);
+  padding: 4px 12px 4px 32px;
+  white-space: pre-wrap;
+  line-height: 1.4;
+}
+
+.sidebar-install-message--warn {
+  color: var(--text-warning, #b45309);
+}
+
 .sidebar-footer {
   margin-top: auto;
   padding: 8px;

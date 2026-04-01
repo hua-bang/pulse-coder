@@ -104,5 +104,9 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
 
   dialog: {
     openFolder: () => ipcRenderer.invoke("dialog:openFolder")
+  },
+
+  skills: {
+    install: () => ipcRenderer.invoke("skills:install")
   }
 });
