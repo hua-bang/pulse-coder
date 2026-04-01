@@ -108,20 +108,24 @@ const migrateNotePaths = async (
 };
 
 /**
+ * Track node IDs that Electron has seen (loaded or merged in) per workspace.
+ * This lets us distinguish "CLI added a new node" (ID never seen before)
+ * from "user deleted a node" (ID was seen, now missing from memory).
+ */
+const knownNodeIds = new Map<string, Set<string>>();
+
+/**
  * Merge external changes (e.g. from canvas-cli) into the data being saved.
  *
- * Strategy:
- * - Nodes on disk whose ID is NOT in the in-memory save → added externally → keep them
- * - Nodes on disk whose ID IS in the in-memory save → Electron owns these → use in-memory version
- * - Nodes in memory but not on disk → newly created in Electron, or CLI deleted them → keep them
- *
- * This ensures CLI-added nodes survive Electron's debounced saves without
- * introducing the race conditions that the old file-watcher approach had.
+ * Only merges nodes whose IDs have NEVER been seen by Electron. This prevents
+ * re-adding nodes that the user explicitly deleted in the UI.
  */
 const mergeExternalNodes = async (
   id: string,
   inMemoryData: CanvasSaveData,
 ): Promise<CanvasSaveData> => {
+  const known = knownNodeIds.get(id) ?? new Set();
+
   try {
     const raw = await fs.readFile(getFilePath(id), 'utf-8');
     const diskData = JSON.parse(raw) as CanvasSaveData;
@@ -129,16 +133,21 @@ const mergeExternalNodes = async (
     const memoryNodes = Array.isArray(inMemoryData.nodes) ? inMemoryData.nodes : [];
 
     const memoryIds = new Set(memoryNodes.map(n => n.id));
-    const externalNodes = diskNodes.filter(n => n.id && !memoryIds.has(n.id));
+
+    // Only add nodes that are truly new — never seen by Electron before
+    const externalNodes = diskNodes.filter(n => n.id && !memoryIds.has(n.id) && !known.has(n.id));
 
     if (externalNodes.length === 0) return inMemoryData;
+
+    // Mark newly merged nodes as known
+    for (const n of externalNodes) known.add(n.id);
+    knownNodeIds.set(id, known);
 
     return {
       ...inMemoryData,
       nodes: [...memoryNodes, ...externalNodes],
     };
   } catch {
-    // No existing file on disk or parse error — nothing to merge
     return inMemoryData;
   }
 };
@@ -190,6 +199,12 @@ export const setupCanvasStoreIpc = () => {
           const dirty = await migrateNotePaths(payload.id, data);
           if (dirty) {
             await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+          }
+          // Record all loaded node IDs so we can distinguish
+          // "CLI added" from "user deleted" during merge-on-save
+          if (Array.isArray(data.nodes)) {
+            const known = new Set(data.nodes.map((n: CanvasNode) => n.id).filter(Boolean));
+            knownNodeIds.set(payload.id, known);
           }
         }
         return { ok: true, data };

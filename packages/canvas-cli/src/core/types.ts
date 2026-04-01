@@ -43,7 +43,8 @@ export interface WorkspaceEntry {
 }
 
 export interface WorkspaceManifest {
-  entries: WorkspaceEntry[];
+  workspaces: WorkspaceEntry[];
+  activeId?: string;
 }
 
 export interface NodeReadResult {

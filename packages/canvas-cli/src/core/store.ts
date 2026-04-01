@@ -22,10 +22,12 @@ export function getWorkspaceDir(workspaceId: string, storeDir?: string): string 
 export async function loadWorkspaceManifest(storeDir?: string): Promise<WorkspaceManifest> {
   try {
     const raw = await fs.readFile(manifestPath(storeDir), 'utf-8');
-    const parsed = JSON.parse(raw) as WorkspaceManifest;
-    return { entries: parsed.entries ?? [] };
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    // Support both Electron format ("workspaces") and legacy CLI format ("entries")
+    const workspaces = (parsed.workspaces ?? parsed.entries ?? []) as WorkspaceManifest['workspaces'];
+    return { workspaces, activeId: parsed.activeId as string | undefined };
   } catch {
-    return { entries: [] };
+    return { workspaces: [] };
   }
 }
 
@@ -93,7 +95,7 @@ export async function createWorkspace(
 
     // Update manifest
     const manifest = await loadWorkspaceManifest(storeDir);
-    manifest.entries.push({ id, name });
+    manifest.workspaces.push({ id, name });
     await saveWorkspaceManifest(manifest, storeDir);
 
     return { ok: true, data: { id } };
@@ -112,7 +114,7 @@ export async function deleteWorkspace(
 
     // Update manifest
     const manifest = await loadWorkspaceManifest(storeDir);
-    manifest.entries = manifest.entries.filter(e => e.id !== workspaceId);
+    manifest.workspaces = manifest.workspaces.filter(e => e.id !== workspaceId);
     await saveWorkspaceManifest(manifest, storeDir);
 
     return { ok: true, data: undefined };
