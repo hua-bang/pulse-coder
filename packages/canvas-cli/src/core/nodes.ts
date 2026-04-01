@@ -110,6 +110,8 @@ export interface CreateNodeOptions {
   title?: string;
   x?: number;
   y?: number;
+  width?: number;
+  height?: number;
   data?: Record<string, unknown>;
 }
 
@@ -171,8 +173,8 @@ export async function createNode(
     title: opts.title ?? def.title,
     x,
     y,
-    width: def.width,
-    height: def.height,
+    width: opts.width ?? def.width,
+    height: opts.height ?? def.height,
     data: nodeData,
   };
 
