@@ -107,6 +107,42 @@ const migrateNotePaths = async (
   return dirty;
 };
 
+/**
+ * Merge external changes (e.g. from canvas-cli) into the data being saved.
+ *
+ * Strategy:
+ * - Nodes on disk whose ID is NOT in the in-memory save → added externally → keep them
+ * - Nodes on disk whose ID IS in the in-memory save → Electron owns these → use in-memory version
+ * - Nodes in memory but not on disk → newly created in Electron, or CLI deleted them → keep them
+ *
+ * This ensures CLI-added nodes survive Electron's debounced saves without
+ * introducing the race conditions that the old file-watcher approach had.
+ */
+const mergeExternalNodes = async (
+  id: string,
+  inMemoryData: CanvasSaveData,
+): Promise<CanvasSaveData> => {
+  try {
+    const raw = await fs.readFile(getFilePath(id), 'utf-8');
+    const diskData = JSON.parse(raw) as CanvasSaveData;
+    const diskNodes = Array.isArray(diskData.nodes) ? diskData.nodes : [];
+    const memoryNodes = Array.isArray(inMemoryData.nodes) ? inMemoryData.nodes : [];
+
+    const memoryIds = new Set(memoryNodes.map(n => n.id));
+    const externalNodes = diskNodes.filter(n => n.id && !memoryIds.has(n.id));
+
+    if (externalNodes.length === 0) return inMemoryData;
+
+    return {
+      ...inMemoryData,
+      nodes: [...memoryNodes, ...externalNodes],
+    };
+  } catch {
+    // No existing file on disk or parse error — nothing to merge
+    return inMemoryData;
+  }
+};
+
 export const setupCanvasStoreIpc = () => {
   ipcMain.handle(
     'canvas:save',
@@ -121,11 +157,24 @@ export const setupCanvasStoreIpc = () => {
           );
         } else {
           await ensureWorkspaceDir(payload.id);
+          // Merge CLI-added nodes before writing
+          const merged = await mergeExternalNodes(
+            payload.id,
+            payload.data as CanvasSaveData,
+          );
           await fs.writeFile(
             getFilePath(payload.id),
-            JSON.stringify(payload.data, null, 2),
+            JSON.stringify(merged, null, 2),
             'utf-8'
           );
+          // Tell renderer about externally-added nodes so UI stays in sync
+          const memoryNodes = Array.isArray((payload.data as CanvasSaveData).nodes)
+            ? (payload.data as CanvasSaveData).nodes!
+            : [];
+          const mergedNodes = Array.isArray(merged.nodes) ? merged.nodes : [];
+          if (mergedNodes.length > memoryNodes.length) {
+            return { ok: true, mergedNodes };
+          }
         }
         return { ok: true };
       } catch (err) {

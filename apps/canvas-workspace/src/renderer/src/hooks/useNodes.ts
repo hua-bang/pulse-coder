@@ -25,9 +25,19 @@ export const useNodes = (
         transform: transformRef.current,
         savedAt: new Date().toISOString(),
       };
-      void api.save(canvasId, payload);
+      void api.save(canvasId, payload).then((res) => {
+        // If main process merged in externally-added nodes (e.g. from CLI),
+        // update in-memory state so they appear on canvas.
+        if (res?.mergedNodes && Array.isArray(res.mergedNodes)) {
+          const merged = res.mergedNodes as CanvasNode[];
+          if (merged.length > nodesRef.current.length) {
+            nodesRef.current = merged;
+            setNodes(merged);
+          }
+        }
+      });
     }, SAVE_DEBOUNCE_MS);
-  }, [canvasId]);
+  }, [canvasId, setNodes, nodesRef]);
 
   const [loaded, setLoaded] = useState(false);
 
