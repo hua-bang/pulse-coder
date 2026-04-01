@@ -3,7 +3,11 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
-const SKILLS_DIR = join(homedir(), '.pulse-coder', 'skills', 'canvas');
+const GLOBAL_SKILL_DIRS = [
+  join(homedir(), '.pulse-coder', 'skills', 'canvas'),
+  join(homedir(), '.claude', 'skills', 'canvas'),
+  join(homedir(), '.codex', 'skills', 'canvas'),
+];
 
 const SKILL_CONTENT = `---
 name: canvas
@@ -57,14 +61,18 @@ pulse-canvas workspace list --format json
 - After completing work, write results back to the canvas for the user to review
 `;
 
-async function installSkillFile(): Promise<{ ok: boolean; path: string; error?: string }> {
+async function installSkillFile(): Promise<{ ok: boolean; paths: string[]; error?: string }> {
+  const installed: string[] = [];
   try {
-    await fs.mkdir(SKILLS_DIR, { recursive: true });
-    const targetPath = join(SKILLS_DIR, 'SKILL.md');
-    await fs.writeFile(targetPath, SKILL_CONTENT, 'utf-8');
-    return { ok: true, path: targetPath };
+    for (const dir of GLOBAL_SKILL_DIRS) {
+      await fs.mkdir(dir, { recursive: true });
+      const targetPath = join(dir, 'SKILL.md');
+      await fs.writeFile(targetPath, SKILL_CONTENT, 'utf-8');
+      installed.push(targetPath);
+    }
+    return { ok: true, paths: installed };
   } catch (err) {
-    return { ok: false, path: SKILLS_DIR, error: String(err) };
+    return { ok: false, paths: installed, error: String(err) };
   }
 }
 
@@ -85,7 +93,7 @@ export function setupSkillInstallerIpc(): void {
     return {
       ok: true,
       skillsInstalled: true,
-      skillsPath: skillResult.path,
+      skillsPaths: skillResult.paths,
       cliInstalled: false,
       manualCommand: 'cd <project-root> && pnpm --filter @pulse-coder/canvas-cli build && pnpm link --global --filter @pulse-coder/canvas-cli',
       cliError: null,

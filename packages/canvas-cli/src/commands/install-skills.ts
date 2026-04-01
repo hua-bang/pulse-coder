@@ -4,7 +4,12 @@ import { homedir } from 'os';
 import { Command } from 'commander';
 import { output, type OutputFormat } from '../output';
 
-const SKILLS_BASE_DIR = join(homedir(), '.pulse-coder', 'skills');
+/** All global skill directories that various agents scan. */
+const GLOBAL_SKILL_DIRS = [
+  join(homedir(), '.pulse-coder', 'skills'),
+  join(homedir(), '.claude', 'skills'),
+  join(homedir(), '.codex', 'skills'),
+];
 
 interface SkillEntry {
   name: string;
@@ -16,30 +21,32 @@ const SKILLS: SkillEntry[] = [
   { name: 'canvas-bootstrap', subdir: 'canvas-bootstrap' },
 ];
 
+async function readSkillContent(skill: SkillEntry): Promise<string | null> {
+  const skillSource = join(__dirname, '..', 'skills', skill.subdir, 'SKILL.md');
+  try {
+    return await fs.readFile(skillSource, 'utf-8');
+  } catch {
+    if (skill.name === 'canvas') return getInlineCanvasSkillContent();
+    return null;
+  }
+}
+
 export async function installSkills(targetBaseDir?: string): Promise<{ ok: boolean; paths: string[]; error?: string }> {
-  const baseDir = targetBaseDir ?? SKILLS_BASE_DIR;
+  const baseDirs = targetBaseDir ? [targetBaseDir] : GLOBAL_SKILL_DIRS;
   const installed: string[] = [];
 
   try {
-    for (const skill of SKILLS) {
-      const dir = join(baseDir, skill.subdir);
-      await fs.mkdir(dir, { recursive: true });
+    for (const baseDir of baseDirs) {
+      for (const skill of SKILLS) {
+        const content = await readSkillContent(skill);
+        if (!content) continue;
 
-      const skillSource = join(__dirname, '..', 'skills', skill.subdir, 'SKILL.md');
-      let skillContent: string;
-      try {
-        skillContent = await fs.readFile(skillSource, 'utf-8');
-      } catch {
-        if (skill.name === 'canvas') {
-          skillContent = getInlineCanvasSkillContent();
-        } else {
-          continue; // skip if source not found and no inline fallback
-        }
+        const dir = join(baseDir, skill.subdir);
+        await fs.mkdir(dir, { recursive: true });
+        const targetPath = join(dir, 'SKILL.md');
+        await fs.writeFile(targetPath, content, 'utf-8');
+        installed.push(targetPath);
       }
-
-      const targetPath = join(dir, 'SKILL.md');
-      await fs.writeFile(targetPath, skillContent, 'utf-8');
-      installed.push(targetPath);
     }
     return { ok: true, paths: installed };
   } catch (err) {
