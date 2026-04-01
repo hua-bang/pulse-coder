@@ -55,7 +55,12 @@ export const FrameColorPicker = ({ node, onUpdate }: ColorPickerProps) => {
   }, [open]);
 
   return (
-    <div className="frame-color-trigger" ref={triggerRef} title="Frame color">
+    <div
+      className={`frame-color-trigger${open ? ' frame-color-trigger--open' : ''}`}
+      ref={triggerRef}
+      title="Frame color"
+      onMouseDown={(e) => e.stopPropagation()}
+    >
       <div
         className="frame-color-dot"
         style={{ backgroundColor: data.color }}

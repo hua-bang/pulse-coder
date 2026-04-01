@@ -502,8 +502,9 @@ body {
   transition: opacity 0.15s ease;
 }
 
-/* Show color dot when hovering the header */
-.node-header:hover .frame-color-trigger {
+/* Show color dot when hovering the header or when popover is open */
+.node-header:hover .frame-color-trigger,
+.frame-color-trigger--open {
   opacity: 1;
 }
 
