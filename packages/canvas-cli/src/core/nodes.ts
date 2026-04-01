@@ -1,11 +1,12 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { NODE_CAPABILITIES, DEFAULT_NODE_DIMENSIONS } from './constants';
-import { loadCanvas, saveCanvas, getWorkspaceDir } from './store';
+import { loadCanvas, saveCanvas, ensureWorkspaceDir, getWorkspaceDir } from './store';
 import type {
   NodeType,
   NodeCapability,
   CanvasNode,
+  CanvasSaveData,
   NodeReadResult,
   Result,
 } from './types';
@@ -90,14 +91,18 @@ export async function writeNode(
   }
 }
 
-function autoPlaceX(nodes: Array<{ x?: number; width?: number }>): number {
-  if (nodes.length === 0) return 100;
+function autoPlace(nodes: Array<{ x?: number; y?: number; width?: number; height?: number }>): { x: number; y: number } {
+  if (nodes.length === 0) return { x: 100, y: 100 };
   let maxRight = 0;
+  let bestY = 100;
   for (const n of nodes) {
     const right = (n.x ?? 0) + (n.width ?? 400);
-    if (right > maxRight) maxRight = right;
+    if (right > maxRight) {
+      maxRight = right;
+      bestY = n.y ?? 100;
+    }
   }
-  return maxRight + 40;
+  return { x: maxRight + 40, y: bestY };
 }
 
 export interface CreateNodeOptions {
@@ -113,15 +118,25 @@ export async function createNode(
   opts: CreateNodeOptions,
   storeDir?: string,
 ): Promise<Result<{ nodeId: string; type: NodeType; title: string; capabilities: NodeCapability[] }>> {
-  const canvas = await loadCanvas(workspaceId, storeDir);
-  if (!canvas) return { ok: false, error: `Workspace not found: ${workspaceId}` };
+  // Auto-create canvas if it doesn't exist yet
+  let canvas = await loadCanvas(workspaceId, storeDir);
+  if (!canvas) {
+    await ensureWorkspaceDir(workspaceId, storeDir);
+    canvas = {
+      nodes: [],
+      transform: { x: 0, y: 0, scale: 1 },
+      savedAt: new Date().toISOString(),
+    } satisfies CanvasSaveData;
+    await saveCanvas(workspaceId, canvas, storeDir);
+  }
 
   const nodeId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const def = DEFAULT_NODE_DIMENSIONS[opts.type];
   if (!def) return { ok: false, error: `Unsupported node type: ${opts.type}` };
 
-  const x = opts.x ?? autoPlaceX(canvas.nodes as Array<{ x?: number; width?: number }>);
-  const y = opts.y ?? 100;
+  const auto = autoPlace(canvas.nodes);
+  const x = opts.x ?? auto.x;
+  const y = opts.y ?? auto.y;
 
   const inputData = opts.data ?? {};
   let nodeData: Record<string, unknown>;
@@ -135,6 +150,19 @@ export async function createNode(
     case 'frame':
       nodeData = { color: (inputData as Record<string, string>).color ?? '#9065b0', label: (inputData as Record<string, string>).label ?? '' };
       break;
+  }
+
+  // For file nodes, always create a notes file so the node has a valid filePath
+  if (opts.type === 'file') {
+    const notesDir = join(getWorkspaceDir(workspaceId, storeDir), 'notes');
+    await fs.mkdir(notesDir, { recursive: true });
+    const title = opts.title ?? def.title;
+    const safeTitle = title.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const noteFile = join(notesDir, `${safeTitle}-${nodeId}.md`);
+    await fs.writeFile(noteFile, String(nodeData.content ?? ''), 'utf-8');
+    nodeData.filePath = noteFile;
+    nodeData.saved = true;
+    nodeData.modified = false;
   }
 
   const newNode: CanvasNode = {
@@ -151,17 +179,6 @@ export async function createNode(
   canvas.nodes.push(newNode);
   canvas.savedAt = new Date().toISOString();
   await saveCanvas(workspaceId, canvas, storeDir);
-
-  // If file node with content, create a workspace note file
-  if (opts.type === 'file' && nodeData.content) {
-    const notesDir = join(getWorkspaceDir(workspaceId, storeDir), 'notes');
-    await fs.mkdir(notesDir, { recursive: true });
-    const noteFile = join(notesDir, `${nodeId}.md`);
-    await fs.writeFile(noteFile, String(nodeData.content), 'utf-8');
-    newNode.data.filePath = noteFile;
-    canvas.savedAt = new Date().toISOString();
-    await saveCanvas(workspaceId, canvas, storeDir);
-  }
 
   return {
     ok: true,

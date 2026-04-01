@@ -135,7 +135,7 @@ describe('writeNode', () => {
 });
 
 describe('createNode', () => {
-  it('creates a file node', async () => {
+  it('creates a file node with notes file', async () => {
     const canvas = makeCanvas([]);
     await saveCanvas('ws-1', canvas, testDir);
 
@@ -149,6 +149,14 @@ describe('createNode', () => {
     const updated = await loadCanvas('ws-1', testDir);
     expect(updated!.nodes).toHaveLength(1);
     expect(updated!.nodes[0].id).toBe(result.data.nodeId);
+
+    // File node should have a valid filePath pointing to a notes file
+    const filePath = updated!.nodes[0].data.filePath as string;
+    expect(filePath).toBeTruthy();
+    expect(filePath).toContain('notes');
+    const fileExists = await fs.access(filePath).then(() => true).catch(() => false);
+    expect(fileExists).toBe(true);
+    expect(updated!.nodes[0].data.saved).toBe(true);
   });
 
   it('creates a frame node with data', async () => {
@@ -171,16 +179,47 @@ describe('createNode', () => {
 
   it('auto-places nodes to the right', async () => {
     const canvas = makeCanvas([
-      { ...makeFileNode('n1', ''), x: 100, width: 420 } as CanvasNode,
+      { ...makeFileNode('n1', ''), x: 100, y: 200, width: 420 } as CanvasNode,
     ]);
     await saveCanvas('ws-1', canvas, testDir);
 
-    const result = await createNode('ws-1', { type: 'file' }, testDir);
+    const result = await createNode('ws-1', { type: 'frame' }, testDir);
     expect(result.ok).toBe(true);
 
     const updated = await loadCanvas('ws-1', testDir);
     const newNode = updated!.nodes[1];
     expect(newNode.x).toBe(560); // 100 + 420 + 40
+    expect(newNode.y).toBe(200); // aligned with rightmost node's y
+  });
+
+  it('auto-creates canvas if not exists', async () => {
+    // Don't pre-create canvas.json — createNode should handle it
+    const result = await createNode('ws-new', { type: 'frame', title: 'First' }, testDir);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const canvas = await loadCanvas('ws-new', testDir);
+    expect(canvas).not.toBeNull();
+    expect(canvas!.nodes).toHaveLength(1);
+    expect(canvas!.nodes[0].title).toBe('First');
+  });
+
+  it('creates file node with initial content', async () => {
+    const canvas = makeCanvas([]);
+    await saveCanvas('ws-1', canvas, testDir);
+
+    const result = await createNode('ws-1', {
+      type: 'file',
+      title: 'Note',
+      data: { content: '# Hello World' },
+    }, testDir);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const updated = await loadCanvas('ws-1', testDir);
+    const filePath = updated!.nodes[0].data.filePath as string;
+    const content = await fs.readFile(filePath, 'utf-8');
+    expect(content).toBe('# Hello World');
   });
 });
 
