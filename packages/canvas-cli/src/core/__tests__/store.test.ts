@@ -36,14 +36,14 @@ describe('store', () => {
   describe('workspace manifest', () => {
     it('returns empty manifest when none exists', async () => {
       const manifest = await loadWorkspaceManifest(testDir);
-      expect(manifest.entries).toEqual([]);
+      expect(manifest.workspaces).toEqual([]);
     });
 
     it('saves and loads manifest', async () => {
-      const manifest = { entries: [{ id: 'ws-1', name: 'Test' }] };
+      const manifest = { workspaces: [{ id: 'ws-1', name: 'Test' }] };
       await saveWorkspaceManifest(manifest, testDir);
       const loaded = await loadWorkspaceManifest(testDir);
-      expect(loaded.entries).toEqual([{ id: 'ws-1', name: 'Test' }]);
+      expect(loaded.workspaces).toEqual([{ id: 'ws-1', name: 'Test' }]);
     });
   });
 
@@ -84,7 +84,7 @@ describe('store', () => {
       expect(ids).toContain(result.data.id);
 
       const manifest = await loadWorkspaceManifest(testDir);
-      expect(manifest.entries).toContainEqual({ id: result.data.id, name: 'My Workspace' });
+      expect(manifest.workspaces).toContainEqual({ id: result.data.id, name: 'My Workspace' });
 
       const canvas = await loadCanvas(result.data.id, testDir);
       expect(canvas).not.toBeNull();
@@ -106,7 +106,7 @@ describe('store', () => {
       expect(ids).not.toContain(wsId);
 
       const manifest = await loadWorkspaceManifest(testDir);
-      expect(manifest.entries.find(e => e.id === wsId)).toBeUndefined();
+      expect(manifest.workspaces.find(e => e.id === wsId)).toBeUndefined();
     });
   });
 
