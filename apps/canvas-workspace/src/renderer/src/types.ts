@@ -126,7 +126,7 @@ export interface CanvasWorkspaceApi {
     save: (
       id: string,
       data: unknown
-    ) => Promise<{ ok: boolean; mergedNodes?: CanvasNode[]; error?: string }>;
+    ) => Promise<{ ok: boolean; error?: string }>;
     load: (
       id: string
     ) => Promise<{ ok: boolean; data?: CanvasSaveData | null; error?: string }>;

@@ -167,14 +167,6 @@ export const setupCanvasStoreIpc = () => {
             JSON.stringify(merged, null, 2),
             'utf-8'
           );
-          // Tell renderer about externally-added nodes so UI stays in sync
-          const memoryNodes = Array.isArray((payload.data as CanvasSaveData).nodes)
-            ? (payload.data as CanvasSaveData).nodes!
-            : [];
-          const mergedNodes = Array.isArray(merged.nodes) ? merged.nodes : [];
-          if (mergedNodes.length > memoryNodes.length) {
-            return { ok: true, mergedNodes };
-          }
         }
         return { ok: true };
       } catch (err) {
