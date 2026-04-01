@@ -1,51 +1,46 @@
 ---
 name: canvas-bootstrap
 description: Deep-research a topic and build a structured canvas workspace with spatially organized frames and content
-version: 2.0.0
+version: 3.0.0
 ---
 
 # Canvas Bootstrap
 
-Given a topic or task, deeply research it, then build a structured canvas workspace where frames and content nodes are spatially aligned.
+Given a topic or task, deeply research it, then build a structured canvas workspace where frames group related content nodes spatially.
 
 ## Workflow
 
-### Phase 1: Deep Research (spend most of your time here)
+### Phase 1: Deep Research (most important phase)
 
-Do NOT create any nodes yet. First, thoroughly understand the topic:
+Do NOT create any nodes yet. Research thoroughly first:
 
 1. **Clarify scope** — What exactly does the user want? What's the boundary?
-2. **Web search** — Search for 3-5 different angles on the topic. Read the results carefully.
-3. **Cross-reference** — Compare sources. Note agreements, contradictions, and gaps.
-4. **Read local context** — If related to a project, read relevant files in the codebase.
-5. **Synthesize** — Distill findings into structured knowledge. Identify:
-   - Core concepts (what must be understood)
-   - Key decisions (what choices exist)
-   - Action items (what needs to be done)
-   - Open questions (what's still unclear)
+2. **Multi-angle search** — Search 3-5 different aspects of the topic
+3. **Cross-reference** — Compare sources, note conflicts and consensus
+4. **Read local context** — Check related project files if applicable
+5. **Synthesize** — Organize findings into a structured outline:
+   - What are the natural **categories** of information? (these become frames)
+   - Within each category, what **distinct pieces** of content exist? (these become file nodes)
+   - What requires **execution/interaction**? (these become terminal nodes)
 
-The quality of the canvas depends entirely on the quality of the research. A well-researched canvas with 5 nodes beats a shallow canvas with 20 nodes.
+### Phase 2: Plan Dynamic Layout
 
-### Phase 2: Plan Canvas Structure
+Based on research, determine the structure organically. Do NOT use a fixed template.
 
-Based on your research, design the layout. Think in terms of **regions**:
+**Planning rules:**
+- Each frame = one logical **category** of your research findings
+- Each file node = one **distinct document** within that category
+- A frame should have **2-4 file nodes** (if only 1, merge into another frame; if more than 4, split the frame)
+- Total: aim for 3-6 frames with 2-4 nodes each
 
-```
-┌──────── Frame A (x:50) ────────┐  ┌──────── Frame B (x:750) ────────┐
-│                                 │  │                                  │
-│  [File: Summary]    (x:70)      │  │  [File: Analysis]    (x:770)    │
-│  [File: Key Facts]  (x:70)      │  │  [File: Comparisons] (x:770)   │
-│                                 │  │                                  │
-└─────────────────────────────────┘  └──────────────────────────────────┘
+**Think through your plan like this:**
 
-┌──────── Frame C (x:50) ────────────────────────────────────────────────┐
-│                                                                         │
-│  [File: Tasks]  (x:70)           [File: Timeline]  (x:770)            │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-**Key rule**: File nodes must be positioned INSIDE their parent frame's bounds.
+> Research found 4 major areas:
+> 1. "Historical Context" — 3 aspects: timeline, key figures, turning points → 1 frame, 3 files
+> 2. "Core Concepts" — 2 aspects: fundamentals, advanced topics → 1 frame, 2 files  
+> 3. "Current State" — 3 aspects: landscape, key players, trends → 1 frame, 3 files
+> 4. "Action Items" — 2 aspects: short-term tasks, long-term goals → 1 frame, 2 files
+> Total: 4 frames, 10 files → good balance
 
 ### Phase 3: Create Workspace
 
@@ -53,121 +48,139 @@ Based on your research, design the layout. Think in terms of **regions**:
 pulse-canvas workspace create "<topic>" --format json
 ```
 
-### Phase 4: Create Nodes with Explicit Positions
+### Phase 4: Create Nodes with Dynamic Layout
 
-**Coordinate system**: x=0, y=0 is top-left. Positive x goes right, positive y goes down.
+#### Layout algorithm
 
-#### Step 1: Create frames (large containers)
+Frames are arranged in a grid. Each frame is sized to fit its children.
 
-Frames are large rectangles that visually group content. Use `--width` and `--height` to make them big enough to contain their child nodes.
+**Constants:**
+- `FRAME_PAD = 20` — padding inside frame edges
+- `GAP = 50` — gap between frames
+- `FILE_W = 300` — file node width
+- `FILE_H = 360` — file node height
+- `COL_GAP = 20` — gap between file nodes inside a frame
+
+**For each frame, calculate dimensions based on child count:**
+- Frame width = `FRAME_PAD*2 + N_COLS * FILE_W + (N_COLS-1) * COL_GAP`
+  - 1 file → 1 col, width = 340
+  - 2 files → 2 cols, width = 660
+  - 3 files → 3 cols, width = 980
+  - 4 files → 2 cols × 2 rows, width = 660
+- Frame height = `FRAME_PAD + 50 + N_ROWS * FILE_H + (N_ROWS-1) * COL_GAP`
+  - 1 row → height = 430
+  - 2 rows → height = 810
+
+**Arrange frames left-to-right, wrapping to a new row when exceeding ~1500px:**
+
+```
+Row 1:  Frame_A (at x:50)          Frame_B (at x:50 + wA + GAP)     Frame_C (if fits)
+Row 2:  Frame_D (at x:50, y: ...)  Frame_E ...
+```
+
+**Place file nodes inside each frame:**
+```
+Frame top-left = (fx, fy)
+File[0]: x = fx + FRAME_PAD,              y = fy + FRAME_PAD + 50
+File[1]: x = fx + FRAME_PAD + FILE_W + COL_GAP,  y = fy + FRAME_PAD + 50
+File[2]: x = fx + FRAME_PAD,              y = fy + FRAME_PAD + 50 + FILE_H + COL_GAP  (row 2)
+...
+```
+
+#### Example: 4 frames with varying child counts
 
 ```bash
-# Row 1: two frames side by side
-pulse-canvas node create --type frame --title "Overview" \
-  --x 50 --y 50 --width 680 --height 500 \
-  --data '{"label":"Core concepts","color":"#4a90d9"}' --format json
+# Frame 1: "Historical Context" — 3 files (3 cols)
+# Frame: x=50, y=50, w=980, h=430
+pulse-canvas node create --type frame --title "Historical Context" \
+  --x 50 --y 50 --width 980 --height 430 \
+  --data '{"label":"Background and timeline","color":"#9065b0"}' --format json
 
-pulse-canvas node create --type frame --title "Research" \
-  --x 780 --y 50 --width 680 --height 500 \
-  --data '{"label":"Deep analysis","color":"#9065b0"}' --format json
+# Files inside Frame 1
+pulse-canvas node create --type file --title "Timeline" \
+  --x 70 --y 120 --width 300 --height 360 \
+  --data '{"content":"# Timeline\n\n..."}' --format json
 
-# Row 2: a wide frame spanning the full width
+pulse-canvas node create --type file --title "Key Figures" \
+  --x 390 --y 120 --width 300 --height 360 \
+  --data '{"content":"# Key Figures\n\n..."}' --format json
+
+pulse-canvas node create --type file --title "Turning Points" \
+  --x 710 --y 120 --width 300 --height 360 \
+  --data '{"content":"# Turning Points\n\n..."}' --format json
+
+# Frame 2: "Core Concepts" — 2 files (2 cols)
+# Frame: x=1080, y=50, w=660, h=430
+pulse-canvas node create --type frame --title "Core Concepts" \
+  --x 1080 --y 50 --width 660 --height 430 \
+  --data '{"label":"Fundamentals","color":"#4a90d9"}' --format json
+
+# Files inside Frame 2
+pulse-canvas node create --type file --title "Fundamentals" \
+  --x 1100 --y 120 --width 300 --height 360 \
+  --data '{"content":"# Fundamentals\n\n..."}' --format json
+
+pulse-canvas node create --type file --title "Advanced Topics" \
+  --x 1420 --y 120 --width 300 --height 360 \
+  --data '{"content":"# Advanced Topics\n\n..."}' --format json
+
+# Frame 3: "Current Landscape" — 3 files, Row 2
+# Frame: x=50, y=530, w=980, h=430
+pulse-canvas node create --type frame --title "Current Landscape" \
+  --x 50 --y 530 --width 980 --height 430 \
+  --data '{"label":"Where things stand","color":"#4ad97a"}' --format json
+
+# Files inside Frame 3
+pulse-canvas node create --type file --title "Key Players" \
+  --x 70 --y 600 --width 300 --height 360 \
+  --data '{"content":"# Key Players\n\n..."}' --format json
+
+pulse-canvas node create --type file --title "Trends" \
+  --x 390 --y 600 --width 300 --height 360 \
+  --data '{"content":"# Trends\n\n..."}' --format json
+
+pulse-canvas node create --type file --title "Challenges" \
+  --x 710 --y 600 --width 300 --height 360 \
+  --data '{"content":"# Challenges\n\n..."}' --format json
+
+# Frame 4: "Action Plan" — 2 files, Row 2
+# Frame: x=1080, y=530, w=660, h=430
 pulse-canvas node create --type frame --title "Action Plan" \
-  --x 50 --y 600 --width 1410 --height 450 \
+  --x 1080 --y 530 --width 660 --height 430 \
   --data '{"label":"Next steps","color":"#d94a4a"}' --format json
+
+pulse-canvas node create --type file --title "Short-term Tasks" \
+  --x 1100 --y 600 --width 300 --height 360 \
+  --data '{"content":"# Short-term Tasks\n\n- [ ] ..."}' --format json
+
+pulse-canvas node create --type file --title "Long-term Goals" \
+  --x 1420 --y 600 --width 300 --height 360 \
+  --data '{"content":"# Long-term Goals\n\n..."}' --format json
 ```
 
-#### Step 2: Create file nodes INSIDE frames
-
-Position file nodes within their parent frame's bounds. Leave ~20px margin from frame edges.
-
-```bash
-# Inside "Overview" frame (frame is at x:50, y:50, 680x500)
-pulse-canvas node create --type file --title "Summary" \
-  --x 70 --y 100 --width 300 --height 420 \
-  --data '{"content":"# Summary\n\n...synthesized content..."}' --format json
-
-pulse-canvas node create --type file --title "Key Concepts" \
-  --x 390 --y 100 --width 300 --height 420 \
-  --data '{"content":"# Key Concepts\n\n..."}' --format json
-
-# Inside "Research" frame (frame is at x:780, y:50, 680x500)
-pulse-canvas node create --type file --title "Analysis" \
-  --x 800 --y 100 --width 300 --height 420 \
-  --data '{"content":"# Analysis\n\n..."}' --format json
-
-pulse-canvas node create --type file --title "Sources" \
-  --x 1120 --y 100 --width 300 --height 420 \
-  --data '{"content":"# Sources & References\n\n..."}' --format json
-
-# Inside "Action Plan" frame (frame is at x:50, y:600, 1410x450)
-pulse-canvas node create --type file --title "Tasks" \
-  --x 70 --y 650 --width 420 --height 360 \
-  --data '{"content":"# Tasks\n\n- [ ] ..."}' --format json
-```
-
-#### Step 3: Terminal nodes (only if needed)
-
-```bash
-# Place inside or near a relevant frame
-pulse-canvas node create --type terminal --title "Dev" \
-  --x 520 --y 650 \
-  --data '{"cwd":"/path/to/project"}' --format json
-```
-
-### Phase 5: Verify
+### Phase 5: Verify and Summarize
 
 ```bash
 pulse-canvas context --format json
 ```
 
-Tell the user what you created and what the key findings were.
-
-## Position Reference
-
-### Standard 2-column layout (recommended)
-
-```
-Frame 1: x:50   y:50   w:680  h:500   |  Frame 2: x:780  y:50   w:680  h:500
-  File A: x:70   y:100  w:300  h:420   |    File C: x:800  y:100  w:300  h:420
-  File B: x:390  y:100  w:300  h:420   |    File D: x:1120 y:100  w:300  h:420
-
-Frame 3: x:50   y:600  w:1410 h:450
-  File E: x:70   y:650  w:420  h:360
-  File F: x:520  y:650  w:420  h:360
-  File G: x:970  y:650  w:420  h:360
-```
-
-### Standard 3-column layout
-
-```
-Frame 1: x:50   y:50   w:450  h:500
-Frame 2: x:530  y:50   w:450  h:500
-Frame 3: x:1010 y:50   w:450  h:500
-```
+Tell the user: what frames were created, what each contains, and key findings from your research.
 
 ## Frame Colors
 
-| Purpose | Color | Hex |
-|---------|-------|-----|
-| Overview / Summary | Blue | `#4a90d9` |
-| Research / Analysis | Purple | `#9065b0` |
-| Tasks / Actions | Red | `#d94a4a` |
-| Implementation / Code | Green | `#4ad97a` |
-| Notes / Decisions | Orange | `#d9a54a` |
+| Purpose | Hex |
+|---------|-----|
+| Overview / Summary | `#4a90d9` |
+| Research / Analysis | `#9065b0` |
+| Tasks / Actions | `#d94a4a` |
+| Implementation | `#4ad97a` |
+| Notes / Decisions | `#d9a54a` |
+| Data / Metrics | `#5bc0de` |
 
-## Quality Checklist
+## Quality Rules
 
-- [ ] Every file node has **synthesized** content (not raw search results)
-- [ ] File nodes are **positioned inside** their parent frame
-- [ ] Frames are sized large enough to contain their children
-- [ ] No more than 3-4 frames and 6-8 file nodes
-- [ ] The canvas tells a coherent story from left to right or top to bottom
-
-## Anti-patterns
-
-- **Nodes outside frames** — always place file nodes within a frame's bounds
-- **Empty content** — every file node must have real, useful text
-- **Too many nodes** — focused and deep beats broad and shallow
-- **Skipping research** — don't create nodes until you've thoroughly researched
-- **Raw dumps** — synthesize and structure, never paste raw search output
+1. **Every frame has 2-4 file nodes** — if only 1, merge; if 5+, split
+2. **Every file node has real content** — synthesized, not placeholder
+3. **File nodes are inside their frame** — check coordinates match
+4. **Research before creating** — no canvas without deep understanding first
+5. **Content is actionable** — someone should be able to act on what they read
