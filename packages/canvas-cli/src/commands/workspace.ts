@@ -27,7 +27,7 @@ export function registerWorkspaceCommands(program: Command): void {
       const { format, storeDir } = getOpts(this);
       const ids = await listWorkspaceIds(storeDir);
       const manifest = await loadWorkspaceManifest(storeDir);
-      const nameMap = new Map(manifest.entries.map(e => [e.id, e.name]));
+      const nameMap = new Map((manifest.entries ?? []).map(e => [e.id, e.name]));
 
       const rows = ids.map(id => ({
         id,
@@ -51,7 +51,7 @@ export function registerWorkspaceCommands(program: Command): void {
       if (!canvas) errorOutput(`Workspace not found: ${workspaceId}`);
 
       const manifest = await loadWorkspaceManifest(storeDir);
-      const entry = manifest.entries.find(e => e.id === workspaceId);
+      const entry = (manifest.entries ?? []).find(e => e.id === workspaceId);
 
       const typeCounts: Record<string, number> = {};
       for (const node of canvas!.nodes) {
