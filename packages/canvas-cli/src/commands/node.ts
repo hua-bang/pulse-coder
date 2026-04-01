@@ -115,9 +115,13 @@ export function registerNodeCommands(program: Command): void {
   node.command('create')
     .requiredOption('--type <type>', 'Node type: file, terminal, frame')
     .option('--title <title>', 'Node title')
+    .option('--x <n>', 'X position on canvas', parseFloat)
+    .option('--y <n>', 'Y position on canvas', parseFloat)
+    .option('--width <n>', 'Node width', parseFloat)
+    .option('--height <n>', 'Node height', parseFloat)
     .option('--data <json>', 'Initial data as JSON')
     .description('Create a new canvas node')
-    .action(async function (this: Command, cmdOpts: { type: string; title?: string; data?: string }) {
+    .action(async function (this: Command, cmdOpts: { type: string; title?: string; x?: number; y?: number; width?: number; height?: number; data?: string }) {
       const { format, storeDir, workspace } = getOpts(this);
 
       const validTypes: NodeType[] = ['file', 'terminal', 'frame'];
@@ -137,6 +141,10 @@ export function registerNodeCommands(program: Command): void {
       const result = await createNode(workspace, {
         type: cmdOpts.type as NodeType,
         title: cmdOpts.title,
+        x: cmdOpts.x,
+        y: cmdOpts.y,
+        width: cmdOpts.width,
+        height: cmdOpts.height,
         data,
       }, storeDir);
 

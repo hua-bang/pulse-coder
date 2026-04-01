@@ -1,151 +1,186 @@
 ---
 name: canvas-bootstrap
-description: Research a topic and build a structured canvas workspace with frames, files, and terminals
-version: 1.1.0
+description: Deep-research a topic and build a structured canvas workspace with spatially organized frames and content
+version: 3.0.0
 ---
 
 # Canvas Bootstrap
 
-Given a topic or task, research relevant information and create a structured canvas workspace with organized nodes.
+Given a topic or task, deeply research it, then build a structured canvas workspace where frames group related content nodes spatially.
 
 ## Workflow
 
-### 1. Analyze the topic (think first, act later)
+### Phase 1: Deep Research (most important phase)
 
-Before creating anything, spend time understanding what the user needs:
+Do NOT create any nodes yet. Research thoroughly first:
 
-- **What is the topic about?** — Identify the domain, scope, and key dimensions
-- **Who is the audience?** — Is this for the user's own reference, a team, or a presentation?
-- **What are the key sub-topics?** — Break the topic into 3-5 logical groups
-- **What information exists?** — Search the web, read local files, check existing codebases
-- **What actions are needed?** — Are there tasks, experiments, or builds to track?
+1. **Clarify scope** — What exactly does the user want? What's the boundary?
+2. **Multi-angle search** — Search 3-5 different aspects of the topic
+3. **Cross-reference** — Compare sources, note conflicts and consensus
+4. **Read local context** — Check related project files if applicable
+5. **Synthesize** — Organize findings into a structured outline:
+   - What are the natural **categories** of information? (these become frames)
+   - Within each category, what **distinct pieces** of content exist? (these become file nodes)
+   - What requires **execution/interaction**? (these become terminal nodes)
 
-Output your analysis as a brief internal plan before proceeding. Example:
+### Phase 2: Plan Dynamic Layout
 
-> Topic: "Build a REST API for user management"
-> Sub-topics: Architecture, Auth, Database, API Endpoints, Testing
-> Groups: Design (arch + API spec), Implementation (code + DB), Operations (deploy + test)
-> Content needed: tech stack decision, endpoint spec, DB schema, task checklist
-> Terminal contexts: dev server, test runner
+Based on research, determine the structure organically. Do NOT use a fixed template.
 
-### 2. Research and gather information
+**Planning rules:**
+- Each frame = one logical **category** of your research findings
+- Each file node = one **distinct document** within that category
+- A frame should have **2-4 file nodes** (if only 1, merge into another frame; if more than 4, split the frame)
+- Total: aim for 3-6 frames with 2-4 nodes each
 
-Use available tools to collect relevant content:
+**Think through your plan like this:**
 
-- **Web search** for best practices, comparisons, reference architectures
-- **Read local files** if the topic relates to an existing project
-- **Summarize findings** — don't dump raw search results into nodes; synthesize
+> Research found 4 major areas:
+> 1. "Historical Context" — 3 aspects: timeline, key figures, turning points → 1 frame, 3 files
+> 2. "Core Concepts" — 2 aspects: fundamentals, advanced topics → 1 frame, 2 files  
+> 3. "Current State" — 3 aspects: landscape, key players, trends → 1 frame, 3 files
+> 4. "Action Items" — 2 aspects: short-term tasks, long-term goals → 1 frame, 2 files
+> Total: 4 frames, 10 files → good balance
 
-The goal is to produce content that helps the user make decisions and take action, not just raw information.
-
-### 3. Design the canvas structure
-
-Plan the spatial layout on paper before creating nodes:
-
-```
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│  Frame: Overview │  │ Frame: Research  │  │  Frame: Tasks   │
-│                  │  │                  │  │                 │
-│  - Summary       │  │  - Findings      │  │  - Todo list    │
-│  - Goals         │  │  - Comparisons   │  │  - Timeline     │
-│  - Constraints   │  │  - References    │  │                 │
-└─────────────────┘  └─────────────────┘  └─────────────────┘
-```
-
-Decide:
-- How many frames (2-4 is ideal, more gets cluttered)
-- What file nodes go in each logical group
-- Whether terminal nodes are needed (only if there's something to execute)
-- What content each file node should contain (outline first, then write)
-
-### 4. Create workspace (if needed)
-
-If no workspace is active (`$PULSE_CANVAS_WORKSPACE_ID` is not set), create one:
+### Phase 3: Create Workspace
 
 ```bash
 pulse-canvas workspace create "<topic>" --format json
 ```
 
-Then use the returned workspace ID with `--workspace <id>` for subsequent commands.
+### Phase 4: Create Nodes with Dynamic Layout
 
-### 5. Create frames first (they define regions)
+#### Layout algorithm
 
-```bash
-pulse-canvas node create --type frame --title "Overview" --data '{"label":"Goals and constraints","color":"#4a90d9"}' --format json
-pulse-canvas node create --type frame --title "Research" --data '{"label":"Background research","color":"#9065b0"}' --format json
-pulse-canvas node create --type frame --title "Tasks" --data '{"label":"Action items","color":"#d94a4a"}' --format json
+Frames are arranged in a grid. Each frame is sized to fit its children.
+
+**Constants:**
+- `FRAME_PAD = 20` — padding inside frame edges
+- `GAP = 50` — gap between frames
+- `FILE_W = 300` — file node width
+- `FILE_H = 360` — file node height
+- `COL_GAP = 20` — gap between file nodes inside a frame
+
+**For each frame, calculate dimensions based on child count:**
+- Frame width = `FRAME_PAD*2 + N_COLS * FILE_W + (N_COLS-1) * COL_GAP`
+  - 1 file → 1 col, width = 340
+  - 2 files → 2 cols, width = 660
+  - 3 files → 3 cols, width = 980
+  - 4 files → 2 cols × 2 rows, width = 660
+- Frame height = `FRAME_PAD + 50 + N_ROWS * FILE_H + (N_ROWS-1) * COL_GAP`
+  - 1 row → height = 430
+  - 2 rows → height = 810
+
+**Arrange frames left-to-right, wrapping to a new row when exceeding ~1500px:**
+
+```
+Row 1:  Frame_A (at x:50)          Frame_B (at x:50 + wA + GAP)     Frame_C (if fits)
+Row 2:  Frame_D (at x:50, y: ...)  Frame_E ...
 ```
 
-### 6. Create file nodes with synthesized content
-
-Write meaningful content — not placeholders:
-
-```bash
-pulse-canvas node create --type file --title "Overview" --data '{"content":"# Topic Overview\n\n## Goals\n...\n\n## Constraints\n...\n\n## Key Decisions\n..."}' --format json
+**Place file nodes inside each frame:**
 ```
-
-For longer content, create the node first then write via pipe:
-
-```bash
-pulse-canvas node create --type file --title "Detailed Analysis" --format json
-# Then write to the created node:
-pulse-canvas node write <nodeId> --content "$(cat <<'CONTENT'
-# Detailed Analysis
-
-## Background
+Frame top-left = (fx, fy)
+File[0]: x = fx + FRAME_PAD,              y = fy + FRAME_PAD + 50
+File[1]: x = fx + FRAME_PAD + FILE_W + COL_GAP,  y = fy + FRAME_PAD + 50
+File[2]: x = fx + FRAME_PAD,              y = fy + FRAME_PAD + 50 + FILE_H + COL_GAP  (row 2)
 ...
-
-## Options Considered
-...
-
-## Recommendation
-...
-CONTENT
-)"
 ```
 
-### 7. Create terminal nodes (only if needed)
-
-Only create terminal nodes when there's a clear execution context:
+#### Example: 4 frames with varying child counts
 
 ```bash
-pulse-canvas node create --type terminal --title "Dev Server" --data '{"cwd":"/path/to/project"}' --format json
+# Frame 1: "Historical Context" — 3 files (3 cols)
+# Frame: x=50, y=50, w=980, h=430
+pulse-canvas node create --type frame --title "Historical Context" \
+  --x 50 --y 50 --width 980 --height 430 \
+  --data '{"label":"Background and timeline","color":"#9065b0"}' --format json
+
+# Files inside Frame 1
+pulse-canvas node create --type file --title "Timeline" \
+  --x 70 --y 120 --width 300 --height 360 \
+  --data '{"content":"# Timeline\n\n..."}' --format json
+
+pulse-canvas node create --type file --title "Key Figures" \
+  --x 390 --y 120 --width 300 --height 360 \
+  --data '{"content":"# Key Figures\n\n..."}' --format json
+
+pulse-canvas node create --type file --title "Turning Points" \
+  --x 710 --y 120 --width 300 --height 360 \
+  --data '{"content":"# Turning Points\n\n..."}' --format json
+
+# Frame 2: "Core Concepts" — 2 files (2 cols)
+# Frame: x=1080, y=50, w=660, h=430
+pulse-canvas node create --type frame --title "Core Concepts" \
+  --x 1080 --y 50 --width 660 --height 430 \
+  --data '{"label":"Fundamentals","color":"#4a90d9"}' --format json
+
+# Files inside Frame 2
+pulse-canvas node create --type file --title "Fundamentals" \
+  --x 1100 --y 120 --width 300 --height 360 \
+  --data '{"content":"# Fundamentals\n\n..."}' --format json
+
+pulse-canvas node create --type file --title "Advanced Topics" \
+  --x 1420 --y 120 --width 300 --height 360 \
+  --data '{"content":"# Advanced Topics\n\n..."}' --format json
+
+# Frame 3: "Current Landscape" — 3 files, Row 2
+# Frame: x=50, y=530, w=980, h=430
+pulse-canvas node create --type frame --title "Current Landscape" \
+  --x 50 --y 530 --width 980 --height 430 \
+  --data '{"label":"Where things stand","color":"#4ad97a"}' --format json
+
+# Files inside Frame 3
+pulse-canvas node create --type file --title "Key Players" \
+  --x 70 --y 600 --width 300 --height 360 \
+  --data '{"content":"# Key Players\n\n..."}' --format json
+
+pulse-canvas node create --type file --title "Trends" \
+  --x 390 --y 600 --width 300 --height 360 \
+  --data '{"content":"# Trends\n\n..."}' --format json
+
+pulse-canvas node create --type file --title "Challenges" \
+  --x 710 --y 600 --width 300 --height 360 \
+  --data '{"content":"# Challenges\n\n..."}' --format json
+
+# Frame 4: "Action Plan" — 2 files, Row 2
+# Frame: x=1080, y=530, w=660, h=430
+pulse-canvas node create --type frame --title "Action Plan" \
+  --x 1080 --y 530 --width 660 --height 430 \
+  --data '{"label":"Next steps","color":"#d94a4a"}' --format json
+
+pulse-canvas node create --type file --title "Short-term Tasks" \
+  --x 1100 --y 600 --width 300 --height 360 \
+  --data '{"content":"# Short-term Tasks\n\n- [ ] ..."}' --format json
+
+pulse-canvas node create --type file --title "Long-term Goals" \
+  --x 1420 --y 600 --width 300 --height 360 \
+  --data '{"content":"# Long-term Goals\n\n..."}' --format json
 ```
 
-Note: Terminal nodes created via CLI have no active PTY session. They serve as placeholders that the user can activate in the canvas UI.
-
-### 8. Verify and summarize
+### Phase 5: Verify and Summarize
 
 ```bash
 pulse-canvas context --format json
 ```
 
-Review the workspace structure and tell the user what was created and why.
+Tell the user: what frames were created, what each contains, and key findings from your research.
 
-## Layout Guidelines
+## Frame Colors
 
-| Region | Purpose | Suggested color |
-|--------|---------|-----------------|
-| Overview | High-level summary, goals, constraints | `#4a90d9` (blue) |
-| Research | Background info, comparisons, references | `#9065b0` (purple) |
-| Tasks | Action items, sprint backlog, timeline | `#d94a4a` (red) |
-| Implementation | Code, architecture, technical specs | `#4ad97a` (green) |
-| Notes | Decisions, meeting notes, open questions | `#d9a54a` (orange) |
+| Purpose | Hex |
+|---------|-----|
+| Overview / Summary | `#4a90d9` |
+| Research / Analysis | `#9065b0` |
+| Tasks / Actions | `#d94a4a` |
+| Implementation | `#4ad97a` |
+| Notes / Decisions | `#d9a54a` |
+| Data / Metrics | `#5bc0de` |
 
-## Quality Checklist
+## Quality Rules
 
-Before finishing, verify:
-
-- [ ] Each file node has real content (not just "..." or "TODO")
-- [ ] Content is synthesized and actionable, not raw dumps
-- [ ] Frames logically group related nodes
-- [ ] The canvas tells a story: someone unfamiliar with the topic can understand the structure
-- [ ] No more than 4 frames and 8-10 file nodes (keep it focused)
-
-## Anti-patterns
-
-- **Don't create empty nodes** — every file node should have useful content
-- **Don't create too many nodes** — a cluttered canvas is worse than no canvas
-- **Don't skip research** — a canvas of guesses is not helpful
-- **Don't dump raw text** — synthesize, summarize, structure with headings
-- **Don't create terminal nodes "just in case"** — only when there's a real execution need
+1. **Every frame has 2-4 file nodes** — if only 1, merge; if 5+, split
+2. **Every file node has real content** — synthesized, not placeholder
+3. **File nodes are inside their frame** — check coordinates match
+4. **Research before creating** — no canvas without deep understanding first
+5. **Content is actionable** — someone should be able to act on what they read
