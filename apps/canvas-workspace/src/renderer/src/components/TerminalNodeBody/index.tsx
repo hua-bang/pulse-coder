@@ -106,7 +106,7 @@ export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, work
     }
 
     const spawnCwd = initialCwd.current || rootFolder || undefined;
-    const result = await api.spawn(sessionId, term.cols, term.rows, spawnCwd);
+    const result = await api.spawn(sessionId, term.cols, term.rows, spawnCwd, workspaceIdRef.current);
     if (!result.ok) {
       term.writeln(`\x1b[31mFailed to spawn shell: ${result.error}\x1b[0m`);
       return;
