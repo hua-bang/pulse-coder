@@ -4,32 +4,50 @@ import { homedir } from 'os';
 import { Command } from 'commander';
 import { output, type OutputFormat } from '../output';
 
-const SKILLS_DIR = join(homedir(), '.pulse-coder', 'skills', 'canvas');
+const SKILLS_BASE_DIR = join(homedir(), '.pulse-coder', 'skills');
 
-export async function installSkills(targetDir?: string): Promise<{ ok: boolean; path: string; error?: string }> {
-  const dir = targetDir ?? SKILLS_DIR;
+interface SkillEntry {
+  name: string;
+  subdir: string;
+}
+
+const SKILLS: SkillEntry[] = [
+  { name: 'canvas', subdir: 'canvas' },
+  { name: 'canvas-bootstrap', subdir: 'canvas-bootstrap' },
+];
+
+export async function installSkills(targetBaseDir?: string): Promise<{ ok: boolean; paths: string[]; error?: string }> {
+  const baseDir = targetBaseDir ?? SKILLS_BASE_DIR;
+  const installed: string[] = [];
+
   try {
-    await fs.mkdir(dir, { recursive: true });
+    for (const skill of SKILLS) {
+      const dir = join(baseDir, skill.subdir);
+      await fs.mkdir(dir, { recursive: true });
 
-    // Read the bundled SKILL.md from the package
-    const skillSource = join(__dirname, '..', 'skills', 'canvas', 'SKILL.md');
-    let skillContent: string;
-    try {
-      skillContent = await fs.readFile(skillSource, 'utf-8');
-    } catch {
-      // Fallback: inline skill content if the file isn't found (e.g. during development)
-      skillContent = getInlineSkillContent();
+      const skillSource = join(__dirname, '..', 'skills', skill.subdir, 'SKILL.md');
+      let skillContent: string;
+      try {
+        skillContent = await fs.readFile(skillSource, 'utf-8');
+      } catch {
+        if (skill.name === 'canvas') {
+          skillContent = getInlineCanvasSkillContent();
+        } else {
+          continue; // skip if source not found and no inline fallback
+        }
+      }
+
+      const targetPath = join(dir, 'SKILL.md');
+      await fs.writeFile(targetPath, skillContent, 'utf-8');
+      installed.push(targetPath);
     }
-
-    const targetPath = join(dir, 'SKILL.md');
-    await fs.writeFile(targetPath, skillContent, 'utf-8');
-    return { ok: true, path: targetPath };
+    return { ok: true, paths: installed };
   } catch (err) {
-    return { ok: false, path: dir, error: String(err) };
+    return { ok: false, paths: installed, error: String(err) };
   }
 }
 
-function getInlineSkillContent(): string {
+function getInlineCanvasSkillContent(): string {
   return `---
 name: canvas
 description: Operate Pulse Canvas workspaces — read user-curated context, write results, create nodes
@@ -95,10 +113,12 @@ export function registerInstallSkillsCommand(program: Command): void {
       const result = await installSkills(cmdOpts.dir);
       if (!result.ok) {
         console.error(`Failed to install skills: ${result.error}`);
-        console.error(`You can manually create the file at: ${result.path}/SKILL.md`);
         process.exit(1);
       }
 
-      output({ installed: result.path }, format, () => `Skills installed to: ${result.path}`);
+      output({ installed: result.paths }, format, (data) => {
+        const paths = (data as { installed: string[] }).installed;
+        return `Skills installed (${paths.length}):\n${paths.map(p => `  ${p}`).join('\n')}`;
+      });
     });
 }
