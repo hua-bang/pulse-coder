@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CanvasNode, FrameNodeData } from "../types";
 
 interface Props {
@@ -13,15 +13,15 @@ export const FrameNodeBody = ({ node: _node, onUpdate: _onUpdate }: Props) => {
 /* ---- Color picker (rendered in header) ---- */
 
 const COLOR_PRESETS = [
-  { name: "Red", value: "#e03e3e" },
-  { name: "Orange", value: "#d9730d" },
-  { name: "Yellow", value: "#cb912f" },
-  { name: "Green", value: "#0f7b6c" },
-  { name: "Cyan", value: "#2e9e9e" },
-  { name: "Blue", value: "#2383e2" },
-  { name: "Purple", value: "#9065b0" },
-  { name: "Pink", value: "#c84c8a" },
-  { name: "Gray", value: "#787774" }
+  { name: "Red", value: "#e8615a" },
+  { name: "Orange", value: "#e89545" },
+  { name: "Yellow", value: "#d4a030" },
+  { name: "Green", value: "#3eb889" },
+  { name: "Cyan", value: "#35aec2" },
+  { name: "Blue", value: "#5594e8" },
+  { name: "Purple", value: "#9575d4" },
+  { name: "Pink", value: "#e06aa0" },
+  { name: "Gray", value: "#8b96a4" }
 ];
 
 interface ColorPickerProps {
@@ -31,31 +31,55 @@ interface ColorPickerProps {
 
 export const FrameColorPicker = ({ node, onUpdate }: ColorPickerProps) => {
   const data = node.data as FrameNodeData;
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLDivElement>(null);
 
   const handleColorChange = useCallback(
     (color: string) => {
       onUpdate(node.id, { data: { ...data, color } });
+      setOpen(false);
     },
     [node.id, data, onUpdate]
   );
 
+  // Close popover on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (triggerRef.current && !triggerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
   return (
-    <div className="frame-color-trigger" title="Frame color">
-      <div className="frame-color-dot" style={{ backgroundColor: data.color }} />
-      <div className="frame-color-popover">
-        {COLOR_PRESETS.map((preset) => (
-          <button
-            key={preset.name}
-            className={`frame-color-swatch${data.color === preset.value ? ' frame-color-swatch--active' : ''}`}
-            style={{ backgroundColor: preset.value }}
-            title={preset.name}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleColorChange(preset.value);
-            }}
-          />
-        ))}
-      </div>
+    <div className="frame-color-trigger" ref={triggerRef} title="Frame color">
+      <div
+        className="frame-color-dot"
+        style={{ backgroundColor: data.color }}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+      />
+      {open && (
+        <div className="frame-color-popover frame-color-popover--open">
+          {COLOR_PRESETS.map((preset) => (
+            <button
+              key={preset.name}
+              className={`frame-color-swatch${data.color === preset.value ? ' frame-color-swatch--active' : ''}`}
+              style={{ backgroundColor: preset.value }}
+              title={preset.name}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleColorChange(preset.value);
+              }}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };
