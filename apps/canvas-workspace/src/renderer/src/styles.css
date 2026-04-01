@@ -519,10 +519,10 @@ body {
   border-color: white;
 }
 
-/* Popover appears on hover — uses padding bridge to prevent gap-close */
+/* Popover — hidden by default, shown via .frame-color-popover--open */
 .frame-color-popover {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 6px);
   left: 50%;
   transform: translateX(-50%);
   display: none;
@@ -536,23 +536,8 @@ body {
   white-space: nowrap;
 }
 
-/* Invisible bridge so mouse can travel from dot to popover */
-.frame-color-popover::before {
-  content: "";
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  right: 0;
-  height: 8px;
-}
-
-.frame-color-trigger:hover .frame-color-popover {
+.frame-color-popover--open {
   display: flex;
-}
-
-/* Keep trigger visible while popover is open */
-.frame-color-trigger:hover {
-  opacity: 1;
 }
 
 .frame-color-swatch {
