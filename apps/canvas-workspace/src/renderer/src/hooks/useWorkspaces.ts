@@ -207,6 +207,28 @@ export const useWorkspaces = () => {
     [saveManifest]
   );
 
+  /** Reorder a folder by moving it before another folder (or to end) */
+  const reorderFolder = useCallback(
+    (folderId: string, beforeFolderId: string | null) => {
+      setFolders((prev) => {
+        const moving = prev.find((f) => f.id === folderId);
+        if (!moving) return prev;
+        const without = prev.filter((f) => f.id !== folderId);
+        if (beforeFolderId === null) {
+          const next = [...without, moving];
+          saveManifest(workspaces, undefined, next);
+          return next;
+        }
+        const idx = without.findIndex((f) => f.id === beforeFolderId);
+        if (idx === -1) return prev;
+        const next = [...without.slice(0, idx), moving, ...without.slice(idx)];
+        saveManifest(workspaces, undefined, next);
+        return next;
+      });
+    },
+    [saveManifest, workspaces]
+  );
+
   return {
     workspaces,
     folders,
@@ -221,5 +243,6 @@ export const useWorkspaces = () => {
     deleteFolder,
     toggleFolder,
     moveWorkspace,
+    reorderFolder,
   };
 };

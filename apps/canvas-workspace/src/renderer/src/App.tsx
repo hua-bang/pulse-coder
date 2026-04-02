@@ -19,6 +19,7 @@ const App = () => {
     deleteFolder,
     toggleFolder,
     moveWorkspace,
+    reorderFolder,
   } = useWorkspaces();
 
   return (
@@ -40,6 +41,7 @@ const App = () => {
           onDeleteFolder={deleteFolder}
           onToggleFolder={toggleFolder}
           onMoveWorkspace={moveWorkspace}
+          onReorderFolder={reorderFolder}
         />
         <div className="canvas-viewport">
           {workspaces.map((ws) => (
