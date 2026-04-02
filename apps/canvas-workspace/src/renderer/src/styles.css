@@ -461,6 +461,7 @@ body {
   color: white;
   transform: scale(calc(1 / var(--canvas-scale, 1)));
   transform-origin: left bottom;
+  z-index: 2; /* stack above .node-body so color popover is clickable */
 }
 
 .canvas-node--frame .node-header .node-type-badge--frame,
