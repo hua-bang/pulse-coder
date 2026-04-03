@@ -537,30 +537,6 @@ body {
   font-style: italic;
 }
 
-/* ---- Drag Handle ---- */
-
-.sidebar-drag-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 20px;
-  flex-shrink: 0;
-  color: var(--text-muted);
-  cursor: grab;
-  opacity: 0.4;
-  transition: opacity 0.1s;
-  margin-right: 2px;
-}
-
-.sidebar-drag-handle:active {
-  cursor: grabbing;
-}
-
-.sidebar-drag-handle:hover {
-  opacity: 1;
-}
-
 /* ---- Drag & Drop States ---- */
 
 .sidebar-workspace-entry {

@@ -233,16 +233,6 @@ export const Sidebar = ({
       onDragEnd={handleWsDragEnd}
     >
       <div className="sidebar-item-row">
-        <span className="sidebar-drag-handle" title="Drag to move">
-          <svg width="10" height="14" viewBox="0 0 10 14" fill="none">
-            <circle cx="3" cy="3" r="1.2" fill="currentColor"/>
-            <circle cx="7" cy="3" r="1.2" fill="currentColor"/>
-            <circle cx="3" cy="7" r="1.2" fill="currentColor"/>
-            <circle cx="7" cy="7" r="1.2" fill="currentColor"/>
-            <circle cx="3" cy="11" r="1.2" fill="currentColor"/>
-            <circle cx="7" cy="11" r="1.2" fill="currentColor"/>
-          </svg>
-        </span>
         {renamingId === ws.id ? (
           <input
             ref={renameInputRef}
@@ -382,16 +372,6 @@ export const Sidebar = ({
                   }}
                 >
                   <div className="sidebar-folder-header">
-                    <span className="sidebar-drag-handle" title="Drag to reorder">
-                      <svg width="10" height="14" viewBox="0 0 10 14" fill="none">
-                        <circle cx="3" cy="3" r="1.2" fill="currentColor"/>
-                        <circle cx="7" cy="3" r="1.2" fill="currentColor"/>
-                        <circle cx="3" cy="7" r="1.2" fill="currentColor"/>
-                        <circle cx="7" cy="7" r="1.2" fill="currentColor"/>
-                        <circle cx="3" cy="11" r="1.2" fill="currentColor"/>
-                        <circle cx="7" cy="11" r="1.2" fill="currentColor"/>
-                      </svg>
-                    </span>
                     {renamingFolderId === folder.id ? (
                       <input
                         ref={renameFolderInputRef}
