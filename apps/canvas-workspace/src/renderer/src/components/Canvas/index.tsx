@@ -63,9 +63,11 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
     pasteNodes,
   } = useNodes(canvasId, () => {});
 
+  // Only persist transform after data has loaded to avoid saving empty nodes
   useEffect(() => {
+    if (!loaded) return;
     setTransformForSave(transform);
-  }, [transform, setTransformForSave]);
+  }, [loaded, transform, setTransformForSave]);
 
   // Auto-fit all nodes into view on initial load
   useEffect(() => {
@@ -75,10 +77,11 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
     }
   }, [loaded, nodes, fitAllNodes]);
 
-  // Report nodes to parent
+  // Report nodes to parent only after loaded
   useEffect(() => {
+    if (!loaded) return;
     onNodesChange?.(canvasId, nodes);
-  }, [canvasId, nodes, onNodesChange]);
+  }, [canvasId, nodes, loaded, onNodesChange]);
 
   // Handle external focus request (e.g. from sidebar layers panel)
   useEffect(() => {
