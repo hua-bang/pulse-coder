@@ -3,16 +3,22 @@ import './App.css';
 import { Canvas } from './components/Canvas';
 import { Sidebar } from './components/Sidebar';
 import { useWorkspaces } from './hooks/useWorkspaces';
+import type { CanvasNode } from './types';
 
 const App = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const [nodeCounts, setNodeCounts] = useState<Record<string, number>>({});
+  const [allNodes, setAllNodes] = useState<Record<string, CanvasNode[]>>({});
+  const [focusNodeId, setFocusNodeId] = useState<string | undefined>();
 
-  const handleNodeCountChange = useCallback((canvasId: string, count: number) => {
-    setNodeCounts(prev => {
-      if (prev[canvasId] === count) return prev;
-      return { ...prev, [canvasId]: count };
+  const handleNodesChange = useCallback((canvasId: string, nodes: CanvasNode[]) => {
+    setAllNodes(prev => {
+      if (prev[canvasId] === nodes) return prev;
+      return { ...prev, [canvasId]: nodes };
     });
+  }, []);
+
+  const handleFocusComplete = useCallback(() => {
+    setFocusNodeId(undefined);
   }, []);
   const {
     workspaces,
@@ -51,11 +57,21 @@ const App = () => {
           onToggleFolder={toggleFolder}
           onMoveWorkspace={moveWorkspace}
           onReorderFolder={reorderFolder}
-          nodeCounts={nodeCounts}
+          activeNodes={allNodes[activeId] || []}
+          onNodeFocus={setFocusNodeId}
         />
         <div className="canvas-viewport">
           {workspaces.map((ws) => (
-            <Canvas key={ws.id} canvasId={ws.id} canvasName={ws.name} rootFolder={ws.rootFolder} hidden={ws.id !== activeId} onNodeCountChange={handleNodeCountChange} />
+            <Canvas
+              key={ws.id}
+              canvasId={ws.id}
+              canvasName={ws.name}
+              rootFolder={ws.rootFolder}
+              hidden={ws.id !== activeId}
+              onNodesChange={handleNodesChange}
+              focusNodeId={ws.id === activeId ? focusNodeId : undefined}
+              onFocusComplete={handleFocusComplete}
+            />
           ))}
         </div>
       </div>

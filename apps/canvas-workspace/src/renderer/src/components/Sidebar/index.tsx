@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, type DragEvent } from 'react';
 import type { WorkspaceEntry, FolderEntry } from '../../hooks/useWorkspaces';
+import type { CanvasNode } from '../../types';
 import './index.css';
 
 interface Props {
@@ -19,7 +20,8 @@ interface Props {
   onToggleFolder: (id: string) => void;
   onMoveWorkspace: (workspaceId: string, folderId: string | undefined) => void;
   onReorderFolder: (folderId: string, beforeFolderId: string | null) => void;
-  nodeCounts?: Record<string, number>;
+  activeNodes?: CanvasNode[];
+  onNodeFocus?: (nodeId: string) => void;
 }
 
 /* ---- Drag data keys ---- */
@@ -43,7 +45,8 @@ export const Sidebar = ({
   onToggleFolder,
   onMoveWorkspace,
   onReorderFolder,
-  nodeCounts,
+  activeNodes = [],
+  onNodeFocus,
 }: Props) => {
   /* ---- Local state ---- */
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -262,9 +265,6 @@ export const Sidebar = ({
               </svg>
             </span>
             <span className="sidebar-item-name">{ws.name}</span>
-            {nodeCounts?.[ws.id] != null && nodeCounts[ws.id] > 0 && (
-              <span className="sidebar-node-count">{nodeCounts[ws.id]}</span>
-            )}
           </button>
         )}
         {workspaces.length > 1 && renamingId !== ws.id && (
@@ -474,6 +474,47 @@ export const Sidebar = ({
             )}
           </div>
         </>
+      )}
+
+      {/* Layers panel — nodes in active workspace */}
+      {!collapsed && activeNodes.length > 0 && (
+        <div className="sidebar-layers">
+          <div className="sidebar-section-header">
+            <span className="sidebar-section-title">Layers</span>
+            <span className="sidebar-layer-count">{activeNodes.length}</span>
+          </div>
+          <div className="sidebar-layers-scroll">
+            {activeNodes.map((node) => (
+              <button
+                key={node.id}
+                className="sidebar-layer-item"
+                onClick={() => onNodeFocus?.(node.id)}
+                title={node.title}
+              >
+                <span className="sidebar-layer-icon">
+                  {node.type === 'file' ? (
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <path d="M4 2h5l3 3v9H4V2z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                      <path d="M9 2v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  ) : node.type === 'terminal' ? (
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+                      <path d="M5 7l2 1.5L5 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M9 10h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2 2" />
+                    </svg>
+                  )}
+                </span>
+                <span className="sidebar-layer-name">{node.title}</span>
+                <span className="sidebar-layer-type">{node.type}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
       {!collapsed && (
