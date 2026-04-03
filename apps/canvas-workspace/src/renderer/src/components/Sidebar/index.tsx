@@ -299,7 +299,8 @@ export const Sidebar = ({
               </button>
               <button className="sidebar-section-btn" onClick={onToggle} title="Collapse sidebar">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                  <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M3 2v12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  <path d="M13 5l-4 3 4 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </button>
               {showAddMenu && (
@@ -497,7 +498,8 @@ export const Sidebar = ({
         <div className="sidebar-collapsed-toggle">
           <button className="sidebar-toggle" onClick={onToggle} title="Expand sidebar">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M3 2v12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <path d="M7 5l4 3-4 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
         </div>
