@@ -56,12 +56,23 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
     moveNodes,
     resizeNode,
     setTransformForSave,
+    flushSave,
     commitHistory,
     undo,
     redo,
     duplicateNode,
     pasteNodes,
   } = useNodes(canvasId, () => {});
+
+  // Flush pending saves on window close or component unmount
+  useEffect(() => {
+    const handler = () => { flushSave(); };
+    window.addEventListener('beforeunload', handler);
+    return () => {
+      window.removeEventListener('beforeunload', handler);
+      flushSave();
+    };
+  }, [flushSave]);
 
   // Only persist transform after data has loaded to avoid saving empty nodes
   useEffect(() => {
