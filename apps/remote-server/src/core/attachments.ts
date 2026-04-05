@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import { homedir } from 'os';
 import { basename, extname, join } from 'path';
 import { fetch } from 'undici';
+import { getDiscordProxyDispatcher } from '../adapters/discord/proxy.js';
 import type { IncomingAttachment } from './types.js';
 import { vaultIntegration, buildRemoteVaultRunContext } from './vault/integration.js';
 
@@ -135,6 +136,7 @@ async function downloadAttachment(attachment: IncomingAttachment, targetDir: str
   try {
     response = await fetch(url, {
       method: 'GET',
+      dispatcher: resolveAttachmentDispatcher(attachment),
       headers: {
         'User-Agent': 'pulse-remote-server',
       },
@@ -182,6 +184,13 @@ async function downloadAttachment(attachment: IncomingAttachment, targetDir: str
     createdAt: Date.now(),
     originalUrl: attachment.url,
   };
+}
+
+export function resolveAttachmentDispatcher(attachment: IncomingAttachment) {
+  if (attachment.source !== 'discord') {
+    return undefined;
+  }
+  return getDiscordProxyDispatcher();
 }
 
 export function isImageAttachment(attachment: IncomingAttachment): boolean {
