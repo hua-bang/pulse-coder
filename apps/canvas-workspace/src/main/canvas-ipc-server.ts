@@ -1,10 +1,18 @@
 /**
- * Local IPC socket server that accepts canvas-update events from the
- * canvas-cli notifier and rebroadcasts them to all renderer windows.
+ * Local IPC server that accepts canvas-update events from the canvas-cli
+ * notifier and rebroadcasts them to all renderer windows.
  *
- * Listens on a Unix domain socket (POSIX) or named pipe (Windows) at the
- * well-known path returned by canvas-cli's `getIpcSocketPath`. Each client
- * connection sends one line of JSON then disconnects:
+ * Transport: loopback TCP on an OS-assigned port. The chosen port is
+ * written to `$TMPDIR/pulse-coder-canvas-ipc.port` on startup so the
+ * canvas-cli notifier can discover it.
+ *
+ * Why TCP and not a Unix domain socket: sandboxed child processes
+ * launched by CLI agents (e.g. Codex under macOS Seatbelt) run with
+ * `network-outbound` limited to `(remote tcp)` / `(remote udp)`.
+ * Unix socket `connect()` is denied with `EPERM` regardless of the
+ * socket path, so we use plain TCP loopback which the sandbox permits.
+ *
+ * Protocol: one line of JSON per connection, then the client disconnects:
  *
  *   {"type":"canvas:updated","workspaceId":"...","nodeIds":["..."],"source":"cli"}
  *
@@ -12,8 +20,8 @@
  * webContents.send('canvas:external-update', payload).
  */
 import net from 'net';
-import { promises as fs, existsSync, appendFileSync } from 'fs';
-import { dirname, join } from 'path';
+import { promises as fs, appendFileSync } from 'fs';
+import { join } from 'path';
 import { homedir, tmpdir } from 'os';
 import { BrowserWindow } from 'electron';
 
@@ -30,28 +38,19 @@ const debugLog = (msg: string): void => {
 };
 
 /**
- * Must stay in sync with `getIpcSocketPath` in
- * packages/canvas-cli/src/core/notifier.ts. Keeping a local copy avoids
- * introducing a workspace dep from the Electron main bundle into the CLI
- * package, which would require bundling its source into the Electron build.
+ * Path where the chosen TCP port is published. Must stay in sync with
+ * `getIpcPortFilePath` in packages/canvas-cli/src/core/notifier.ts.
+ * Keeping a local copy avoids introducing a workspace dep from the
+ * Electron main bundle into the CLI package.
  */
-/**
- * Socket lives under the OS temp dir rather than `$HOME/.pulse-coder` so
- * that sandboxed child processes (e.g. commands launched by Codex/Claude
- * CLI under macOS Seatbelt) can still reach it — the default Seatbelt
- * profile denies writes and unix-socket connects under `$HOME` but
- * permits them under `$TMPDIR`.
- */
-const getIpcSocketPath = (): string => {
-  if (process.platform === 'win32') {
-    return '\\\\.\\pipe\\pulse-coder-canvas-ipc';
-  }
-  return join(tmpdir(), 'pulse-coder-canvas-ipc.sock');
-};
+const getIpcPortFilePath = (): string =>
+  join(tmpdir(), 'pulse-coder-canvas-ipc.port');
 
-/** Legacy path used by pre-TMPDIR builds; cleaned up on startup. */
-const getLegacyIpcSocketPath = (): string =>
-  join(homedir(), '.pulse-coder', 'canvas-ipc.sock');
+/** Pre-TCP builds left artifacts under $HOME and $TMPDIR; clean them up. */
+const getLegacyArtifactPaths = (): string[] => [
+  join(homedir(), '.pulse-coder', 'canvas-ipc.sock'),
+  join(tmpdir(), 'pulse-coder-canvas-ipc.sock'),
+];
 
 interface CanvasUpdateEvent {
   type: 'canvas:updated';
@@ -75,7 +74,7 @@ const broadcast = (event: CanvasUpdateEvent, connId: number) => {
 const handleConnection = (socket: net.Socket) => {
   const connId = ++connectionSeq;
   const acceptedAt = Date.now();
-  debugLog(`conn#${connId} accepted`);
+  debugLog(`conn#${connId} accepted from=${socket.remoteAddress}:${socket.remotePort}`);
 
   let buffer = '';
   let gotLine = false;
@@ -121,29 +120,12 @@ const handleConnection = (socket: net.Socket) => {
 };
 
 export const startCanvasIpcServer = async (): Promise<void> => {
-  const socketPath = getIpcSocketPath();
-  debugLog(`startCanvasIpcServer path=${socketPath}`);
+  debugLog(`startCanvasIpcServer (loopback TCP)`);
 
-  // On POSIX, stale socket files from a previous crash block binding.
-  if (process.platform !== 'win32') {
-    await fs.mkdir(dirname(socketPath), { recursive: true }).catch(() => undefined);
-    // Remove leftover socket at the pre-TMPDIR path so nothing connects to
-    // a dead file. Best-effort; no error if it doesn't exist.
-    await fs.unlink(getLegacyIpcSocketPath()).catch(() => undefined);
-    if (existsSync(socketPath)) {
-      // Try connecting — if nothing answers, remove the stale file.
-      await new Promise<void>((resolve) => {
-        const probe = net.createConnection(socketPath);
-        probe.once('connect', () => {
-          probe.end();
-          resolve();
-        });
-        probe.once('error', async () => {
-          await fs.unlink(socketPath).catch(() => undefined);
-          resolve();
-        });
-      });
-    }
+  // Best-effort cleanup of legacy unix-socket artifacts from older builds
+  // so nothing stale lingers. Missing files are fine.
+  for (const p of getLegacyArtifactPaths()) {
+    await fs.unlink(p).catch(() => undefined);
   }
 
   return new Promise((resolve, reject) => {
@@ -153,9 +135,23 @@ export const startCanvasIpcServer = async (): Promise<void> => {
       debugLog(`server error at listen: ${String(err)}`);
       reject(err);
     });
-    srv.listen(socketPath, () => {
+    // Bind to loopback only so external hosts can't reach the bus.
+    srv.listen({ host: '127.0.0.1', port: 0 }, async () => {
+      const addr = srv.address();
+      if (!addr || typeof addr === 'string') {
+        const msg = `server listen returned unexpected address: ${String(addr)}`;
+        debugLog(msg);
+        reject(new Error(msg));
+        return;
+      }
       server = srv;
-      debugLog(`server listening`);
+      debugLog(`server listening on ${addr.address}:${addr.port}`);
+      try {
+        await fs.writeFile(getIpcPortFilePath(), String(addr.port), 'utf-8');
+      } catch (err) {
+        debugLog(`failed to write port file: ${String(err)}`);
+        // Non-fatal: server is still up, CLI just can't discover it.
+      }
       resolve();
     });
   });
@@ -169,14 +165,5 @@ export const stopCanvasIpcServer = (): void => {
     // ignore
   }
   server = null;
-  if (process.platform !== 'win32') {
-    try {
-      const socketPath = getIpcSocketPath();
-      if (existsSync(socketPath)) {
-        void fs.unlink(socketPath).catch(() => undefined);
-      }
-    } catch {
-      // ignore
-    }
-  }
+  void fs.unlink(getIpcPortFilePath()).catch(() => undefined);
 };

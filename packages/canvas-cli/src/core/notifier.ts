@@ -2,18 +2,27 @@
  * Fire-and-forget notifier that tells a running canvas-workspace Electron
  * instance about canvas mutations made via canvas-cli.
  *
- * The Electron main process listens on a local socket (Unix domain socket
- * on POSIX, named pipe on Windows). If no instance is running, the notify
- * call silently no-ops — CLI mutations still hit disk, and any running
- * Electron instance that opens the workspace later will load from disk.
+ * Transport is a localhost TCP listener on an OS-assigned port. The
+ * Electron main process publishes the current port to a small file
+ * under `$TMPDIR`. If that file is missing or stale (no listener on
+ * the port), `notifyCanvasUpdated` silently no-ops — CLI mutations
+ * still hit disk, and any running Electron instance that opens the
+ * workspace later will load from disk.
+ *
+ * Why TCP and not a Unix domain socket: sandboxed child processes
+ * launched by CLI agents (e.g. Codex under macOS Seatbelt) run with
+ * `network-outbound` limited to `(remote tcp)` / `(remote udp)`.
+ * Unix socket `connect()` is rejected with `EPERM` regardless of
+ * the socket path, so we use a plain TCP loopback connection which
+ * the sandbox permits.
  *
  * Protocol: single line of JSON, then close:
  *   {"type":"canvas:updated","workspaceId":"...","nodeIds":["..."],"source":"cli"}
  */
 import net from 'net';
-import { appendFileSync } from 'fs';
+import { appendFileSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { platform, tmpdir } from 'os';
+import { tmpdir } from 'os';
 
 export interface CanvasUpdateEvent {
   type: 'canvas:updated';
@@ -26,17 +35,12 @@ export interface CanvasUpdateEvent {
 }
 
 /**
- * Socket lives under the OS temp dir rather than `$HOME/.pulse-coder` so
- * that sandboxed child processes (e.g. commands launched by Codex/Claude
- * CLI under macOS Seatbelt) can still reach it — the default Seatbelt
- * profile denies writes and unix-socket connects under `$HOME` but
- * permits them under `$TMPDIR`.
+ * Path to the port-discovery file published by the Electron main process.
+ * Must stay in sync with the server in
+ * `apps/canvas-workspace/src/main/canvas-ipc-server.ts`.
  */
-export function getIpcSocketPath(): string {
-  if (platform() === 'win32') {
-    return '\\\\.\\pipe\\pulse-coder-canvas-ipc';
-  }
-  return join(tmpdir(), 'pulse-coder-canvas-ipc.sock');
+export function getIpcPortFilePath(): string {
+  return join(tmpdir(), 'pulse-coder-canvas-ipc.port');
 }
 
 const DEBUG_LOG_PATH = join(tmpdir(), 'pulse-coder-canvas-cli-notifier.log');
@@ -52,6 +56,17 @@ const debugLog = (msg: string): void => {
   }
 };
 
+const readPort = (): number | null => {
+  try {
+    const raw = readFileSync(getIpcPortFilePath(), 'utf-8').trim();
+    const port = Number.parseInt(raw, 10);
+    if (!Number.isFinite(port) || port <= 0 || port > 65535) return null;
+    return port;
+  } catch {
+    return null;
+  }
+};
+
 /**
  * Send an update event to the Electron main process. Never throws; any
  * connection error is swallowed (Electron may simply not be running).
@@ -59,9 +74,9 @@ const debugLog = (msg: string): void => {
  */
 export function notifyCanvasUpdated(event: Omit<CanvasUpdateEvent, 'type' | 'source'>): Promise<void> {
   return new Promise((resolve) => {
-    const sockPath = getIpcSocketPath();
     const startedAt = Date.now();
-    debugLog(`notify start workspaceId=${event.workspaceId} nodeIds=${JSON.stringify(event.nodeIds)} kind=${event.kind ?? ''} sock=${sockPath}`);
+    const port = readPort();
+    debugLog(`notify start workspaceId=${event.workspaceId} nodeIds=${JSON.stringify(event.nodeIds)} kind=${event.kind ?? ''} port=${port ?? 'missing'}`);
 
     let settled = false;
     const done = (reason: string) => {
@@ -71,9 +86,14 @@ export function notifyCanvasUpdated(event: Omit<CanvasUpdateEvent, 'type' | 'sou
       resolve();
     };
 
+    if (port === null) {
+      done('no-port-file');
+      return;
+    }
+
     let socket: net.Socket;
     try {
-      socket = net.createConnection(sockPath);
+      socket = net.createConnection({ host: '127.0.0.1', port });
     } catch (err) {
       debugLog(`notify createConnection threw: ${String(err)}`);
       done('createConnection-threw');
@@ -83,10 +103,9 @@ export function notifyCanvasUpdated(event: Omit<CanvasUpdateEvent, 'type' | 'sou
     // Generous timeout: when the Electron main process is busy serving
     // canvas:save traffic from the renderer (e.g. the scrollback autosave
     // interval firing while an agent produces output), the server's
-    // `accept()` may be delayed well beyond the ~1ms a local Unix socket
-    // usually takes. A tight timeout here silently loses notifications
-    // exactly in the scenario they matter most. 2s is still short enough
-    // to not noticeably stall CLI commands if Electron isn't running.
+    // `accept()` may be delayed well beyond the ~1ms a loopback TCP
+    // connect usually takes. 2s is still short enough to not noticeably
+    // stall CLI commands if Electron isn't running.
     socket.setTimeout(2000);
 
     socket.once('connect', () => {
