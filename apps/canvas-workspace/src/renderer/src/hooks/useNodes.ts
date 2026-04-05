@@ -24,6 +24,17 @@ export const useNodes = (
    */
   const loadedRef = useRef(false);
 
+  /**
+   * Ids that have been confirmed on disk in this session — either seeded
+   * from the initial load or from a completed save. The `onExternalUpdate`
+   * handler uses this to distinguish "CLI deleted a persisted node" (drop)
+   * from "renderer just created a node whose save is still debounced"
+   * (keep). Without this guard, a watcher fire that arrives while an
+   * add-node save is still pending would treat the fresh in-memory node
+   * as a CLI delete and wipe it from the canvas.
+   */
+  const persistedIdsRef = useRef<Set<string>>(new Set());
+
   const doSave = useCallback(() => {
     if (!loadedRef.current) {
       console.debug(`[canvas] save skipped for ${canvasId}: not yet loaded`);
@@ -34,14 +45,22 @@ export const useNodes = (
       console.warn('[canvas] save skipped: store API unavailable');
       return;
     }
+    const snapshot = nodesRef.current;
     const payload: CanvasSaveData = {
-      nodes: nodesRef.current,
+      nodes: snapshot,
       transform: transformRef.current,
       savedAt: new Date().toISOString(),
     };
     console.debug(`[canvas] saving ${canvasId}: ${payload.nodes.length} nodes`);
     void api.save(canvasId, payload).then((res) => {
-      if (!res.ok) console.warn('[canvas] save failed:', res.error);
+      if (!res.ok) {
+        console.warn('[canvas] save failed:', res.error);
+        return;
+      }
+      // Save succeeded — every id we just persisted is now on disk, so
+      // it's safe for the external-update handler to treat future
+      // disk-absence of these ids as "deleted elsewhere".
+      for (const n of snapshot) persistedIdsRef.current.add(n.id);
     });
   }, [canvasId]);
 
@@ -107,15 +126,21 @@ export const useNodes = (
       const diskNodes = result.data.nodes;
       const diskById = new Map<string, CanvasNode>();
       for (const n of diskNodes) diskById.set(n.id, n);
+      // Any id we can read from disk is by definition persisted.
+      for (const n of diskNodes) persistedIdsRef.current.add(n.id);
 
       // Semantics of `event.nodeIds`: every id here is a node that main's
       // fs.watch diff saw differ between its last-known snapshot and the
-      // fresh disk contents. That means exactly one of three things per id:
-      //   - on disk only           → CLI create, append
-      //   - on disk AND in memory  → CLI update, replace in place
-      //   - in memory only         → CLI delete, drop
-      // So we don't need an explicit event.kind — the presence of each id
-      // in `diskById` tells us unambiguously which branch to take.
+      // fresh disk contents. For each id, the combination of disk presence
+      // and whether we've ever persisted it ourselves tells us what to do:
+      //   - on disk only                         → CLI create, append
+      //   - on disk AND in memory                → CLI update, replace in place
+      //   - memory only, id was persisted before → CLI delete, drop
+      //   - memory only, id never persisted      → local create whose save
+      //                                            is still debounced; keep it.
+      //                                            Dropping here would wipe
+      //                                            nodes the user just added
+      //                                            via the toolbar/context menu.
       const changedIds = new Set(event.nodeIds);
       const nextNodes: CanvasNode[] = [];
       const seen = new Set<string>();
@@ -126,8 +151,12 @@ export const useNodes = (
           if (disk) {
             // update
             nextNodes.push(disk);
+          } else if (!persistedIdsRef.current.has(cur.id)) {
+            // Locally added, not yet saved — keep it so the pending
+            // debounced save can still flush it.
+            nextNodes.push(cur);
           }
-          // else: delete — intentionally drop this node
+          // else: persisted before and now absent from disk → CLI delete, drop.
         } else {
           nextNodes.push(cur);
         }
@@ -216,6 +245,7 @@ export const useNodes = (
       setLoaded(true);
       return;
     }
+    persistedIdsRef.current = new Set();
     void api.load(canvasId).then((result) => {
       if (result.ok && result.data) {
         const saved = result.data;
@@ -224,6 +254,10 @@ export const useNodes = (
           nodesRef.current = saved.nodes;
           historyRef.current = [saved.nodes];
           historyIndexRef.current = 0;
+          // Every node we loaded is on disk — seed the persisted set so
+          // the external-update handler can tell future deletes apart
+          // from locally-added unsaved nodes.
+          for (const n of saved.nodes) persistedIdsRef.current.add(n.id);
         } else {
           historyRef.current = [[]];
           historyIndexRef.current = 0;
