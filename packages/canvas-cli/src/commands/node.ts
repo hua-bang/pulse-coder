@@ -11,6 +11,30 @@ import {
 import { output, errorOutput, type OutputFormat } from '../output';
 import type { NodeType } from '../core/types';
 
+/**
+ * Interpret common escape sequences in a CLI --content argument.
+ *
+ * Shells and agent tool invocations deliver `\n`, `\t`, etc. as literal
+ * backslash-letter pairs in argv. Writing those verbatim into a file node
+ * yields content like `# Title\n\n## Section` instead of real line breaks.
+ * This helper unescapes the standard sequences so `--content "a\nb"` behaves
+ * the way users expect. Pass `--raw` to opt out.
+ */
+export function unescapeContentArg(s: string): string {
+  return s.replace(/\\(n|r|t|\\|"|'|`)/g, (_, c: string) => {
+    switch (c) {
+      case 'n': return '\n';
+      case 'r': return '\r';
+      case 't': return '\t';
+      case '\\': return '\\';
+      case '"': return '"';
+      case "'": return "'";
+      case '`': return '`';
+      default: return c;
+    }
+  });
+}
+
 function getOpts(cmd: Command): { format: OutputFormat; storeDir?: string; workspace: string } {
   const root = cmd.parent?.parent ?? cmd.parent;
   const opts = root?.opts() ?? {};
@@ -80,15 +104,16 @@ export function registerNodeCommands(program: Command): void {
 
   node.command('write')
     .argument('<nodeId>', 'Node ID')
-    .option('--content <text>', 'Content to write')
+    .option('--content <text>', 'Content to write (interprets \\n, \\r, \\t, \\\\ escape sequences; use --raw to disable, or --file/stdin for literal content)')
     .option('--file <path>', 'Read content from file')
+    .option('--raw', 'Treat --content verbatim without interpreting escape sequences', false)
     .description('Write content to a canvas node')
-    .action(async function (this: Command, nodeId: string, cmdOpts: { content?: string; file?: string }) {
+    .action(async function (this: Command, nodeId: string, cmdOpts: { content?: string; file?: string; raw?: boolean }) {
       const { format, storeDir, workspace } = getOpts(this);
 
       let content: string;
       if (cmdOpts.content !== undefined) {
-        content = cmdOpts.content;
+        content = cmdOpts.raw ? cmdOpts.content : unescapeContentArg(cmdOpts.content);
       } else if (cmdOpts.file) {
         try {
           content = await fs.readFile(cmdOpts.file, 'utf-8');
