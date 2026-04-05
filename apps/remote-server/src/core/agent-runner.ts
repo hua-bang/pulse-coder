@@ -1,9 +1,10 @@
 import { randomUUID } from 'crypto';
-import type { CompactionEvent } from 'pulse-coder-engine';
-import type { ClarificationRequest } from './types.js';
+import type { CompactionEvent, ModelMessage } from 'pulse-coder-engine';
+import type { ClarificationRequest, IncomingAttachment } from './types.js';
 import { engine } from './engine-singleton.js';
 import { getAcpState, runAcp } from 'pulse-coder-acp';
 import { sessionStore } from './session-store.js';
+import { buildAttachmentSystemPrompt, resolveIncomingAttachments } from './attachments.js';
 import { memoryIntegration, recordDailyLogFromSuccessPath } from './memory-integration.js';
 import { buildRemoteWorktreeRunContext, worktreeIntegration } from './worktree/integration.js';
 import { buildRemoteVaultRunContext, vaultIntegration } from './vault/integration.js';
@@ -39,6 +40,7 @@ export interface ExecuteAgentTurnInput {
   forceNewSession?: boolean;
   userText: string;
   source: 'dispatcher' | 'internal';
+  attachments?: IncomingAttachment[];
   caller?: string;
   callerSelectors?: string[];
   abortSignal?: AbortSignal;
@@ -100,6 +102,7 @@ function buildRunContext(input: {
   ownerKey?: string;
   caller?: string;
   callerSelectors?: string[];
+  latestAttachments?: unknown[];
 }): Record<string, any> {
   const channel = parseChannelInfo(input.platformKey);
   const callerContext = buildToolCallerContext({
@@ -116,6 +119,8 @@ function buildRunContext(input: {
     channel: channel ?? undefined,
     caller: callerContext.caller,
     callerSelectors: callerContext.callerSelectors,
+    latestAttachments: input.latestAttachments ?? [],
+    attachments: input.latestAttachments ?? [],
   };
 }
 
@@ -234,6 +239,24 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
   const compactions: CompactionSnapshot[] = [];
   const { model: modelOverride, modelType } = await resolveModelForRun(input.platformKey);
 
+  let latestAttachments = session.latestAttachments ?? [];
+  if (input.attachments?.length) {
+    const resolved = await resolveIncomingAttachments({
+      platformKey: input.platformKey,
+      ownerKey: input.memoryKey,
+      attachments: input.attachments,
+    });
+    if (resolved.hadImageAttachments) {
+      latestAttachments = resolved.attachments;
+      await sessionStore.setLatestAttachments(sessionId, latestAttachments);
+    }
+    if (resolved.errors.length > 0) {
+      console.warn(`[agent-runner] Attachment download errors for ${input.platformKey}:`, resolved.errors);
+    }
+  }
+
+  const attachmentPrompt = buildAttachmentSystemPrompt(latestAttachments);
+
   context.messages.push({ role: 'user', content: input.userText });
 
   const runContext = buildRunContext({
@@ -244,6 +267,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
     ownerKey: input.memoryKey,
     caller: input.caller,
     callerSelectors: input.callerSelectors,
+    latestAttachments,
   });
 
   const acpState = await getAcpState(input.platformKey);
@@ -284,18 +308,22 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
         runContext,
         systemPrompt: (() => {
           const channelPrompt = buildChannelSystemPrompt(input.platformKey);
-          return channelPrompt ? { append: `\n${channelPrompt}` } : undefined;
+          const parts = [channelPrompt, attachmentPrompt].filter(Boolean) as string[];
+          if (parts.length === 0) {
+            return undefined;
+          }
+          return { append: `\n${parts.join('\n\n')}` };
         })(),
         abortSignal: input.abortSignal,
         onText: callbacks.onText,
         onToolCall: callbacks.onToolCall,
         onToolResult: callbacks.onToolResult,
-        onResponse: (messages) => {
+        onResponse: (messages: ModelMessage[]) => {
           for (const msg of messages) {
             context.messages.push(msg);
           }
         },
-        onCompacted: (newMessages, event) => {
+        onCompacted: (newMessages: ModelMessage[], event: CompactionSnapshot | undefined) => {
           if (event) {
             compactions.push(event);
             callbacks.onCompactionEvent?.(event);

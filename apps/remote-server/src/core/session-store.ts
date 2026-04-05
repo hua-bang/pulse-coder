@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import type { Context } from './types.js';
+import type { StoredAttachment } from './attachments.js';
 // ModelMessage is the Vercel AI SDK type, re-exported via pulse-coder-engine
 // Context.messages is ModelMessage[] so we can use unknown[] as the storage type
 // and cast when needed — avoids adding `ai` as a direct dependency
@@ -14,6 +15,7 @@ interface RemoteSession {
   createdAt: number;
   updatedAt: number;
   messages: unknown[]; // Stored as-is; cast to Context['messages'] on load
+  latestAttachments?: StoredAttachment[];
 }
 
 export interface RemoteSessionSummary {
@@ -57,6 +59,7 @@ export interface SessionDetail {
   createdAt: number;
   updatedAt: number;
   messages: unknown[];
+  latestAttachments?: StoredAttachment[];
 }
 
 /**
@@ -128,6 +131,7 @@ class RemoteSessionStore {
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       messages: this.cloneMessages(session.messages),
+      latestAttachments: this.cloneAttachments(session.latestAttachments),
     };
   }
 
@@ -143,7 +147,7 @@ class RemoteSessionStore {
     platformKey: string,
     forceNew?: boolean,
     ownerKey?: string,
-  ): Promise<{ sessionId: string; context: Context; isNew: boolean }> {
+  ): Promise<{ sessionId: string; context: Context; latestAttachments: StoredAttachment[]; isNew: boolean }> {
     let sessionId = forceNew ? undefined : this.index[platformKey];
 
     if (sessionId) {
@@ -153,7 +157,12 @@ class RemoteSessionStore {
           session.ownerKey = ownerKey;
           await this.writeSession(session);
         }
-        return { sessionId, context: { messages: session.messages as Context['messages'] }, isNew: false };
+        return {
+          sessionId,
+          context: { messages: session.messages as Context['messages'] },
+          latestAttachments: this.cloneAttachments(session.latestAttachments),
+          isNew: false,
+        };
       }
       // Session file missing — create fresh
       sessionId = undefined;
@@ -168,13 +177,19 @@ class RemoteSessionStore {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
+      latestAttachments: [],
     };
 
     await this.writeSession(session);
     this.index[platformKey] = sessionId;
     await this.saveIndex();
 
-    return { sessionId, context: { messages: [] }, isNew: true };
+    return {
+      sessionId,
+      context: { messages: [] },
+      latestAttachments: [],
+      isNew: true,
+    };
   }
 
   /**
@@ -189,7 +204,7 @@ class RemoteSessionStore {
   /**
    * Load the currently attached session context for a user.
    */
-  async getCurrent(platformKey: string): Promise<{ sessionId: string; context: Context } | null> {
+  async getCurrent(platformKey: string): Promise<{ sessionId: string; context: Context; latestAttachments: StoredAttachment[] } | null> {
     const sessionId = this.index[platformKey];
     if (!sessionId) {
       return null;
@@ -203,6 +218,7 @@ class RemoteSessionStore {
     return {
       sessionId,
       context: { messages: session.messages as Context['messages'] },
+      latestAttachments: this.cloneAttachments(session.latestAttachments),
     };
   }
 
@@ -252,6 +268,26 @@ class RemoteSessionStore {
       await this.writeSession(session);
     } catch (err) {
       console.error(`[session-store] Failed to save session ${sessionId}:`, err);
+    }
+  }
+
+  /**
+   * Persist the latest attachments for a session.
+   */
+  async setLatestAttachments(sessionId: string, attachments: StoredAttachment[]): Promise<void> {
+    const session = await this.readSession(sessionId);
+    if (!session) {
+      console.error(`[session-store] Failed to update attachments ${sessionId}: session not found`);
+      return;
+    }
+
+    session.latestAttachments = this.cloneAttachments(attachments);
+    session.updatedAt = Date.now();
+
+    try {
+      await this.writeSession(session);
+    } catch (err) {
+      console.error(`[session-store] Failed to update attachments ${sessionId}:`, err);
     }
   }
 
@@ -306,6 +342,7 @@ class RemoteSessionStore {
     }
 
     session.messages = [];
+    session.latestAttachments = [];
     session.updatedAt = Date.now();
     await this.writeSession(session);
 
@@ -335,6 +372,7 @@ class RemoteSessionStore {
       createdAt: now,
       updatedAt: now,
       messages: this.cloneMessages(session.messages),
+      latestAttachments: this.cloneAttachments(session.latestAttachments),
     };
 
     await this.writeSession(forkedSession);
@@ -426,6 +464,26 @@ class RemoteSessionStore {
   private truncate(text: string, max = 120): string {
     if (!text) return '(no text)';
     return text.length > max ? `${text.slice(0, max)}...` : text;
+  }
+
+  private cloneAttachments(attachments?: StoredAttachment[]): StoredAttachment[] {
+    if (!attachments || attachments.length === 0) {
+      return [];
+    }
+
+    if (typeof structuredClone === 'function') {
+      try {
+        return structuredClone(attachments);
+      } catch {
+        // Fall through to JSON cloning for non-cloneable values.
+      }
+    }
+
+    try {
+      return JSON.parse(JSON.stringify(attachments)) as StoredAttachment[];
+    } catch {
+      return attachments.map((entry) => ({ ...entry }));
+    }
   }
 
   private cloneMessages(messages: unknown[]): unknown[] {
