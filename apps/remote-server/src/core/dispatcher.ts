@@ -5,6 +5,7 @@ import { clarificationQueue } from './clarification-queue.js';
 import { processIncomingCommand } from './chat-commands.js';
 import type { CommandResult } from './chat-commands/types.js';
 import { executeAgentTurn, formatCompactionEvents } from './agent-runner.js';
+import { hasIncomingImageAttachments } from './attachments.js';
 import {
   hasActiveRun,
   setActiveRun,
@@ -110,6 +111,10 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
     text = commandResult.text;
   }
 
+  if (!text.trim() && hasIncomingImageAttachments(incoming.attachments)) {
+    text = '用户上传了图片，请结合最新附件回答。';
+  }
+
   // Prevent concurrent runs for the same user
   if (hasActiveRun(platformKey)) {
     const handle = await adapter.createStreamHandle(incoming, 'busy');
@@ -134,6 +139,7 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
       memoryKey,
       forceNewSession,
       userText: text,
+      attachments: incoming.attachments,
       source: 'dispatcher',
       caller: incoming.caller,
       callerSelectors: incoming.callerSelectors,

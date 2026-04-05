@@ -4,6 +4,16 @@ import type { HonoRequest, Context as HonoContext } from 'hono';
 
 export type { Context, ClarificationRequest };
 
+export interface IncomingAttachment {
+  id?: string;
+  url: string;
+  name?: string;
+  mimeType?: string;
+  size?: number;
+  source?: string;
+  messageId?: string;
+}
+
 /**
  * Unified message structure parsed from any platform's raw webhook payload.
  */
@@ -17,6 +27,8 @@ export interface IncomingMessage {
   memoryKey?: string;
   /** The user's text input */
   text: string;
+  /** Optional attachments (e.g. images) parsed from platform payload */
+  attachments?: IncomingAttachment[];
   /** True when the platform payload explicitly requests a fresh session */
   forceNewSession?: boolean;
   /**

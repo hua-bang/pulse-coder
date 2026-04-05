@@ -1,5 +1,5 @@
 import { dispatchIncoming } from '../../core/dispatcher.js';
-import type { IncomingMessage } from '../../core/types.js';
+import type { IncomingMessage, IncomingAttachment } from '../../core/types.js';
 import { discordAdapter } from './adapter.js';
 import { DiscordClient } from './client.js';
 import { getDiscordProxyDispatcher } from './proxy.js';
@@ -37,6 +37,16 @@ interface MessageCreatePayload {
   mentions?: Array<{
     id?: string;
   }>;
+  attachments?: DiscordMessageAttachment[];
+}
+
+interface DiscordMessageAttachment {
+  id?: string;
+  filename?: string;
+  content_type?: string;
+  size?: number;
+  url?: string;
+  proxy_url?: string;
 }
 
 interface ThreadCreatePayload {
@@ -408,7 +418,9 @@ export class DiscordDmGateway {
 
     const textSource = isGuildMessage ? stripSelfMention(rawContent, this.selfUserId) : rawContent;
     const normalizedText = normalizeGatewayText(textSource);
-    if (!normalizedText) {
+    const attachments = extractIncomingAttachments(message.attachments, messageId);
+
+    if (!normalizedText && attachments.length === 0) {
       return;
     }
 
@@ -422,6 +434,7 @@ export class DiscordDmGateway {
       platformKey,
       memoryKey,
       text: normalizedText,
+      attachments: attachments.length > 0 ? attachments : undefined,
       streamId: messageId,
     };
 
@@ -559,6 +572,35 @@ async function toGatewayPayloadText(raw: unknown): Promise<string | null> {
   }
 
   return null;
+}
+
+function extractIncomingAttachments(
+  attachments: DiscordMessageAttachment[] | undefined,
+  messageId?: string,
+): IncomingAttachment[] {
+  if (!attachments || attachments.length === 0) {
+    return [];
+  }
+
+  const results: IncomingAttachment[] = [];
+  for (const attachment of attachments) {
+    const url = attachment.url?.trim() || attachment.proxy_url?.trim();
+    if (!url) {
+      continue;
+    }
+
+    results.push({
+      id: attachment.id,
+      url,
+      name: attachment.filename?.trim() || undefined,
+      mimeType: attachment.content_type?.trim() || undefined,
+      size: typeof attachment.size === 'number' ? attachment.size : undefined,
+      source: 'discord',
+      messageId,
+    });
+  }
+
+  return results;
 }
 
 function normalizeGatewayText(text: string): string {
