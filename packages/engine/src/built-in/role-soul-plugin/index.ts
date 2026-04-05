@@ -48,21 +48,8 @@ export interface SoulService {
 
 const DEFAULT_SOUL_BASE_DIR = path.join(homedir(), '.pulse-coder', 'souls');
 const DEFAULT_STATE_DIR = path.join(DEFAULT_SOUL_BASE_DIR, 'state');
-const DEFAULT_RUNTIME_REGISTRY_PATH = path.join(DEFAULT_SOUL_BASE_DIR, 'runtime-registry.json');
 const DEFAULT_STATE_DEBOUNCE_MS = 250;
 
-const RUNTIME_SOUL_RECORD_SCHEMA = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  description: z.string().optional(),
-  prompt: z.string().min(1),
-});
-
-const PERSISTED_RUNTIME_REGISTRY_SCHEMA = z.object({
-  version: z.literal(1),
-  updatedAt: z.number().optional(),
-  souls: z.array(RUNTIME_SOUL_RECORD_SCHEMA),
-});
 
 const SOUL_REGISTER_INPUT_SCHEMA = z.object({
   id: z.string().min(1).describe('Soul id (unique key).'),
@@ -104,6 +91,30 @@ function normalizeSoulKey(value: string): string {
 
 function now(): number {
   return Date.now();
+}
+
+function soulDirNameFromId(id: string): string {
+  const trimmed = id.trim();
+  if (!trimmed || trimmed === '.' || trimmed === '..' || trimmed.includes('/') || trimmed.includes('\\')) {
+    throw new Error(`invalid soul id for persistence path: ${id}`);
+  }
+  return trimmed;
+}
+
+function buildPersistedSoulContent(soul: SoulDefinition): string {
+  const frontMatterLines = [
+    '---',
+    `id: ${JSON.stringify(soul.id)}`,
+    `name: ${JSON.stringify(soul.name)}`,
+  ];
+
+  if (soul.description) {
+    frontMatterLines.push(`description: ${JSON.stringify(soul.description)}`);
+  }
+
+  frontMatterLines.push('---');
+
+  return `${frontMatterLines.join('\n')}\n\n${soul.prompt.trim()}\n`;
 }
 
 function appendSystemPrompt(base: SystemPromptOption | undefined, append: string): SystemPromptOption {
@@ -183,10 +194,6 @@ class SoulRegistry {
 
   get(id: string): SoulDefinition | undefined {
     return this.souls.get(normalizeSoulKey(id));
-  }
-
-  getRuntimeSouls(): SoulDefinition[] {
-    return this.getAll().filter((soul) => soul.location === 'runtime');
   }
 
   registerSoul(soul: SoulDefinition): { soulId: string; replaced: boolean; total: number } {
@@ -353,111 +360,29 @@ class SoulStateStore {
   }
 }
 
-class SoulRuntimeRegistryStore {
-  private filePath: string;
-  private enabled: boolean;
-
-  constructor(options?: { filePath?: string; enabled?: boolean }) {
-    this.filePath = options?.filePath ?? DEFAULT_RUNTIME_REGISTRY_PATH;
-    this.enabled = options?.enabled ?? true;
-  }
-
-  async initialize(): Promise<void> {
-    if (!this.enabled) {
-      return;
-    }
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-  }
-
-  async load(): Promise<SoulDefinition[]> {
-    if (!this.enabled) {
-      return [];
-    }
-
-    try {
-      const raw = await fs.readFile(this.filePath, 'utf-8');
-      const parsed = JSON.parse(raw);
-      const validated = PERSISTED_RUNTIME_REGISTRY_SCHEMA.safeParse(parsed);
-      if (!validated.success) {
-        return [];
-      }
-
-      return validated.data.souls.map((item: z.infer<typeof RUNTIME_SOUL_RECORD_SCHEMA>) => ({
-        id: item.id,
-        name: item.name,
-        description: item.description,
-        prompt: item.prompt,
-        location: 'runtime',
-        metadata: { source: 'runtime' },
-      }));
-    } catch {
-      return [];
-    }
-  }
-
-  async save(souls: SoulDefinition[]): Promise<void> {
-    if (!this.enabled) {
-      return;
-    }
-
-    const payload = {
-      version: 1 as const,
-      updatedAt: now(),
-      souls: souls.map((soul) => ({
-        id: soul.id,
-        name: soul.name,
-        description: soul.description,
-        prompt: soul.prompt,
-      })),
-    };
-
-    try {
-      await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-      await fs.writeFile(this.filePath, JSON.stringify(payload, null, 2), 'utf-8');
-    } catch {
-      return;
-    }
-  }
-}
-
 class BuiltInSoulService implements SoulService {
   private registry = new SoulRegistry();
   private stateStore: SoulStateStore;
-  private runtimeRegistryStore: SoulRuntimeRegistryStore;
+  private persistEnabled: boolean;
   private states = new Map<string, SoulState>();
   private loadedSessions = new Set<string>();
   private logger: EnginePluginContext['logger'];
 
   constructor(logger: EnginePluginContext['logger']) {
     const stateDir = process.env.PULSE_CODER_SOUL_STATE_DIR?.trim();
-    const runtimeRegistryPath = process.env.PULSE_CODER_SOUL_REGISTRY_PATH?.trim();
     const enabled = process.env.PULSE_CODER_SOUL_PERSIST?.trim() !== '0';
 
     this.stateStore = new SoulStateStore({
       baseDir: stateDir || undefined,
       enabled,
     });
-    this.runtimeRegistryStore = new SoulRuntimeRegistryStore({
-      filePath: runtimeRegistryPath || undefined,
-      enabled,
-    });
+    this.persistEnabled = enabled;
     this.logger = logger;
   }
 
   async initialize(): Promise<void> {
     await this.registry.initialize(process.cwd());
     await this.stateStore.initialize();
-    await this.runtimeRegistryStore.initialize();
-
-    const persistedSouls = await this.runtimeRegistryStore.load();
-    for (const soul of persistedSouls) {
-      this.registry.registerSoul(soul);
-    }
-    if (persistedSouls.length > 0) {
-      this.logger.info('[RoleSoul] Loaded persisted runtime souls', {
-        count: persistedSouls.length,
-      });
-    }
   }
 
   listSouls(): SoulDefinition[] {
@@ -578,13 +503,27 @@ class BuiltInSoulService implements SoulService {
     };
 
     this.registry.registerSoul(soul);
-    await this.persistRuntimeSouls();
+    await this.persistRuntimeSoulAsFile(soul);
     return soul;
   }
 
-  private async persistRuntimeSouls(): Promise<void> {
-    const runtimeSouls = this.registry.getRuntimeSouls();
-    await this.runtimeRegistryStore.save(runtimeSouls);
+  private async persistRuntimeSoulAsFile(soul: SoulDefinition): Promise<void> {
+    if (!this.persistEnabled) {
+      return;
+    }
+
+    const soulDirName = soulDirNameFromId(soul.id);
+    const soulDir = path.join(DEFAULT_SOUL_BASE_DIR, soulDirName);
+    const soulFile = path.join(soulDir, 'SOUL.md');
+    const content = buildPersistedSoulContent(soul);
+
+    await fs.mkdir(soulDir, { recursive: true });
+    await fs.writeFile(soulFile, content, 'utf-8');
+
+    this.logger.info('[RoleSoul] Persisted registered soul to SOUL.md', {
+      soulId: soul.id,
+      soulFile,
+    });
   }
 
   private async setSoulState(
@@ -793,7 +732,7 @@ function buildSoulClearTool(service: BuiltInSoulService): Tool {
 function buildSoulRegisterTool(service: BuiltInSoulService): Tool {
   return {
     name: 'soul_register',
-    description: 'Register or replace a soul definition. Persists when soul persistence is enabled.',
+    description: 'Register or replace a soul definition. Persists to ~/.pulse-coder/souls/<id>/SOUL.md when enabled.',
     inputSchema: SOUL_REGISTER_INPUT_SCHEMA,
     execute: async (input) => {
       const soul = await service.registerSoul({

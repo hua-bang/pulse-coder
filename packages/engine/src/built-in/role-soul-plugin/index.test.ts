@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EnginePluginContext } from '../../plugin/EnginePlugin.js';
 import type { Tool } from '../../shared/types.js';
 import { builtInRoleSoulPlugin } from './index.js';
+
+const SOUL_BASE_DIR = path.join(homedir(), '.pulse-coder', 'souls');
 
 function createPluginContextHarness(): {
   context: EnginePluginContext;
@@ -56,18 +58,16 @@ function createPluginContextHarness(): {
 describe('builtInRoleSoulPlugin runtime registration persistence', () => {
   let tempDir = '';
   let originalStateDir: string | undefined;
-  let originalRegistryPath: string | undefined;
   let originalPersist: string | undefined;
+  const createdSoulDirs = new Set<string>();
 
   beforeEach(async () => {
     tempDir = await mkdtemp(path.join(tmpdir(), 'pulse-coder-soul-runtime-'));
 
     originalStateDir = process.env.PULSE_CODER_SOUL_STATE_DIR;
-    originalRegistryPath = process.env.PULSE_CODER_SOUL_REGISTRY_PATH;
     originalPersist = process.env.PULSE_CODER_SOUL_PERSIST;
 
     process.env.PULSE_CODER_SOUL_STATE_DIR = path.join(tempDir, 'state');
-    process.env.PULSE_CODER_SOUL_REGISTRY_PATH = path.join(tempDir, 'runtime-registry.json');
     process.env.PULSE_CODER_SOUL_PERSIST = '1';
   });
 
@@ -78,23 +78,25 @@ describe('builtInRoleSoulPlugin runtime registration persistence', () => {
       process.env.PULSE_CODER_SOUL_STATE_DIR = originalStateDir;
     }
 
-    if (originalRegistryPath === undefined) {
-      delete process.env.PULSE_CODER_SOUL_REGISTRY_PATH;
-    } else {
-      process.env.PULSE_CODER_SOUL_REGISTRY_PATH = originalRegistryPath;
-    }
-
     if (originalPersist === undefined) {
       delete process.env.PULSE_CODER_SOUL_PERSIST;
     } else {
       process.env.PULSE_CODER_SOUL_PERSIST = originalPersist;
     }
 
+    for (const soulDir of createdSoulDirs) {
+      await rm(soulDir, { recursive: true, force: true });
+    }
+    createdSoulDirs.clear();
+
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it('persists registered souls across plugin re-initialization', async () => {
-    const soulId = '__vitest_runtime_persisted_soul__';
+  it('persists registered souls to ~/.pulse-coder/souls/<id>/SOUL.md and reloads after re-initialization', async () => {
+    const soulId = `__vitest_runtime_persisted_soul_${Date.now()}__`;
+    const soulDir = path.join(SOUL_BASE_DIR, soulId);
+    const soulFile = path.join(soulDir, 'SOUL.md');
+    createdSoulDirs.add(soulDir);
 
     const firstHarness = createPluginContextHarness();
     await builtInRoleSoulPlugin.initialize(firstHarness.context);
@@ -105,6 +107,13 @@ describe('builtInRoleSoulPlugin runtime registration persistence', () => {
       prompt: 'Stay grounded and evidence-based.',
     });
 
+    const fileStat = await stat(soulFile);
+    expect(fileStat.isFile()).toBe(true);
+
+    const persistedContent = await readFile(soulFile, 'utf-8');
+    expect(persistedContent).toContain(`id: "${soulId}"`);
+    expect(persistedContent).toContain('Stay grounded and evidence-based.');
+
     const secondHarness = createPluginContextHarness();
     await builtInRoleSoulPlugin.initialize(secondHarness.context);
 
@@ -112,12 +121,15 @@ describe('builtInRoleSoulPlugin runtime registration persistence', () => {
     const persistedSoul = soulList.find((item) => item.id === soulId);
 
     expect(persistedSoul).toBeDefined();
-    expect(persistedSoul?.location).toBe('runtime');
+    expect(String(persistedSoul?.location ?? '')).toContain('SOUL.md');
   });
 
-  it('keeps registered souls after soul_clear removes active session state', async () => {
-    const soulId = '__vitest_runtime_clear_keeps_registry__';
+  it('keeps registered soul definition after soul_clear removes active session state', async () => {
+    const soulId = `__vitest_runtime_clear_keeps_registry_${Date.now()}__`;
     const sessionId = 'session-clear-keeps-registry';
+    const soulDir = path.join(SOUL_BASE_DIR, soulId);
+    const soulFile = path.join(soulDir, 'SOUL.md');
+    createdSoulDirs.add(soulDir);
 
     const harness = createPluginContextHarness();
     await builtInRoleSoulPlugin.initialize(harness.context);
@@ -139,5 +151,8 @@ describe('builtInRoleSoulPlugin runtime registration persistence', () => {
 
     const soulList = await harness.tools.soul_list.execute({ format: 'summary' }) as Array<{ id: string }>;
     expect(soulList.some((item) => item.id === soulId)).toBe(true);
+
+    const fileStat = await stat(soulFile);
+    expect(fileStat.isFile()).toBe(true);
   });
 });
