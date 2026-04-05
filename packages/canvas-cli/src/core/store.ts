@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { DEFAULT_STORE_DIR, AGENTS_MD_TEMPLATE } from './constants';
-import type { CanvasSaveData, WorkspaceManifest, Result } from './types';
+import type { CanvasNode, CanvasSaveData, WorkspaceManifest, Result } from './types';
 
 function resolveDir(storeDir?: string): string {
   return storeDir ?? DEFAULT_STORE_DIR;
@@ -75,6 +75,55 @@ export async function loadCanvas(workspaceId: string, storeDir?: string): Promis
 export async function saveCanvas(workspaceId: string, data: CanvasSaveData, storeDir?: string): Promise<void> {
   await ensureWorkspaceDir(workspaceId, storeDir);
   await fs.writeFile(canvasPath(workspaceId, storeDir), JSON.stringify(data, null, 2), 'utf-8');
+}
+
+/**
+ * Describes a single-node mutation to apply atomically against the latest
+ * on-disk canvas. Exactly one of the fields should be set:
+ *  - upsert: insert or replace the given node (matched by id)
+ *  - removeId: remove the node with this id
+ */
+export interface NodeMutation {
+  upsert?: CanvasNode;
+  removeId?: string;
+}
+
+/**
+ * Apply a single-node mutation by re-reading canvas.json immediately before
+ * writing it back. This shrinks the race window with other writers
+ * (Electron renderer autosave, other canvas-cli invocations) from the
+ * duration of the calling function down to the time between this read and
+ * the subsequent `writeFile` — typically microseconds.
+ *
+ * The caller is responsible for having already performed any side effects
+ * (e.g. writing the backing note file on disk) before calling this.
+ */
+export async function commitNodeMutation(
+  workspaceId: string,
+  mutation: NodeMutation,
+  storeDir?: string,
+): Promise<CanvasSaveData | null> {
+  const fresh = (await loadCanvas(workspaceId, storeDir)) ?? {
+    nodes: [],
+    transform: { x: 0, y: 0, scale: 1 },
+    savedAt: new Date().toISOString(),
+  };
+
+  if (mutation.upsert) {
+    const target = mutation.upsert;
+    const idx = fresh.nodes.findIndex(n => n.id === target.id);
+    if (idx >= 0) fresh.nodes[idx] = target;
+    else fresh.nodes.push(target);
+  }
+  if (mutation.removeId) {
+    const idx = fresh.nodes.findIndex(n => n.id === mutation.removeId);
+    if (idx === -1) return null;
+    fresh.nodes.splice(idx, 1);
+  }
+
+  fresh.savedAt = new Date().toISOString();
+  await saveCanvas(workspaceId, fresh, storeDir);
+  return fresh;
 }
 
 export async function createWorkspace(

@@ -239,7 +239,7 @@ export const useNodes = (
 
   const addNode = useCallback(
     (type: CanvasNode['type'], x: number, y: number) => {
-      const node = createDefaultNode(type, x, y);
+      const node = { ...createDefaultNode(type, x, y), updatedAt: Date.now() };
 
       if (type === 'file') {
         const api = window.canvasWorkspace?.file;
@@ -269,7 +269,11 @@ export const useNodes = (
 
   const updateNode = useCallback(
     (id: string, patch: Partial<CanvasNode>) => {
-      applyNodes(nodesRef.current.map((n) => (n.id === id ? { ...n, ...patch } : n)));
+      applyNodes(
+        nodesRef.current.map((n) =>
+          n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n,
+        ),
+      );
     },
     [applyNodes, nodesRef]
   );
@@ -291,17 +295,23 @@ export const useNodes = (
 
   const moveNode = useCallback(
     (id: string, x: number, y: number) => {
-      applyNodes(nodesRef.current.map((n) => (n.id === id ? { ...n, x, y } : n)), false);
+      applyNodes(
+        nodesRef.current.map((n) =>
+          n.id === id ? { ...n, x, y, updatedAt: Date.now() } : n,
+        ),
+        false,
+      );
     },
     [applyNodes, nodesRef]
   );
 
   const moveNodes = useCallback(
     (moves: Array<{ id: string; x: number; y: number }>) => {
+      const now = Date.now();
       applyNodes(
         nodesRef.current.map((n) => {
           const m = moves.find((mv) => mv.id === n.id);
-          return m ? { ...n, x: m.x, y: m.y } : n;
+          return m ? { ...n, x: m.x, y: m.y, updatedAt: now } : n;
         }),
         false
       );
@@ -311,7 +321,12 @@ export const useNodes = (
 
   const resizeNode = useCallback(
     (id: string, width: number, height: number) => {
-      applyNodes(nodesRef.current.map((n) => (n.id === id ? { ...n, width, height } : n)), false);
+      applyNodes(
+        nodesRef.current.map((n) =>
+          n.id === id ? { ...n, width, height, updatedAt: Date.now() } : n,
+        ),
+        false,
+      );
     },
     [applyNodes, nodesRef]
   );
@@ -328,6 +343,7 @@ export const useNodes = (
         data: source.type === 'frame'
           ? { ...(source.data as FrameNodeData) }
           : createNodeData(source.type),
+        updatedAt: Date.now(),
       };
       if (newNode.type === 'file') {
         const api = window.canvasWorkspace?.file;
@@ -357,6 +373,7 @@ export const useNodes = (
   const pasteNodes = useCallback(
     (sources: CanvasNode[], offsetX = 24, offsetY = 24) => {
       if (sources.length === 0) return [];
+      const now = Date.now();
       const newNodes = sources.map((source) => ({
         ...source,
         id: genId(),
@@ -365,6 +382,7 @@ export const useNodes = (
         data: source.type === 'frame'
           ? { ...(source.data as FrameNodeData) }
           : createNodeData(source.type),
+        updatedAt: now,
       }));
       newNodes.forEach((newNode) => {
         if (newNode.type === 'file') {
