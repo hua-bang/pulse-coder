@@ -15,7 +15,7 @@ import { ZoomIndicator } from '../ZoomIndicator';
 import { SearchPalette } from '../SearchPalette';
 import { CanvasEmptyHint } from '../CanvasEmptyHint';
 
-export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId: string; canvasName?: string; rootFolder?: string; hidden?: boolean }) => {
+export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange, focusNodeId, onFocusComplete }: { canvasId: string; canvasName?: string; rootFolder?: string; hidden?: boolean; onNodesChange?: (canvasId: string, nodes: CanvasNode[]) => void; focusNodeId?: string; onFocusComplete?: () => void }) => {
   const [activeTool, setActiveTool] = useState('select');
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [clipboardNodes, setClipboardNodes] = useState<CanvasNode[]>([]);
@@ -56,6 +56,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
     moveNodes,
     resizeNode,
     setTransformForSave,
+    flushSave,
     commitHistory,
     undo,
     redo,
@@ -63,9 +64,21 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
     pasteNodes,
   } = useNodes(canvasId, () => {});
 
+  // Flush pending saves on window close or component unmount
   useEffect(() => {
+    const handler = () => { flushSave(); };
+    window.addEventListener('beforeunload', handler);
+    return () => {
+      window.removeEventListener('beforeunload', handler);
+      flushSave();
+    };
+  }, [flushSave]);
+
+  // Only persist transform after data has loaded to avoid saving empty nodes
+  useEffect(() => {
+    if (!loaded) return;
     setTransformForSave(transform);
-  }, [transform, setTransformForSave]);
+  }, [loaded, transform, setTransformForSave]);
 
   // Auto-fit all nodes into view on initial load
   useEffect(() => {
@@ -74,6 +87,24 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden }: { canvasId:
       if (nodes.length > 0) fitAllNodes(nodes);
     }
   }, [loaded, nodes, fitAllNodes]);
+
+  // Report nodes to parent only after loaded
+  useEffect(() => {
+    if (!loaded) return;
+    onNodesChange?.(canvasId, nodes);
+  }, [canvasId, nodes, loaded, onNodesChange]);
+
+  // Handle external focus request (e.g. from sidebar layers panel)
+  useEffect(() => {
+    if (!focusNodeId) return;
+    const node = nodes.find((n) => n.id === focusNodeId);
+    if (node) {
+      setSelectedNodeIds([node.id]);
+      setHighlightedId(node.id);
+      handleFocusNode(node);
+    }
+    onFocusComplete?.();
+  }, [focusNodeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useCanvasContext(rootFolder, nodes, canvasName);
 

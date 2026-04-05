@@ -15,19 +15,38 @@ export const useNodes = (
   const onRestoreTransformRef = useRef(onRestoreTransform);
   onRestoreTransformRef.current = onRestoreTransform;
 
+  const doSave = useCallback(() => {
+    const api = window.canvasWorkspace?.store;
+    if (!api) {
+      console.warn('[canvas] save skipped: store API unavailable');
+      return;
+    }
+    const payload: CanvasSaveData = {
+      nodes: nodesRef.current,
+      transform: transformRef.current,
+      savedAt: new Date().toISOString(),
+    };
+    console.debug(`[canvas] saving ${canvasId}: ${payload.nodes.length} nodes`);
+    void api.save(canvasId, payload).then((res) => {
+      if (!res.ok) console.warn('[canvas] save failed:', res.error);
+    });
+  }, [canvasId]);
+
   const scheduleSave = useCallback(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      const api = window.canvasWorkspace?.store;
-      if (!api) return;
-      const payload: CanvasSaveData = {
-        nodes: nodesRef.current,
-        transform: transformRef.current,
-        savedAt: new Date().toISOString(),
-      };
-      void api.save(canvasId, payload);
+      doSave();
     }, SAVE_DEBOUNCE_MS);
-  }, [canvasId]);
+  }, [doSave]);
+
+  /** Flush any pending debounced save immediately. */
+  const flushSave = useCallback(() => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    doSave();
+  }, [doSave]);
 
   const [loaded, setLoaded] = useState(false);
 
@@ -274,6 +293,7 @@ export const useNodes = (
     moveNodes,
     resizeNode,
     setTransformForSave,
+    flushSave,
     commitHistory,
     undo,
     redo,

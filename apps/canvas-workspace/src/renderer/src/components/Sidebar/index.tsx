@@ -1,6 +1,57 @@
-import { useEffect, useRef, useState, useCallback, type DragEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, type DragEvent } from 'react';
 import type { WorkspaceEntry, FolderEntry } from '../../hooks/useWorkspaces';
+import type { CanvasNode } from '../../types';
 import './index.css';
+
+/* ---- Spatial containment (same logic as useNodeDrag) ---- */
+const isInsideFrame = (node: CanvasNode, frame: CanvasNode): boolean => {
+  const cx = node.x + node.width / 2;
+  const cy = node.y + node.height / 2;
+  return (
+    cx >= frame.x &&
+    cx <= frame.x + frame.width &&
+    cy >= frame.y &&
+    cy <= frame.y + frame.height
+  );
+};
+
+interface LayerTreeNode {
+  node: CanvasNode;
+  children: CanvasNode[];
+}
+
+/** Build a tree: frames contain non-frame nodes whose center is inside them. */
+const buildLayerTree = (nodes: CanvasNode[]): LayerTreeNode[] => {
+  const frames = nodes.filter((n) => n.type === 'frame');
+  const nonFrames = nodes.filter((n) => n.type !== 'frame');
+
+  const childrenOf = new Map<string, CanvasNode[]>();
+  const assigned = new Set<string>();
+
+  for (const frame of frames) {
+    const kids: CanvasNode[] = [];
+    for (const n of nonFrames) {
+      if (!assigned.has(n.id) && isInsideFrame(n, frame)) {
+        kids.push(n);
+        assigned.add(n.id);
+      }
+    }
+    childrenOf.set(frame.id, kids);
+  }
+
+  const tree: LayerTreeNode[] = [];
+  // Frames (with children)
+  for (const frame of frames) {
+    tree.push({ node: frame, children: childrenOf.get(frame.id) || [] });
+  }
+  // Root-level non-frame nodes (not inside any frame)
+  for (const n of nonFrames) {
+    if (!assigned.has(n.id)) {
+      tree.push({ node: n, children: [] });
+    }
+  }
+  return tree;
+};
 
 interface Props {
   collapsed: boolean;
@@ -19,6 +70,8 @@ interface Props {
   onToggleFolder: (id: string) => void;
   onMoveWorkspace: (workspaceId: string, folderId: string | undefined) => void;
   onReorderFolder: (folderId: string, beforeFolderId: string | null) => void;
+  activeNodes?: CanvasNode[];
+  onNodeFocus?: (nodeId: string) => void;
 }
 
 /* ---- Drag data keys ---- */
@@ -42,6 +95,8 @@ export const Sidebar = ({
   onToggleFolder,
   onMoveWorkspace,
   onReorderFolder,
+  activeNodes = [],
+  onNodeFocus,
 }: Props) => {
   /* ---- Local state ---- */
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -53,6 +108,18 @@ export const Sidebar = ({
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [folderDropTarget, setFolderDropTarget] = useState<string | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [collapsedLayers, setCollapsedLayers] = useState<Set<string>>(new Set());
+
+  const layerTree = useMemo(() => buildLayerTree(activeNodes), [activeNodes]);
+
+  const toggleLayerCollapse = useCallback((id: string) => {
+    setCollapsedLayers((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const renameInputRef = useRef<HTMLInputElement>(null);
   const renameFolderInputRef = useRef<HTMLInputElement>(null);
@@ -469,6 +536,95 @@ export const Sidebar = ({
             )}
           </div>
         </>
+      )}
+
+      {/* Layers panel — node tree in active workspace */}
+      {!collapsed && activeNodes.length > 0 && (
+        <div className="sidebar-layers">
+          <div className="sidebar-section-header">
+            <span className="sidebar-section-title">Layers</span>
+            <span className="sidebar-layer-count">{activeNodes.length}</span>
+          </div>
+          <div className="sidebar-layers-scroll">
+            {layerTree.map(({ node, children }) => {
+              const isFrame = node.type === 'frame';
+              const isOpen = isFrame && !collapsedLayers.has(node.id);
+              return (
+                <div key={node.id} className="sidebar-layer-group">
+                  <button
+                    className={`sidebar-layer-item${isFrame ? ' sidebar-layer-item--frame' : ''}`}
+                    onClick={() => onNodeFocus?.(node.id)}
+                    title={node.title}
+                  >
+                    {isFrame && (
+                      <span
+                        className={`sidebar-layer-chevron${isOpen ? ' sidebar-layer-chevron--open' : ''}`}
+                        onClick={(e) => { e.stopPropagation(); toggleLayerCollapse(node.id); }}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+                          <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </span>
+                    )}
+                    <span className="sidebar-layer-icon">
+                      {node.type === 'file' ? (
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                          <path d="M4 2h5l3 3v9H4V2z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                          <path d="M9 2v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      ) : node.type === 'terminal' ? (
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                          <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+                          <path d="M5 7l2 1.5L5 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                          <path d="M9 10h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                        </svg>
+                      ) : (
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                          <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2 2" />
+                        </svg>
+                      )}
+                    </span>
+                    <span className="sidebar-layer-name">
+                      {node.type === 'frame' ? (node.title || (node.data as { label?: string }).label || 'Frame') : node.title}
+                    </span>
+                    {isFrame && children.length > 0 && (
+                      <span className="sidebar-layer-child-count">{children.length}</span>
+                    )}
+                  </button>
+                  {/* Children of frame */}
+                  {isFrame && isOpen && children.length > 0 && (
+                    <div className="sidebar-layer-children">
+                      {children.map((child) => (
+                        <button
+                          key={child.id}
+                          className="sidebar-layer-item"
+                          onClick={() => onNodeFocus?.(child.id)}
+                          title={child.title}
+                        >
+                          <span className="sidebar-layer-icon">
+                            {child.type === 'file' ? (
+                              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                <path d="M4 2h5l3 3v9H4V2z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                                <path d="M9 2v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            ) : (
+                              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+                                <path d="M5 7l2 1.5L5 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M9 10h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                              </svg>
+                            )}
+                          </span>
+                          <span className="sidebar-layer-name">{child.title}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {!collapsed && (
