@@ -163,18 +163,36 @@ const mergeExternalNodes = async (
       if (n.id) diskById.set(n.id, n);
     }
 
-    // Rule 1: for overlapping nodes, pick the newer `updatedAt`.
-    // A memory node without updatedAt is treated as "older than any
-    // timestamped disk version" — this is the common case where the CLI
-    // just wrote the disk copy with a timestamp.
-    const mergedExisting = memoryNodes.map((memNode) => {
-      if (!memNode.id) return memNode;
+    // Rule 1: reconcile nodes that are in memory.
+    //   - Both disk and memory have it → pick the newer `updatedAt`.
+    //     A memory node without updatedAt is treated as "older than any
+    //     timestamped disk version" — the common case where the CLI
+    //     just wrote the disk copy with a timestamp.
+    //   - Only memory has it:
+    //       * id is in `known` → CLI deleted it between the renderer's
+    //         last load and this save. Drop it so the save doesn't
+    //         resurrect the deletion.
+    //       * id is not in `known` → user just created it in memory
+    //         and this is the first save that will persist it. Keep.
+    const mergedExisting: CanvasNode[] = [];
+    for (const memNode of memoryNodes) {
+      if (!memNode.id) {
+        mergedExisting.push(memNode);
+        continue;
+      }
       const diskNode = diskById.get(memNode.id);
-      if (!diskNode) return memNode;
+      if (!diskNode) {
+        if (known.has(memNode.id)) {
+          // CLI-deleted; drop.
+          continue;
+        }
+        mergedExisting.push(memNode);
+        continue;
+      }
       const memTs = typeof memNode.updatedAt === 'number' ? memNode.updatedAt : 0;
       const diskTs = typeof diskNode.updatedAt === 'number' ? diskNode.updatedAt : 0;
-      return diskTs > memTs ? diskNode : memNode;
-    });
+      mergedExisting.push(diskTs > memTs ? diskNode : memNode);
+    }
 
     // Rule 2: nodes only on disk and never-seen → CLI creates, add them.
     const memoryIds = new Set(memoryNodes.map((n) => n.id).filter(Boolean) as string[]);
@@ -368,6 +386,13 @@ export const setupCanvasStoreIpc = () => {
         } else {
           await ensureWorkspaceDir(payload.id);
           await withSaveLock(payload.id, async () => {
+            // Snapshot what the renderer actually had in memory when it
+            // sent this save. We compare against this after the merge
+            // to detect CLI-side changes the renderer doesn't know yet
+            // (see the broadcast below).
+            const rendererMemoryMap = nodesToMap(
+              (payload.data as CanvasSaveData).nodes,
+            );
             // First merge against current disk state. This picks up any
             // CLI-added nodes (Rule 2) and resolves per-node conflicts
             // (Rule 1).
@@ -391,7 +416,20 @@ export const setupCanvasStoreIpc = () => {
             // just wrote. The debounced fs.watch callback will see an
             // empty diff and skip broadcasting, suppressing the echo of
             // our own write.
-            lastSnapshot.set(payload.id, nodesToMap(merged.nodes));
+            const mergedMap = nodesToMap(merged.nodes);
+            lastSnapshot.set(payload.id, mergedMap);
+            // If the merge result differs from the renderer's memory,
+            // the CLI made changes between the renderer's last sync
+            // and this save, and we just silently absorbed them into
+            // the write. The fs.watch fire for this write will see
+            // `lastSnapshot === disk` and skip broadcasting, so the
+            // renderer would never hear about those changes (until a
+            // manual reload). Push the diff back explicitly so its
+            // in-memory state catches up.
+            const pickedUp = diffSnapshots(rendererMemoryMap, mergedMap);
+            if (pickedUp.length > 0) {
+              broadcastExternalUpdate(payload.id, pickedUp);
+            }
           });
         }
         return { ok: true };
