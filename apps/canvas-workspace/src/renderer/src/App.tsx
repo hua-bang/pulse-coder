@@ -9,6 +9,7 @@ const App = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [allNodes, setAllNodes] = useState<Record<string, CanvasNode[]>>({});
   const [focusNodeId, setFocusNodeId] = useState<string | undefined>();
+  const [deleteNodeId, setDeleteNodeId] = useState<string | undefined>();
 
   const handleNodesChange = useCallback((canvasId: string, nodes: CanvasNode[]) => {
     setAllNodes(prev => {
@@ -19,6 +20,9 @@ const App = () => {
 
   const handleFocusComplete = useCallback(() => {
     setFocusNodeId(undefined);
+  }, []);
+  const handleDeleteComplete = useCallback(() => {
+    setDeleteNodeId(undefined);
   }, []);
   const {
     workspaces,
@@ -59,6 +63,7 @@ const App = () => {
           onReorderFolder={reorderFolder}
           activeNodes={allNodes[activeId] || []}
           onNodeFocus={setFocusNodeId}
+          onNodeDelete={setDeleteNodeId}
         />
         <div className="canvas-viewport">
           {workspaces.map((ws) => (
@@ -71,6 +76,8 @@ const App = () => {
               onNodesChange={handleNodesChange}
               focusNodeId={ws.id === activeId ? focusNodeId : undefined}
               onFocusComplete={handleFocusComplete}
+              deleteNodeId={ws.id === activeId ? deleteNodeId : undefined}
+              onDeleteComplete={handleDeleteComplete}
             />
           ))}
         </div>

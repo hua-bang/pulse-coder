@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback, type DragEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import type { WorkspaceEntry, FolderEntry } from '../../hooks/useWorkspaces';
 import type { CanvasNode } from '../../types';
 import './index.css';
@@ -72,6 +72,7 @@ interface Props {
   onReorderFolder: (folderId: string, beforeFolderId: string | null) => void;
   activeNodes?: CanvasNode[];
   onNodeFocus?: (nodeId: string) => void;
+  onNodeDelete?: (nodeId: string) => void;
 }
 
 /* ---- Drag data keys ---- */
@@ -97,6 +98,7 @@ export const Sidebar = ({
   onReorderFolder,
   activeNodes = [],
   onNodeFocus,
+  onNodeDelete,
 }: Props) => {
   /* ---- Local state ---- */
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -109,8 +111,34 @@ export const Sidebar = ({
   const [folderDropTarget, setFolderDropTarget] = useState<string | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [collapsedLayers, setCollapsedLayers] = useState<Set<string>>(new Set());
+  const [layerContextMenu, setLayerContextMenu] = useState<{
+    x: number;
+    y: number;
+    nodeId: string;
+  } | null>(null);
 
   const layerTree = useMemo(() => buildLayerTree(activeNodes), [activeNodes]);
+
+  const handleLayerContextMenu = useCallback((e: ReactMouseEvent, nodeId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setLayerContextMenu({ x: e.clientX, y: e.clientY, nodeId });
+  }, []);
+
+  // Close layer context menu on outside click or Escape
+  useEffect(() => {
+    if (!layerContextMenu) return;
+    const close = () => setLayerContextMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLayerContextMenu(null);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [layerContextMenu]);
 
   const toggleLayerCollapse = useCallback((id: string) => {
     setCollapsedLayers((prev) => {
@@ -399,17 +427,7 @@ export const Sidebar = ({
 
           {/* Scrollable list area */}
           <div className="sidebar-scroll">
-            {/* Root drop zone for un-foldered workspaces */}
-            <div
-              className={`sidebar-list sidebar-drop-zone${dropTarget === '__root__' ? ' sidebar-drop-zone--active' : ''}`}
-              onDragOver={(e) => handleDropZoneDragOver(e, '__root__')}
-              onDragLeave={(e) => handleDropZoneDragLeave(e, '__root__')}
-              onDrop={(e) => handleDropZoneDrop(e, undefined)}
-            >
-              {rootWorkspaces.map(renderWorkspaceItem)}
-            </div>
-
-            {/* Folders */}
+            {/* Folders (shown above root workspaces) */}
             {folders.map((folder) => {
               const folderWorkspaces = workspaces.filter((ws) => ws.folderId === folder.id);
               const isOpen = !folder.collapsed;
@@ -503,6 +521,16 @@ export const Sidebar = ({
               );
             })}
 
+            {/* Root drop zone for un-foldered workspaces (shown below folders) */}
+            <div
+              className={`sidebar-list sidebar-drop-zone${dropTarget === '__root__' ? ' sidebar-drop-zone--active' : ''}`}
+              onDragOver={(e) => handleDropZoneDragOver(e, '__root__')}
+              onDragLeave={(e) => handleDropZoneDragLeave(e, '__root__')}
+              onDrop={(e) => handleDropZoneDrop(e, undefined)}
+            >
+              {rootWorkspaces.map(renderWorkspaceItem)}
+            </div>
+
             {/* Inline create input */}
             {inlineCreate && (
               <div className="sidebar-list">
@@ -554,6 +582,7 @@ export const Sidebar = ({
                   <button
                     className={`sidebar-layer-item${isFrame ? ' sidebar-layer-item--frame' : ''}`}
                     onClick={() => onNodeFocus?.(node.id)}
+                    onContextMenu={(e) => handleLayerContextMenu(e, node.id)}
                     title={node.title}
                   >
                     {isFrame && (
@@ -599,6 +628,7 @@ export const Sidebar = ({
                           key={child.id}
                           className="sidebar-layer-item"
                           onClick={() => onNodeFocus?.(child.id)}
+                          onContextMenu={(e) => handleLayerContextMenu(e, child.id)}
                           title={child.title}
                         >
                           <span className="sidebar-layer-icon">
@@ -647,6 +677,28 @@ export const Sidebar = ({
           {installMessage && (
             <div className="sidebar-install-message">{installMessage}</div>
           )}
+        </div>
+      )}
+
+      {layerContextMenu && (
+        <div
+          className="sidebar-layer-context-menu"
+          style={{ left: layerContextMenu.x, top: layerContextMenu.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <button
+            className="sidebar-layer-context-menu-item sidebar-layer-context-menu-item--danger"
+            onClick={() => {
+              onNodeDelete?.(layerContextMenu.nodeId);
+              setLayerContextMenu(null);
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <path d="M3 4h10M6 4V2.5a1 1 0 011-1h2a1 1 0 011 1V4M5 4l.5 9a1 1 0 001 1h3a1 1 0 001-1L11 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span>Delete</span>
+          </button>
         </div>
       )}
 

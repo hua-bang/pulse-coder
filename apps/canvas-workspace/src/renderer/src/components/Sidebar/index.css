@@ -611,3 +611,45 @@
 .sidebar-folder-children.sidebar-drop-zone--active {
   border-left-color: var(--accent);
 }
+
+/* ---- Layer Context Menu ---- */
+
+.sidebar-layer-context-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 140px;
+  padding: 4px;
+  background: var(--bg, #ffffff);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md, 6px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.sidebar-layer-context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text);
+  text-align: left;
+  transition: background 0.1s, color 0.1s;
+}
+
+.sidebar-layer-context-menu-item:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.sidebar-layer-context-menu-item--danger {
+  color: #c0392b;
+}
+
+.sidebar-layer-context-menu-item--danger:hover {
+  background: rgba(192, 57, 43, 0.08);
+  color: #c0392b;
+}

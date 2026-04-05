@@ -15,7 +15,7 @@ import { ZoomIndicator } from '../ZoomIndicator';
 import { SearchPalette } from '../SearchPalette';
 import { CanvasEmptyHint } from '../CanvasEmptyHint';
 
-export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange, focusNodeId, onFocusComplete }: { canvasId: string; canvasName?: string; rootFolder?: string; hidden?: boolean; onNodesChange?: (canvasId: string, nodes: CanvasNode[]) => void; focusNodeId?: string; onFocusComplete?: () => void }) => {
+export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange, focusNodeId, onFocusComplete, deleteNodeId, onDeleteComplete }: { canvasId: string; canvasName?: string; rootFolder?: string; hidden?: boolean; onNodesChange?: (canvasId: string, nodes: CanvasNode[]) => void; focusNodeId?: string; onFocusComplete?: () => void; deleteNodeId?: string; onDeleteComplete?: () => void }) => {
   const [activeTool, setActiveTool] = useState('select');
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [clipboardNodes, setClipboardNodes] = useState<CanvasNode[]>([]);
@@ -105,6 +105,16 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
     }
     onFocusComplete?.();
   }, [focusNodeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Handle external delete request (e.g. from sidebar layers context menu)
+  useEffect(() => {
+    if (!deleteNodeId) return;
+    if (nodes.some((n) => n.id === deleteNodeId)) {
+      removeNode(deleteNodeId);
+      setSelectedNodeIds((ids) => ids.filter((id) => id !== deleteNodeId));
+    }
+    onDeleteComplete?.();
+  }, [deleteNodeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useCanvasContext(rootFolder, nodes, canvasName);
 
