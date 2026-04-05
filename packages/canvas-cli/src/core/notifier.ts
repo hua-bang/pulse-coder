@@ -13,7 +13,7 @@
 import net from 'net';
 import { appendFileSync } from 'fs';
 import { join } from 'path';
-import { homedir, platform } from 'os';
+import { platform, tmpdir } from 'os';
 
 export interface CanvasUpdateEvent {
   type: 'canvas:updated';
@@ -25,14 +25,21 @@ export interface CanvasUpdateEvent {
   source: 'cli';
 }
 
+/**
+ * Socket lives under the OS temp dir rather than `$HOME/.pulse-coder` so
+ * that sandboxed child processes (e.g. commands launched by Codex/Claude
+ * CLI under macOS Seatbelt) can still reach it — the default Seatbelt
+ * profile denies writes and unix-socket connects under `$HOME` but
+ * permits them under `$TMPDIR`.
+ */
 export function getIpcSocketPath(): string {
   if (platform() === 'win32') {
     return '\\\\.\\pipe\\pulse-coder-canvas-ipc';
   }
-  return join(homedir(), '.pulse-coder', 'canvas-ipc.sock');
+  return join(tmpdir(), 'pulse-coder-canvas-ipc.sock');
 }
 
-const DEBUG_LOG_PATH = join(homedir(), '.pulse-coder', 'canvas-cli-notifier.log');
+const DEBUG_LOG_PATH = join(tmpdir(), 'pulse-coder-canvas-cli-notifier.log');
 
 const debugLog = (msg: string): void => {
   try {

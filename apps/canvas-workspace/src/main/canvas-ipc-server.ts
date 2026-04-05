@@ -14,10 +14,10 @@
 import net from 'net';
 import { promises as fs, existsSync, appendFileSync } from 'fs';
 import { dirname, join } from 'path';
-import { homedir } from 'os';
+import { homedir, tmpdir } from 'os';
 import { BrowserWindow } from 'electron';
 
-const DEBUG_LOG_PATH = join(homedir(), '.pulse-coder', 'canvas-ipc-server.log');
+const DEBUG_LOG_PATH = join(tmpdir(), 'pulse-coder-canvas-ipc-server.log');
 let connectionSeq = 0;
 
 const debugLog = (msg: string): void => {
@@ -35,12 +35,23 @@ const debugLog = (msg: string): void => {
  * introducing a workspace dep from the Electron main bundle into the CLI
  * package, which would require bundling its source into the Electron build.
  */
+/**
+ * Socket lives under the OS temp dir rather than `$HOME/.pulse-coder` so
+ * that sandboxed child processes (e.g. commands launched by Codex/Claude
+ * CLI under macOS Seatbelt) can still reach it — the default Seatbelt
+ * profile denies writes and unix-socket connects under `$HOME` but
+ * permits them under `$TMPDIR`.
+ */
 const getIpcSocketPath = (): string => {
   if (process.platform === 'win32') {
     return '\\\\.\\pipe\\pulse-coder-canvas-ipc';
   }
-  return join(homedir(), '.pulse-coder', 'canvas-ipc.sock');
+  return join(tmpdir(), 'pulse-coder-canvas-ipc.sock');
 };
+
+/** Legacy path used by pre-TMPDIR builds; cleaned up on startup. */
+const getLegacyIpcSocketPath = (): string =>
+  join(homedir(), '.pulse-coder', 'canvas-ipc.sock');
 
 interface CanvasUpdateEvent {
   type: 'canvas:updated';
@@ -116,6 +127,9 @@ export const startCanvasIpcServer = async (): Promise<void> => {
   // On POSIX, stale socket files from a previous crash block binding.
   if (process.platform !== 'win32') {
     await fs.mkdir(dirname(socketPath), { recursive: true }).catch(() => undefined);
+    // Remove leftover socket at the pre-TMPDIR path so nothing connects to
+    // a dead file. Best-effort; no error if it doesn't exist.
+    await fs.unlink(getLegacyIpcSocketPath()).catch(() => undefined);
     if (existsSync(socketPath)) {
       // Try connecting — if nothing answers, remove the stale file.
       await new Promise<void>((resolve) => {
