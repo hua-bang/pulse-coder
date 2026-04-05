@@ -46,8 +46,10 @@ export interface SoulService {
   buildPromptAppend(sessionId: string): Promise<string | null>;
 }
 
-const DEFAULT_STATE_DIR = path.join(homedir(), '.pulse-coder', 'souls', 'state');
+const DEFAULT_SOUL_BASE_DIR = path.join(homedir(), '.pulse-coder', 'souls');
+const DEFAULT_STATE_DIR = path.join(DEFAULT_SOUL_BASE_DIR, 'state');
 const DEFAULT_STATE_DEBOUNCE_MS = 250;
+
 
 const SOUL_REGISTER_INPUT_SCHEMA = z.object({
   id: z.string().min(1).describe('Soul id (unique key).'),
@@ -89,6 +91,30 @@ function normalizeSoulKey(value: string): string {
 
 function now(): number {
   return Date.now();
+}
+
+function soulDirNameFromId(id: string): string {
+  const trimmed = id.trim();
+  if (!trimmed || trimmed === '.' || trimmed === '..' || trimmed.includes('/') || trimmed.includes('\\')) {
+    throw new Error(`invalid soul id for persistence path: ${id}`);
+  }
+  return trimmed;
+}
+
+function buildPersistedSoulContent(soul: SoulDefinition): string {
+  const frontMatterLines = [
+    '---',
+    `id: ${JSON.stringify(soul.id)}`,
+    `name: ${JSON.stringify(soul.name)}`,
+  ];
+
+  if (soul.description) {
+    frontMatterLines.push(`description: ${JSON.stringify(soul.description)}`);
+  }
+
+  frontMatterLines.push('---');
+
+  return `${frontMatterLines.join('\n')}\n\n${soul.prompt.trim()}\n`;
 }
 
 function appendSystemPrompt(base: SystemPromptOption | undefined, append: string): SystemPromptOption {
@@ -336,24 +362,27 @@ class SoulStateStore {
 
 class BuiltInSoulService implements SoulService {
   private registry = new SoulRegistry();
-  private store: SoulStateStore;
+  private stateStore: SoulStateStore;
+  private persistEnabled: boolean;
   private states = new Map<string, SoulState>();
   private loadedSessions = new Set<string>();
   private logger: EnginePluginContext['logger'];
 
   constructor(logger: EnginePluginContext['logger']) {
-    const baseDir = process.env.PULSE_CODER_SOUL_STATE_DIR?.trim();
+    const stateDir = process.env.PULSE_CODER_SOUL_STATE_DIR?.trim();
     const enabled = process.env.PULSE_CODER_SOUL_PERSIST?.trim() !== '0';
-    this.store = new SoulStateStore({
-      baseDir: baseDir || undefined,
+
+    this.stateStore = new SoulStateStore({
+      baseDir: stateDir || undefined,
       enabled,
     });
+    this.persistEnabled = enabled;
     this.logger = logger;
   }
 
   async initialize(): Promise<void> {
     await this.registry.initialize(process.cwd());
-    await this.store.initialize();
+    await this.stateStore.initialize();
   }
 
   listSouls(): SoulDefinition[] {
@@ -402,7 +431,7 @@ class BuiltInSoulService implements SoulService {
     };
 
     this.states.set(sessionId, nextState);
-    this.store.scheduleSave(nextState);
+    this.stateStore.scheduleSave(nextState);
 
     return { ok: true, state: nextState };
   }
@@ -410,7 +439,7 @@ class BuiltInSoulService implements SoulService {
   async clearSession(sessionId: string): Promise<{ ok: boolean; reason?: string }> {
     this.states.delete(sessionId);
     this.loadedSessions.add(sessionId);
-    await this.store.remove(sessionId);
+    await this.stateStore.remove(sessionId);
     return { ok: true };
   }
 
@@ -431,7 +460,7 @@ class BuiltInSoulService implements SoulService {
 
     this.states.set(toSessionId, nextState);
     this.loadedSessions.add(toSessionId);
-    this.store.scheduleSave(nextState);
+    this.stateStore.scheduleSave(nextState);
     return { ok: true };
   }
 
@@ -463,7 +492,7 @@ class BuiltInSoulService implements SoulService {
     return lines.join('\n');
   }
 
-  registerSoul(input: { id: string; name: string; description?: string; prompt: string }): SoulDefinition {
+  async registerSoul(input: { id: string; name: string; description?: string; prompt: string }): Promise<SoulDefinition> {
     const soul: SoulDefinition = {
       id: input.id.trim(),
       name: input.name.trim(),
@@ -474,7 +503,27 @@ class BuiltInSoulService implements SoulService {
     };
 
     this.registry.registerSoul(soul);
+    await this.persistRuntimeSoulAsFile(soul);
     return soul;
+  }
+
+  private async persistRuntimeSoulAsFile(soul: SoulDefinition): Promise<void> {
+    if (!this.persistEnabled) {
+      return;
+    }
+
+    const soulDirName = soulDirNameFromId(soul.id);
+    const soulDir = path.join(DEFAULT_SOUL_BASE_DIR, soulDirName);
+    const soulFile = path.join(soulDir, 'SOUL.md');
+    const content = buildPersistedSoulContent(soul);
+
+    await fs.mkdir(soulDir, { recursive: true });
+    await fs.writeFile(soulFile, content, 'utf-8');
+
+    this.logger.info('[RoleSoul] Persisted registered soul to SOUL.md', {
+      soulId: soul.id,
+      soulFile,
+    });
   }
 
   private async setSoulState(
@@ -507,7 +556,7 @@ class BuiltInSoulService implements SoulService {
     };
 
     this.states.set(sessionId, nextState);
-    this.store.scheduleSave(nextState);
+    this.stateStore.scheduleSave(nextState);
 
     return { ok: true, state: nextState, soul };
   }
@@ -518,7 +567,7 @@ class BuiltInSoulService implements SoulService {
     }
 
     this.loadedSessions.add(sessionId);
-    const stored = await this.store.load(sessionId);
+    const stored = await this.stateStore.load(sessionId);
     if (stored) {
       this.states.set(sessionId, stored);
       return;
@@ -683,10 +732,10 @@ function buildSoulClearTool(service: BuiltInSoulService): Tool {
 function buildSoulRegisterTool(service: BuiltInSoulService): Tool {
   return {
     name: 'soul_register',
-    description: 'Register or replace a soul definition at runtime.',
+    description: 'Register or replace a soul definition. Persists to ~/.pulse-coder/souls/<id>/SOUL.md when enabled.',
     inputSchema: SOUL_REGISTER_INPUT_SCHEMA,
     execute: async (input) => {
-      const soul = service.registerSoul({
+      const soul = await service.registerSoul({
         id: input.id,
         name: input.name,
         description: input.description,
