@@ -23,6 +23,13 @@ export interface CanvasNode {
   width: number;
   height: number;
   data: CanvasNodeData;
+  /**
+   * Epoch millis of last mutation for this node. Used by the Electron main
+   * process to merge concurrent writes from canvas-cli and the renderer
+   * without losing the fresher version. Optional for backwards compatibility
+   * with canvases written before this field was introduced.
+   */
+  updatedAt?: number;
 }
 
 export interface CanvasTransform {

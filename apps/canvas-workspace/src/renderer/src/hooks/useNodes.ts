@@ -15,7 +15,20 @@ export const useNodes = (
   const onRestoreTransformRef = useRef(onRestoreTransform);
   onRestoreTransformRef.current = onRestoreTransform;
 
+  /**
+   * Mirrors `loaded` state so `doSave`/`flushSave` (stable callbacks) can
+   * synchronously check it without re-creating on every render. We refuse
+   * any save before the initial load completes — otherwise an early
+   * `beforeunload` / unmount flushSave can persist an empty node list
+   * over the real data on disk.
+   */
+  const loadedRef = useRef(false);
+
   const doSave = useCallback(() => {
+    if (!loadedRef.current) {
+      console.debug(`[canvas] save skipped for ${canvasId}: not yet loaded`);
+      return;
+    }
     const api = window.canvasWorkspace?.store;
     if (!api) {
       console.warn('[canvas] save skipped: store API unavailable');
@@ -63,6 +76,104 @@ export const useNodes = (
     [scheduleSave]
   );
 
+  /**
+   * IDs of nodes recently touched by an external process (canvas-cli). The
+   * Canvas component reads this to render a transient "agent edited here"
+   * highlight. Entries expire after ~2.5s.
+   */
+  const [externallyEditedIds, setExternallyEditedIds] = useState<Set<string>>(() => new Set());
+  const externalClearTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // Listen for canvas-cli writes bubbled up from the main process via the
+  // local IPC socket. When we hear about a change, pull the fresh nodes
+  // straight from disk (to handle arbitrary field updates including file
+  // content, terminal scrollback, frame label, etc) and merge them into
+  // our in-memory state WITHOUT calling scheduleSave — the disk is already
+  // authoritative for these ids, and re-saving would race against the CLI.
+  useEffect(() => {
+    const storeApi = window.canvasWorkspace?.store;
+    if (!storeApi?.onExternalUpdate) return;
+
+    const unsubscribe = storeApi.onExternalUpdate(async (event) => {
+      if (event.workspaceId !== canvasId) return;
+      if (!Array.isArray(event.nodeIds) || event.nodeIds.length === 0) return;
+      // Drop events that arrive before the initial load completes —
+      // the upcoming load will read the latest disk state anyway, and
+      // operating on an empty nodesRef here would corrupt the view.
+      if (!loadedRef.current) return;
+
+      const result = await storeApi.load(canvasId);
+      if (!result.ok || !result.data || !Array.isArray(result.data.nodes)) return;
+      const diskNodes = result.data.nodes;
+      const diskById = new Map<string, CanvasNode>();
+      for (const n of diskNodes) diskById.set(n.id, n);
+
+      // Semantics of `event.nodeIds`: every id here is a node that main's
+      // fs.watch diff saw differ between its last-known snapshot and the
+      // fresh disk contents. That means exactly one of three things per id:
+      //   - on disk only           → CLI create, append
+      //   - on disk AND in memory  → CLI update, replace in place
+      //   - in memory only         → CLI delete, drop
+      // So we don't need an explicit event.kind — the presence of each id
+      // in `diskById` tells us unambiguously which branch to take.
+      const changedIds = new Set(event.nodeIds);
+      const nextNodes: CanvasNode[] = [];
+      const seen = new Set<string>();
+      for (const cur of nodesRef.current) {
+        seen.add(cur.id);
+        if (changedIds.has(cur.id)) {
+          const disk = diskById.get(cur.id);
+          if (disk) {
+            // update
+            nextNodes.push(disk);
+          }
+          // else: delete — intentionally drop this node
+        } else {
+          nextNodes.push(cur);
+        }
+      }
+      // Append CLI-created nodes that weren't in memory yet.
+      for (const id of changedIds) {
+        if (seen.has(id)) continue;
+        const disk = diskById.get(id);
+        if (disk) nextNodes.push(disk);
+      }
+
+      // Apply directly without history / scheduleSave to avoid a write-back loop.
+      nodesRef.current = nextNodes;
+      setNodes(nextNodes);
+
+      // Mark the affected nodes as externally-edited for 2.5s so the Canvas
+      // component can render a transient highlight.
+      setExternallyEditedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of changedIds) next.add(id);
+        return next;
+      });
+      for (const id of changedIds) {
+        const existing = externalClearTimers.current.get(id);
+        if (existing) clearTimeout(existing);
+        const t = setTimeout(() => {
+          setExternallyEditedIds((prev) => {
+            if (!prev.has(id)) return prev;
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+          externalClearTimers.current.delete(id);
+        }, 2500);
+        externalClearTimers.current.set(id, t);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      for (const t of externalClearTimers.current.values()) clearTimeout(t);
+      externalClearTimers.current.clear();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvasId]);
+
   // File-watcher sync is temporarily disabled.  The fs.watch-based watcher
   // introduced race conditions with user edits (the onChanged callback could
   // call applyNodes with stale nodesRef.current, reverting in-flight changes).
@@ -93,12 +204,15 @@ export const useNodes = (
   // }, [canvasId, applyNodes, nodesRef]);
 
   useEffect(() => {
+    // New canvas selected — block saves until this load finishes.
+    loadedRef.current = false;
     const api = window.canvasWorkspace?.store;
     if (!api) {
       const empty: CanvasNode[] = [];
       historyRef.current = [empty];
       historyIndexRef.current = 0;
       setNodes(empty);
+      loadedRef.current = true;
       setLoaded(true);
       return;
     }
@@ -121,6 +235,7 @@ export const useNodes = (
         historyRef.current = [[]];
         historyIndexRef.current = 0;
       }
+      loadedRef.current = true;
       setLoaded(true);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -128,7 +243,7 @@ export const useNodes = (
 
   const addNode = useCallback(
     (type: CanvasNode['type'], x: number, y: number) => {
-      const node = createDefaultNode(type, x, y);
+      const node = { ...createDefaultNode(type, x, y), updatedAt: Date.now() };
 
       if (type === 'file') {
         const api = window.canvasWorkspace?.file;
@@ -158,7 +273,11 @@ export const useNodes = (
 
   const updateNode = useCallback(
     (id: string, patch: Partial<CanvasNode>) => {
-      applyNodes(nodesRef.current.map((n) => (n.id === id ? { ...n, ...patch } : n)));
+      applyNodes(
+        nodesRef.current.map((n) =>
+          n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n,
+        ),
+      );
     },
     [applyNodes, nodesRef]
   );
@@ -180,17 +299,23 @@ export const useNodes = (
 
   const moveNode = useCallback(
     (id: string, x: number, y: number) => {
-      applyNodes(nodesRef.current.map((n) => (n.id === id ? { ...n, x, y } : n)), false);
+      applyNodes(
+        nodesRef.current.map((n) =>
+          n.id === id ? { ...n, x, y, updatedAt: Date.now() } : n,
+        ),
+        false,
+      );
     },
     [applyNodes, nodesRef]
   );
 
   const moveNodes = useCallback(
     (moves: Array<{ id: string; x: number; y: number }>) => {
+      const now = Date.now();
       applyNodes(
         nodesRef.current.map((n) => {
           const m = moves.find((mv) => mv.id === n.id);
-          return m ? { ...n, x: m.x, y: m.y } : n;
+          return m ? { ...n, x: m.x, y: m.y, updatedAt: now } : n;
         }),
         false
       );
@@ -200,7 +325,12 @@ export const useNodes = (
 
   const resizeNode = useCallback(
     (id: string, width: number, height: number) => {
-      applyNodes(nodesRef.current.map((n) => (n.id === id ? { ...n, width, height } : n)), false);
+      applyNodes(
+        nodesRef.current.map((n) =>
+          n.id === id ? { ...n, width, height, updatedAt: Date.now() } : n,
+        ),
+        false,
+      );
     },
     [applyNodes, nodesRef]
   );
@@ -217,6 +347,7 @@ export const useNodes = (
         data: source.type === 'frame'
           ? { ...(source.data as FrameNodeData) }
           : createNodeData(source.type),
+        updatedAt: Date.now(),
       };
       if (newNode.type === 'file') {
         const api = window.canvasWorkspace?.file;
@@ -246,6 +377,7 @@ export const useNodes = (
   const pasteNodes = useCallback(
     (sources: CanvasNode[], offsetX = 24, offsetY = 24) => {
       if (sources.length === 0) return [];
+      const now = Date.now();
       const newNodes = sources.map((source) => ({
         ...source,
         id: genId(),
@@ -254,6 +386,7 @@ export const useNodes = (
         data: source.type === 'frame'
           ? { ...(source.data as FrameNodeData) }
           : createNodeData(source.type),
+        updatedAt: now,
       }));
       newNodes.forEach((newNode) => {
         if (newNode.type === 'file') {
@@ -285,6 +418,7 @@ export const useNodes = (
   return {
     nodes,
     loaded,
+    externallyEditedIds,
     addNode,
     updateNode,
     removeNode,

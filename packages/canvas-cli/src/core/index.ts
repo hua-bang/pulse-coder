@@ -3,3 +3,4 @@ export * from './constants';
 export * from './store';
 export * from './nodes';
 export * from './context';
+export * from './notifier';

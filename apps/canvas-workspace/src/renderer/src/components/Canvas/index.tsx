@@ -48,6 +48,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
   const {
     nodes,
     loaded,
+    externallyEditedIds,
     addNode,
     updateNode,
     removeNode,
@@ -279,6 +280,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
             isResizing={resizingId === node.id}
             isSelected={selectedNodeIds.includes(node.id)}
             isHighlighted={highlightedId === node.id}
+            isAgentEdited={externallyEditedIds.has(node.id)}
             onDragStart={onDragStart}
             onResizeStart={onResizeStart}
             onUpdate={updateNode}

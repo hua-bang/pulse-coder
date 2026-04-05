@@ -3,7 +3,7 @@ import { existsSync, promises as fs } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { setupPtyIpc, killAllPty } from "./pty-manager";
-import { setupCanvasStoreIpc } from "./canvas-store";
+import { setupCanvasStoreIpc, teardownCanvasWatchers } from "./canvas-store";
 import { setupFileManagerIpc } from "./file-manager";
 // MCP server disabled — canvas-cli is the preferred agent interface now.
 // import { startMCPServer } from "./mcp-server";
@@ -119,6 +119,7 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   killAllPty();
   teardownFileWatcher();
+  teardownCanvasWatchers();
   if (process.platform !== "darwin") {
     app.quit();
   }

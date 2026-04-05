@@ -1,5 +1,5 @@
-import { ipcMain } from "electron";
-import { promises as fs } from "fs";
+import { ipcMain, BrowserWindow } from "electron";
+import { promises as fs, watch as fsWatch, FSWatcher } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
@@ -66,8 +66,10 @@ const ensureWorkspaceDir = async (id: string): Promise<void> => {
 const LEGACY_NOTES_DIR = join(STORE_DIR, 'notes');
 
 interface CanvasNode {
+  id?: string;
   type: string;
   data?: { filePath?: string; [k: string]: unknown };
+  updatedAt?: number;
   [k: string]: unknown;
 }
 
@@ -117,14 +119,23 @@ const knownNodeIds = new Map<string, Set<string>>();
 /**
  * Merge external changes (e.g. from canvas-cli) into the data being saved.
  *
- * Only merges nodes whose IDs have NEVER been seen by Electron. This prevents
- * re-adding nodes that the user explicitly deleted in the UI.
+ * Two merge rules are applied, in order:
+ *
+ *   1. Per-node "newer wins" by `updatedAt`: if a node exists in both the
+ *      in-memory snapshot and the on-disk snapshot, the one with the greater
+ *      `updatedAt` wins. This protects canvas-cli writes from being clobbered
+ *      by stale renderer saves (e.g. the terminal scrollback autosave timer
+ *      firing right after the CLI updated a file node).
+ *
+ *   2. Add disk-only nodes whose IDs have NEVER been seen by Electron. This
+ *      is how canvas-cli creates show up. Disk-only nodes whose IDs *are*
+ *      known were deleted in the UI and must not be re-added.
  */
 const mergeExternalNodes = async (
   id: string,
   inMemoryData: CanvasSaveData,
 ): Promise<CanvasSaveData> => {
-  const known = knownNodeIds.get(id) ?? new Set();
+  const known = knownNodeIds.get(id) ?? new Set<string>();
 
   try {
     const raw = await fs.readFile(getFilePath(id), 'utf-8');
@@ -132,24 +143,232 @@ const mergeExternalNodes = async (
     const diskNodes = Array.isArray(diskData.nodes) ? diskData.nodes : [];
     const memoryNodes = Array.isArray(inMemoryData.nodes) ? inMemoryData.nodes : [];
 
-    const memoryIds = new Set(memoryNodes.map(n => n.id));
+    const memoryNodesRaw = Array.isArray(inMemoryData.nodes) ? inMemoryData.nodes : [];
 
-    // Only add nodes that are truly new — never seen by Electron before
-    const externalNodes = diskNodes.filter(n => n.id && !memoryIds.has(n.id) && !known.has(n.id));
+    // Hard safety: never let a save with an empty node list clobber a
+    // non-empty on-disk canvas. This shields against early-lifecycle
+    // flushSave calls that fire before the renderer has finished loading
+    // (e.g. on window close / StrictMode double-invoke / HMR reload),
+    // which would otherwise wipe the canvas because every disk id is
+    // already in the `known` set.
+    if (memoryNodesRaw.length === 0 && diskNodes.length > 0) {
+      console.warn(
+        `[canvas-store] refusing to overwrite ${diskNodes.length} on-disk nodes with empty memory for ${id}`,
+      );
+      return { ...inMemoryData, nodes: diskNodes };
+    }
 
-    if (externalNodes.length === 0) return inMemoryData;
+    const diskById = new Map<string, CanvasNode>();
+    for (const n of diskNodes) {
+      if (n.id) diskById.set(n.id, n);
+    }
 
-    // Mark newly merged nodes as known
-    for (const n of externalNodes) known.add(n.id);
+    // Rule 1: reconcile nodes that are in memory.
+    //   - Both disk and memory have it → pick the newer `updatedAt`.
+    //     A memory node without updatedAt is treated as "older than any
+    //     timestamped disk version" — the common case where the CLI
+    //     just wrote the disk copy with a timestamp.
+    //   - Only memory has it:
+    //       * id is in `known` → CLI deleted it between the renderer's
+    //         last load and this save. Drop it so the save doesn't
+    //         resurrect the deletion.
+    //       * id is not in `known` → user just created it in memory
+    //         and this is the first save that will persist it. Keep.
+    const mergedExisting: CanvasNode[] = [];
+    for (const memNode of memoryNodes) {
+      if (!memNode.id) {
+        mergedExisting.push(memNode);
+        continue;
+      }
+      const diskNode = diskById.get(memNode.id);
+      if (!diskNode) {
+        if (known.has(memNode.id)) {
+          // CLI-deleted; drop.
+          continue;
+        }
+        mergedExisting.push(memNode);
+        continue;
+      }
+      const memTs = typeof memNode.updatedAt === 'number' ? memNode.updatedAt : 0;
+      const diskTs = typeof diskNode.updatedAt === 'number' ? diskNode.updatedAt : 0;
+      mergedExisting.push(diskTs > memTs ? diskNode : memNode);
+    }
+
+    // Rule 2: nodes only on disk and never-seen → CLI creates, add them.
+    const memoryIds = new Set(memoryNodes.map((n) => n.id).filter(Boolean) as string[]);
+    const externalNewNodes = diskNodes.filter(
+      (n) => n.id && !memoryIds.has(n.id) && !known.has(n.id),
+    );
+
+    // Record every id we've now observed so future saves can tell
+    // "CLI added" apart from "user deleted".
+    for (const n of mergedExisting) if (n.id) known.add(n.id);
+    for (const n of externalNewNodes) if (n.id) known.add(n.id);
     knownNodeIds.set(id, known);
 
     return {
       ...inMemoryData,
-      nodes: [...memoryNodes, ...externalNodes],
+      nodes: [...mergedExisting, ...externalNewNodes],
     };
   } catch {
     return inMemoryData;
   }
+};
+
+/**
+ * Per-workspace save lock. Serializes concurrent `canvas:save` invocations
+ * for the same workspace so the read-merge-write sequence in each call
+ * cannot interleave with itself. This does NOT protect against external
+ * writers (canvas-cli); for that, `mergeExternalNodes` is called twice —
+ * once up front and again immediately before `writeFile`.
+ */
+const saveLocks = new Map<string, Promise<unknown>>();
+
+const withSaveLock = async <T>(id: string, fn: () => Promise<T>): Promise<T> => {
+  const prev = saveLocks.get(id) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  const tracked = next.finally(() => {
+    if (saveLocks.get(id) === tracked) saveLocks.delete(id);
+  });
+  saveLocks.set(id, tracked);
+  return next;
+};
+
+/**
+ * File-system-based external-update bus.
+ *
+ * Previous designs used a Unix domain socket and later a loopback TCP
+ * listener to let canvas-cli notify Electron of mutations. Both are
+ * denied by the macOS Seatbelt profile that CLI agents like Codex wrap
+ * their child processes in (`network-outbound` is limited to outgoing
+ * DNS/HTTPS; AF_UNIX connect and AF_INET connect to 127.0.0.1 both
+ * return EPERM). The only remaining channel the sandboxed CLI reliably
+ * has is the filesystem, which it already uses to persist the canvas.
+ *
+ * So we invert the model: the CLI just writes `canvas.json`, and the
+ * Electron main process watches that file. When its contents change
+ * for any reason other than our own save handler having just written
+ * the same content, we re-read it, diff against the last snapshot the
+ * main process knew about, and broadcast the changed node IDs to every
+ * renderer via the existing `canvas:external-update` IPC channel.
+ *
+ * Echo suppression: `canvas:save` updates `lastSnapshot` synchronously
+ * after its own `writeFile`, so when the watcher fires (async, 100ms
+ * debounced) for the renderer's own write, the disk content and the
+ * snapshot are identical, the diff is empty, and nothing is broadcast.
+ */
+const watchers = new Map<string, FSWatcher>();
+const watcherDebounce = new Map<string, NodeJS.Timeout>();
+const lastSnapshot = new Map<string, Map<string, CanvasNode>>();
+
+const nodesToMap = (nodes: CanvasNode[] | undefined): Map<string, CanvasNode> => {
+  const m = new Map<string, CanvasNode>();
+  if (!nodes) return m;
+  for (const n of nodes) if (n.id) m.set(n.id, n);
+  return m;
+};
+
+const diffSnapshots = (
+  before: Map<string, CanvasNode>,
+  after: Map<string, CanvasNode>,
+): string[] => {
+  const ids = new Set<string>();
+  for (const [id, node] of after) {
+    const prev = before.get(id);
+    if (!prev) { ids.add(id); continue; }
+    // Cheap timestamp check first, fall back to structural equality so
+    // we also catch updates that forgot to bump updatedAt.
+    if ((prev.updatedAt ?? 0) !== (node.updatedAt ?? 0)) {
+      ids.add(id);
+    } else if (JSON.stringify(prev) !== JSON.stringify(node)) {
+      ids.add(id);
+    }
+  }
+  for (const id of before.keys()) {
+    if (!after.has(id)) ids.add(id);
+  }
+  return Array.from(ids);
+};
+
+const broadcastExternalUpdate = (workspaceId: string, nodeIds: string[]) => {
+  const payload = {
+    type: 'canvas:updated' as const,
+    workspaceId,
+    nodeIds,
+    source: 'fs-watch' as const,
+  };
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
+    win.webContents.send('canvas:external-update', payload);
+  }
+};
+
+const handleWatcherFire = async (workspaceId: string): Promise<void> => {
+  const filePath = getFilePath(workspaceId);
+  let data: CanvasSaveData;
+  try {
+    const raw = await fs.readFile(filePath, 'utf-8');
+    data = JSON.parse(raw);
+  } catch {
+    // Partial write or transient read failure — the next event will
+    // catch the final state.
+    return;
+  }
+  const newMap = nodesToMap(data.nodes);
+  const oldMap = lastSnapshot.get(workspaceId) ?? new Map<string, CanvasNode>();
+  const changedIds = diffSnapshots(oldMap, newMap);
+  if (changedIds.length === 0) return;
+  lastSnapshot.set(workspaceId, newMap);
+  // Keep knownNodeIds aligned with disk so `mergeExternalNodes` Rule 2
+  // (disk-only never-seen → append) doesn't re-add nodes that the
+  // watcher has already observed.
+  const known = knownNodeIds.get(workspaceId) ?? new Set<string>();
+  for (const id of newMap.keys()) known.add(id);
+  knownNodeIds.set(workspaceId, known);
+  broadcastExternalUpdate(workspaceId, changedIds);
+};
+
+const startWorkspaceWatcher = (workspaceId: string): void => {
+  if (watchers.has(workspaceId)) return;
+  const filePath = getFilePath(workspaceId);
+  let watcher: FSWatcher;
+  try {
+    watcher = fsWatch(filePath, { persistent: false });
+  } catch (err) {
+    console.warn(`[canvas-store] fs.watch failed for ${workspaceId}:`, err);
+    return;
+  }
+  watcher.on('change', () => {
+    const existing = watcherDebounce.get(workspaceId);
+    if (existing) clearTimeout(existing);
+    const t = setTimeout(() => {
+      watcherDebounce.delete(workspaceId);
+      void handleWatcherFire(workspaceId);
+    }, 100);
+    watcherDebounce.set(workspaceId, t);
+  });
+  watcher.on('error', (err) => {
+    console.warn(`[canvas-store] watcher error for ${workspaceId}:`, err);
+  });
+  watchers.set(workspaceId, watcher);
+};
+
+const stopWorkspaceWatcher = (workspaceId: string): void => {
+  const w = watchers.get(workspaceId);
+  if (w) {
+    try { w.close(); } catch { /* ignore */ }
+    watchers.delete(workspaceId);
+  }
+  const t = watcherDebounce.get(workspaceId);
+  if (t) {
+    clearTimeout(t);
+    watcherDebounce.delete(workspaceId);
+  }
+  lastSnapshot.delete(workspaceId);
+};
+
+export const teardownCanvasWatchers = (): void => {
+  for (const id of Array.from(watchers.keys())) stopWorkspaceWatcher(id);
 };
 
 export const setupCanvasStoreIpc = () => {
@@ -166,16 +385,52 @@ export const setupCanvasStoreIpc = () => {
           );
         } else {
           await ensureWorkspaceDir(payload.id);
-          // Merge CLI-added nodes before writing
-          const merged = await mergeExternalNodes(
-            payload.id,
-            payload.data as CanvasSaveData,
-          );
-          await fs.writeFile(
-            getFilePath(payload.id),
-            JSON.stringify(merged, null, 2),
-            'utf-8'
-          );
+          await withSaveLock(payload.id, async () => {
+            // Snapshot what the renderer actually had in memory when it
+            // sent this save. We compare against this after the merge
+            // to detect CLI-side changes the renderer doesn't know yet
+            // (see the broadcast below).
+            const rendererMemoryMap = nodesToMap(
+              (payload.data as CanvasSaveData).nodes,
+            );
+            // First merge against current disk state. This picks up any
+            // CLI-added nodes (Rule 2) and resolves per-node conflicts
+            // (Rule 1).
+            const firstPass = await mergeExternalNodes(
+              payload.id,
+              payload.data as CanvasSaveData,
+            );
+            // Second merge, immediately before the write. Narrows the
+            // window where a canvas-cli write could land between our
+            // initial read and the writeFile below and be silently
+            // clobbered. Using `firstPass` as input ensures any CLI
+            // changes seen in the first read are preserved even if the
+            // second read somehow fails to include them.
+            const merged = await mergeExternalNodes(payload.id, firstPass);
+            await fs.writeFile(
+              getFilePath(payload.id),
+              JSON.stringify(merged, null, 2),
+              'utf-8'
+            );
+            // Update the watcher's last-known snapshot to match what we
+            // just wrote. The debounced fs.watch callback will see an
+            // empty diff and skip broadcasting, suppressing the echo of
+            // our own write.
+            const mergedMap = nodesToMap(merged.nodes);
+            lastSnapshot.set(payload.id, mergedMap);
+            // If the merge result differs from the renderer's memory,
+            // the CLI made changes between the renderer's last sync
+            // and this save, and we just silently absorbed them into
+            // the write. The fs.watch fire for this write will see
+            // `lastSnapshot === disk` and skip broadcasting, so the
+            // renderer would never hear about those changes (until a
+            // manual reload). Push the diff back explicitly so its
+            // in-memory state catches up.
+            const pickedUp = diffSnapshots(rendererMemoryMap, mergedMap);
+            if (pickedUp.length > 0) {
+              broadcastExternalUpdate(payload.id, pickedUp);
+            }
+          });
         }
         return { ok: true };
       } catch (err) {
@@ -200,12 +455,27 @@ export const setupCanvasStoreIpc = () => {
           if (dirty) {
             await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
           }
-          // Record all loaded node IDs so we can distinguish
-          // "CLI added" from "user deleted" during merge-on-save
-          if (Array.isArray(data.nodes)) {
-            const known = new Set(data.nodes.map((n: CanvasNode) => n.id).filter(Boolean));
+          // Seed the known-id set the first time we load this workspace in
+          // this app session. Do NOT re-seed on subsequent loads — the
+          // external-update handler in the renderer calls `canvas:load` as
+          // a peek after canvas-cli writes, and re-seeding here would race
+          // with a concurrent `canvas:save`: the save's `mergeExternalNodes`
+          // would then see the CLI-added id already in `known` and Rule 2
+          // would drop it from the write. `mergeExternalNodes` itself keeps
+          // `known` up to date whenever nodes are actually persisted.
+          if (Array.isArray(data.nodes) && !knownNodeIds.has(payload.id)) {
+            const known = new Set(
+              data.nodes.map((n: CanvasNode) => n.id).filter((id): id is string => Boolean(id)),
+            );
             knownNodeIds.set(payload.id, known);
           }
+          // Seed / refresh the watcher's last-known snapshot and ensure
+          // the fs.watch listener is running for this workspace. Starting
+          // here (instead of at app launch) means we only watch workspaces
+          // the user has actually opened, and guarantees the canvas.json
+          // file already exists by the time we call fs.watch on it.
+          lastSnapshot.set(payload.id, nodesToMap(data.nodes));
+          startWorkspaceWatcher(payload.id);
         }
         return { ok: true, data };
       } catch (err: unknown) {
@@ -243,6 +513,8 @@ export const setupCanvasStoreIpc = () => {
     async (_event, payload: { id: string }) => {
       try {
         if (payload.id === MANIFEST_ID) return { ok: false, error: 'Cannot delete manifest' };
+        stopWorkspaceWatcher(payload.id);
+        knownNodeIds.delete(payload.id);
         const dir = getWorkspaceDir(payload.id);
         await fs.rm(dir, { recursive: true, force: true });
         // Also remove old flat file if it still exists

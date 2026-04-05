@@ -178,6 +178,45 @@
   animation: nodeHighlight 1.5s ease-out;
 }
 
+/* Transient ring shown right after canvas-cli (an agent) modifies a node. */
+.canvas-node--agent-edited {
+  animation: nodeAgentEdit 2.5s ease-out;
+}
+
+.canvas-node--agent-edited::before {
+  content: "agent edited";
+  position: absolute;
+  top: -22px;
+  left: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #7c5cff;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 2px 6px;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(124, 92, 255, 0.25);
+  pointer-events: none;
+  animation: agentLabelFade 2.5s ease-out forwards;
+}
+
+@keyframes nodeAgentEdit {
+  0% {
+    box-shadow: var(--shadow-card), 0 0 0 3px rgba(124, 92, 255, 0.85), 0 0 24px rgba(124, 92, 255, 0.45);
+  }
+  100% {
+    box-shadow: var(--shadow-card);
+  }
+}
+
+@keyframes agentLabelFade {
+  0% { opacity: 0; transform: translateY(4px); }
+  10% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-2px); }
+}
+
 @keyframes nodeAppear {
   from {
     opacity: 0;

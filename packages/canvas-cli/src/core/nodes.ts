@@ -1,7 +1,8 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { NODE_CAPABILITIES, DEFAULT_NODE_DIMENSIONS } from './constants';
-import { loadCanvas, saveCanvas, ensureWorkspaceDir, getWorkspaceDir } from './store';
+import { loadCanvas, saveCanvas, ensureWorkspaceDir, getWorkspaceDir, commitNodeMutation } from './store';
+import { notifyCanvasUpdated } from './notifier';
 import type {
   NodeType,
   NodeCapability,
@@ -68,8 +69,12 @@ export async function writeNode(
         await fs.writeFile(node.data.filePath, content, 'utf-8');
       }
       node.data.content = content;
-      canvas.savedAt = new Date().toISOString();
-      await saveCanvas(workspaceId, canvas, storeDir);
+      node.updatedAt = Date.now();
+      // Re-read canvas.json just before writing so concurrent changes
+      // from the Electron renderer (or other canvas-cli invocations) to
+      // other nodes are preserved. Only our target node is replaced.
+      await commitNodeMutation(workspaceId, { upsert: node }, storeDir);
+      await notifyCanvasUpdated({ workspaceId, nodeIds: [nodeId], kind: 'update' });
       return { ok: true, data: undefined };
     }
     case 'frame': {
@@ -77,8 +82,9 @@ export async function writeNode(
         const patch = JSON.parse(content) as { label?: string; color?: string };
         if (patch.label !== undefined) node.data.label = patch.label;
         if (patch.color !== undefined) node.data.color = patch.color;
-        canvas.savedAt = new Date().toISOString();
-        await saveCanvas(workspaceId, canvas, storeDir);
+        node.updatedAt = Date.now();
+        await commitNodeMutation(workspaceId, { upsert: node }, storeDir);
+        await notifyCanvasUpdated({ workspaceId, nodeIds: [nodeId], kind: 'update' });
         return { ok: true, data: undefined };
       } catch {
         return { ok: false, error: 'Frame write expects JSON: { label?: string, color?: string }' };
@@ -176,11 +182,14 @@ export async function createNode(
     width: opts.width ?? def.width,
     height: opts.height ?? def.height,
     data: nodeData,
+    updatedAt: Date.now(),
   };
 
-  canvas.nodes.push(newNode);
-  canvas.savedAt = new Date().toISOString();
-  await saveCanvas(workspaceId, canvas, storeDir);
+  // Re-read canvas.json and append our new node so any nodes added by
+  // the renderer (or another CLI call) between our initial loadCanvas and
+  // this write are preserved.
+  await commitNodeMutation(workspaceId, { upsert: newNode }, storeDir);
+  await notifyCanvasUpdated({ workspaceId, nodeIds: [nodeId], kind: 'create' });
 
   return {
     ok: true,
@@ -201,12 +210,14 @@ export async function deleteNode(
   const canvas = await loadCanvas(workspaceId, storeDir);
   if (!canvas) return { ok: false, error: `Workspace not found: ${workspaceId}` };
 
-  const idx = canvas.nodes.findIndex(n => n.id === nodeId);
-  if (idx === -1) return { ok: false, error: `Node not found: ${nodeId}` };
+  const exists = canvas.nodes.some(n => n.id === nodeId);
+  if (!exists) return { ok: false, error: `Node not found: ${nodeId}` };
 
-  canvas.nodes.splice(idx, 1);
-  canvas.savedAt = new Date().toISOString();
-  await saveCanvas(workspaceId, canvas, storeDir);
+  // Re-read canvas.json just before writing to preserve concurrent changes
+  // to other nodes from the renderer or other canvas-cli invocations.
+  const result = await commitNodeMutation(workspaceId, { removeId: nodeId }, storeDir);
+  if (!result) return { ok: false, error: `Node not found: ${nodeId}` };
+  await notifyCanvasUpdated({ workspaceId, nodeIds: [nodeId], kind: 'delete' });
 
   return { ok: true, data: undefined };
 }

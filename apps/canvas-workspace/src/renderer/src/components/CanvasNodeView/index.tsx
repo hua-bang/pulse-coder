@@ -16,6 +16,8 @@ interface Props {
   isResizing: boolean;
   isSelected: boolean;
   isHighlighted: boolean;
+  /** True while this node is within the short window after a canvas-cli edit. */
+  isAgentEdited?: boolean;
   onDragStart: (e: React.MouseEvent, node: CanvasNode) => void;
   onResizeStart: (
     e: React.MouseEvent,
@@ -40,6 +42,7 @@ export const CanvasNodeView = ({
   isResizing,
   isSelected,
   isHighlighted,
+  isAgentEdited,
   onDragStart,
   onResizeStart,
   onUpdate,
@@ -102,7 +105,8 @@ export const CanvasNodeView = ({
     isDragging && "canvas-node--dragging",
     isResizing && "canvas-node--resizing",
     isSelected && "canvas-node--selected",
-    isHighlighted && "canvas-node--highlighted"
+    isHighlighted && "canvas-node--highlighted",
+    isAgentEdited && "canvas-node--agent-edited"
   ]
     .filter(Boolean)
     .join(" ");

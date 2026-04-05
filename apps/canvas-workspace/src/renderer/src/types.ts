@@ -7,6 +7,8 @@ export interface CanvasNode {
   width: number;
   height: number;
   data: FileNodeData | TerminalNodeData | FrameNodeData;
+  /** Epoch millis of last mutation; used for cross-process merge. */
+  updatedAt?: number;
 }
 
 export interface FileNodeData {
@@ -134,6 +136,14 @@ export interface CanvasWorkspaceApi {
     delete: (id: string) => Promise<{ ok: boolean; error?: string }>;
     getDir: (id: string) => Promise<{ ok: boolean; dir?: string; error?: string }>;
     watchWorkspace: (workspaceId: string) => Promise<{ ok: boolean }>;
+    onExternalUpdate: (
+      callback: (event: {
+        workspaceId: string;
+        nodeIds: string[];
+        kind?: "create" | "update" | "delete";
+        source: string;
+      }) => void
+    ) => () => void;
   };
   file: FileApi;
   dialog: DialogApi;

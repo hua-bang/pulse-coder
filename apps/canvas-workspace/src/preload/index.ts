@@ -68,7 +68,30 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
       ipcRenderer.invoke("canvas:getDir", { id }),
 
     watchWorkspace: (workspaceId: string) =>
-      ipcRenderer.invoke("canvas:watchWorkspace", { workspaceId })
+      ipcRenderer.invoke("canvas:watchWorkspace", { workspaceId }),
+
+    onExternalUpdate: (
+      callback: (event: {
+        workspaceId: string;
+        nodeIds: string[];
+        kind?: "create" | "update" | "delete";
+        source: string;
+      }) => void
+    ) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        payload: {
+          workspaceId: string;
+          nodeIds: string[];
+          kind?: "create" | "update" | "delete";
+          source: string;
+        }
+      ) => callback(payload);
+      ipcRenderer.on("canvas:external-update", handler);
+      return () => {
+        ipcRenderer.removeListener("canvas:external-update", handler);
+      };
+    }
   },
 
   file: {
