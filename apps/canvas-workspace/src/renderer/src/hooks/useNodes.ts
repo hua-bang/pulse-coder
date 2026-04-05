@@ -108,31 +108,35 @@ export const useNodes = (
       const diskById = new Map<string, CanvasNode>();
       for (const n of diskNodes) diskById.set(n.id, n);
 
+      // Semantics of `event.nodeIds`: every id here is a node that main's
+      // fs.watch diff saw differ between its last-known snapshot and the
+      // fresh disk contents. That means exactly one of three things per id:
+      //   - on disk only           → CLI create, append
+      //   - on disk AND in memory  → CLI update, replace in place
+      //   - in memory only         → CLI delete, drop
+      // So we don't need an explicit event.kind — the presence of each id
+      // in `diskById` tells us unambiguously which branch to take.
       const changedIds = new Set(event.nodeIds);
       const nextNodes: CanvasNode[] = [];
       const seen = new Set<string>();
       for (const cur of nodesRef.current) {
+        seen.add(cur.id);
         if (changedIds.has(cur.id)) {
           const disk = diskById.get(cur.id);
           if (disk) {
+            // update
             nextNodes.push(disk);
-          } else if (event.kind === 'delete') {
-            // drop
-          } else {
-            nextNodes.push(cur);
           }
+          // else: delete — intentionally drop this node
         } else {
           nextNodes.push(cur);
         }
-        seen.add(cur.id);
       }
-      // Append CLI-created nodes that weren't in memory yet
-      if (event.kind !== 'delete') {
-        for (const id of changedIds) {
-          if (seen.has(id)) continue;
-          const disk = diskById.get(id);
-          if (disk) nextNodes.push(disk);
-        }
+      // Append CLI-created nodes that weren't in memory yet.
+      for (const id of changedIds) {
+        if (seen.has(id)) continue;
+        const disk = diskById.get(id);
+        if (disk) nextNodes.push(disk);
       }
 
       // Apply directly without history / scheduleSave to avoid a write-back loop.
