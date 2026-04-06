@@ -46,6 +46,15 @@ export async function readNode(node: CanvasNode): Promise<NodeReadResult> {
         label: node.data.label ?? '',
         color: node.data.color ?? '',
       };
+    case 'agent':
+      return {
+        type: 'agent',
+        capabilities,
+        cwd: node.data.cwd ?? '',
+        scrollback: node.data.scrollback ?? '',
+        agentType: node.data.agentType ?? 'claude-code',
+        status: node.data.status ?? 'idle',
+      };
     default:
       return { type: node.type, capabilities };
   }
@@ -92,6 +101,8 @@ export async function writeNode(
     }
     case 'terminal':
       return { ok: false, error: 'Terminal nodes do not support write. Use canvas_exec to send commands.' };
+    case 'agent':
+      return { ok: false, error: 'Agent nodes do not support write. Use canvas_exec to send commands.' };
     default:
       return { ok: false, error: 'Unknown node type' };
   }
@@ -157,6 +168,9 @@ export async function createNode(
       break;
     case 'frame':
       nodeData = { color: (inputData as Record<string, string>).color ?? '#9575d4', label: (inputData as Record<string, string>).label ?? '' };
+      break;
+    case 'agent':
+      nodeData = { sessionId: '', cwd: (inputData as Record<string, string>).cwd ?? '', agentType: (inputData as Record<string, string>).agentType ?? 'claude-code', status: 'idle' };
       break;
   }
 

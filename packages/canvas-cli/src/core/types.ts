@@ -1,4 +1,4 @@
-export type NodeType = 'file' | 'terminal' | 'frame';
+export type NodeType = 'file' | 'terminal' | 'frame' | 'agent';
 export type NodeCapability = 'read' | 'write' | 'exec';
 
 export interface CanvasNodeData {

@@ -98,6 +98,9 @@ export function registerNodeCommands(program: Command): void {
         if (d.type === 'frame') {
           return `Frame: ${d.label || '(no label)'}  color: ${d.color ?? ''}`;
         }
+        if (d.type === 'agent') {
+          return `Agent [${d.agentType ?? 'unknown'}] (${d.status ?? 'idle'})\ncwd: ${d.cwd ?? 'unknown'}\n${d.scrollback ?? ''}`;
+        }
         return JSON.stringify(d, null, 2);
       });
     });
@@ -138,7 +141,7 @@ export function registerNodeCommands(program: Command): void {
     });
 
   node.command('create')
-    .requiredOption('--type <type>', 'Node type: file, terminal, frame')
+    .requiredOption('--type <type>', 'Node type: file, terminal, frame, agent')
     .option('--title <title>', 'Node title')
     .option('--x <n>', 'X position on canvas', parseFloat)
     .option('--y <n>', 'Y position on canvas', parseFloat)
@@ -149,7 +152,7 @@ export function registerNodeCommands(program: Command): void {
     .action(async function (this: Command, cmdOpts: { type: string; title?: string; x?: number; y?: number; width?: number; height?: number; data?: string }) {
       const { format, storeDir, workspace } = getOpts(this);
 
-      const validTypes: NodeType[] = ['file', 'terminal', 'frame'];
+      const validTypes: NodeType[] = ['file', 'terminal', 'frame', 'agent'];
       if (!validTypes.includes(cmdOpts.type as NodeType)) {
         errorOutput(`Invalid type "${cmdOpts.type}". Must be: ${validTypes.join(', ')}`);
       }
@@ -177,6 +180,9 @@ export function registerNodeCommands(program: Command): void {
 
       if (cmdOpts.type === 'terminal') {
         console.error('Note: Terminal nodes created via CLI have no active PTY session.');
+      }
+      if (cmdOpts.type === 'agent') {
+        console.error('Note: Agent nodes created via CLI have no active PTY session.');
       }
 
       output(result.data, format, (d) => {
