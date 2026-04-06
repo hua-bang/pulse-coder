@@ -107,7 +107,10 @@ export const NodeContextMenu = ({ x, y, onCreate, onClose }: Props) => {
               <button
                 key={agent.type}
                 className="context-menu-item"
-                onClick={() => onCreate("agent", { agentType: agent.type, agentCommand: agent.command })}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCreate("agent", { agentType: agent.type, agentCommand: agent.command });
+                }}
               >
                 <span className="context-menu-label">
                   <strong>{agent.label}</strong>
