@@ -200,11 +200,14 @@ const mergeExternalNodes = async (
       (n) => n.id && !memoryIds.has(n.id) && !known.has(n.id),
     );
 
-    // Record every id we've now observed so future saves can tell
-    // "CLI added" apart from "user deleted".
-    for (const n of mergedExisting) if (n.id) known.add(n.id);
-    for (const n of externalNewNodes) if (n.id) known.add(n.id);
-    knownNodeIds.set(id, known);
+    // NOTE: we intentionally do NOT mutate `knownNodeIds` here. The save
+    // handler calls `mergeExternalNodes` twice back-to-back (to narrow a
+    // race with concurrent canvas-cli writes). If this function added
+    // freshly-merged ids to `known` on the first call, the second call
+    // would then see the in-memory new node's id as "known" but still
+    // absent from disk — and Rule 1's "CLI deleted; drop" branch would
+    // silently strip the node the user just created. The save handler
+    // is responsible for updating `knownNodeIds` once, after writeFile.
 
     return {
       ...inMemoryData,
@@ -418,6 +421,20 @@ export const setupCanvasStoreIpc = () => {
             // our own write.
             const mergedMap = nodesToMap(merged.nodes);
             lastSnapshot.set(payload.id, mergedMap);
+            // Now that the write has landed, mark every persisted id as
+            // known so subsequent `mergeExternalNodes` calls can tell
+            // "memory-only node the user just created" (not in known →
+            // keep) from "CLI deleted a persisted node" (in known,
+            // missing from disk → drop). Updating here rather than
+            // inside `mergeExternalNodes` keeps the two back-to-back
+            // merge calls within this save idempotent.
+            const knownForWs = knownNodeIds.get(payload.id) ?? new Set<string>();
+            if (Array.isArray(merged.nodes)) {
+              for (const n of merged.nodes as CanvasNode[]) {
+                if (n.id) knownForWs.add(n.id);
+              }
+            }
+            knownNodeIds.set(payload.id, knownForWs);
             // If the merge result differs from the renderer's memory,
             // the CLI made changes between the renderer's last sync
             // and this save, and we just silently absorbed them into
