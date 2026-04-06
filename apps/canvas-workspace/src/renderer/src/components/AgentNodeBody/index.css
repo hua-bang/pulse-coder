@@ -71,8 +71,17 @@
   transition: background 0.12s;
 }
 
-.agent-start-btn:hover {
+.agent-start-btn:hover:not(:disabled) {
   background: #6a48e6;
+}
+
+.agent-start-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.agent-start-btn--launch {
+  flex: 1;
 }
 
 .agent-xterm-container {

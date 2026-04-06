@@ -74,22 +74,24 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
     });
   }, []);
 
-  const launchAgent = useCallback((prompt?: string) => {
+  const launchAgent = useCallback(() => {
     const api = window.canvasWorkspace?.pty;
     if (!api) return;
     const cfg = AGENT_CONFIGS[dataRef.current.agentType];
-    let cmd = cfg.cmd;
-    if (prompt && prompt.trim()) {
-      // Pass the prompt via -p flag (works for claude, codex, pulse-coder)
-      const escaped = prompt.replace(/'/g, "'\\''");
-      cmd = `${cfg.cmd} -p '${escaped}'`;
-    }
-    api.write(sessionId, cmd + '\n');
+    // Launch in interactive mode — no -p flag so the user can keep talking
+    api.write(sessionId, cfg.cmd + '\n');
     dataRef.current = { ...dataRef.current, started: true };
     setStarted(true);
     onUpdateRef.current(nodeIdRef.current, {
       data: { ...dataRef.current, started: true },
     });
+  }, [sessionId]);
+
+  /** Send text to the running agent's stdin. */
+  const sendToAgent = useCallback((text: string) => {
+    const api = window.canvasWorkspace?.pty;
+    if (!api || !text.trim()) return;
+    api.write(sessionId, text + '\n');
   }, [sessionId]);
 
   const initTerminal = useCallback(async () => {
@@ -168,7 +170,7 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
       const cfg = AGENT_CONFIGS[initialAgentType.current];
       term.writeln(`\x1b[2m[Agent: ${cfg.label}] Select agent type above and click Start.\x1b[0m\r\n`);
     }
-  }, [sessionId, rootFolder, persistState, launchAgent]);
+  }, [sessionId, rootFolder, persistState]);
 
   useEffect(() => {
     void initTerminal();
@@ -223,17 +225,21 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
   const [promptValue, setPromptValue] = useState('');
 
   const handleStart = useCallback(() => {
-    launchAgent(promptValue);
+    if (started) {
+      // Agent already running — send the prompt text to stdin
+      sendToAgent(promptValue);
+    } else {
+      launchAgent();
+    }
     setPromptValue('');
-  }, [launchAgent, promptValue]);
+  }, [started, launchAgent, sendToAgent, promptValue]);
 
   const handlePromptKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      launchAgent(promptValue);
-      setPromptValue('');
+      handleStart();
     }
-  }, [launchAgent, promptValue]);
+  }, [handleStart]);
 
   return (
     <div className="agent-body">
@@ -248,21 +254,34 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
             <option key={key} value={key}>{cfg.label}</option>
           ))}
         </select>
-        <input
-          className="agent-prompt-input"
-          type="text"
-          placeholder="Prompt (optional)..."
-          value={promptValue}
-          onChange={(e) => setPromptValue(e.target.value)}
-          onKeyDown={handlePromptKeyDown}
-        />
-        <button
-          className="agent-start-btn"
-          onClick={handleStart}
-          title={started ? 'Send prompt to agent' : 'Start agent'}
-        >
-          {started ? 'Send' : 'Start'}
-        </button>
+        {started ? (
+          <>
+            <input
+              className="agent-prompt-input"
+              type="text"
+              placeholder="Send message to agent..."
+              value={promptValue}
+              onChange={(e) => setPromptValue(e.target.value)}
+              onKeyDown={handlePromptKeyDown}
+            />
+            <button
+              className="agent-start-btn"
+              onClick={handleStart}
+              disabled={!promptValue.trim()}
+              title="Send message to agent"
+            >
+              Send
+            </button>
+          </>
+        ) : (
+          <button
+            className="agent-start-btn agent-start-btn--launch"
+            onClick={handleStart}
+            title="Launch agent in interactive mode"
+          >
+            Start
+          </button>
+        )}
       </div>
       <div
         ref={containerRef}
