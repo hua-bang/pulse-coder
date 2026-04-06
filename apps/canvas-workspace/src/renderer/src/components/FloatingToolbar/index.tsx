@@ -3,7 +3,7 @@ import './index.css';
 interface Props {
   activeTool: string;
   onToolChange: (tool: string) => void;
-  onAddNode: (type: "file" | "terminal" | "frame") => void;
+  onAddNode: (type: "file" | "terminal" | "frame" | "agent") => void;
 }
 
 const tools = [
@@ -111,6 +111,21 @@ export const FloatingToolbar = ({
             />
           </svg>
           <span className="toolbar-btn-label">Frame</span>
+        </button>
+        <button
+          className="toolbar-btn toolbar-btn--create"
+          onClick={() => onAddNode("agent")}
+          title="Add Agent"
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <circle cx="9" cy="7" r="3.5" stroke="currentColor" strokeWidth="1.3" />
+            <path
+              d="M4 15.5c0-2.5 2.2-4 5-4s5 1.5 5 4"
+              stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"
+            />
+            <circle cx="9" cy="6.5" r="1" fill="currentColor" />
+          </svg>
+          <span className="toolbar-btn-label">Agent</span>
         </button>
       </div>
     </div>

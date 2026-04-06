@@ -46,6 +46,16 @@ export async function readNode(node: CanvasNode): Promise<NodeReadResult> {
         label: node.data.label ?? '',
         color: node.data.color ?? '',
       };
+    case 'agent':
+      return {
+        type: 'agent',
+        capabilities,
+        agentId: node.data.agentId ?? '',
+        prompt: node.data.prompt ?? '',
+        status: node.data.status ?? 'idle',
+        output: node.data.output ?? '',
+        error: node.data.error ?? '',
+      };
     default:
       return { type: node.type, capabilities };
   }
@@ -92,6 +102,28 @@ export async function writeNode(
     }
     case 'terminal':
       return { ok: false, error: 'Terminal nodes do not support write. Use canvas_exec to send commands.' };
+    case 'agent': {
+      try {
+        const patch = JSON.parse(content) as {
+          prompt?: string;
+          status?: string;
+          output?: string;
+          error?: string;
+          agentId?: string;
+        };
+        if (patch.prompt !== undefined) node.data.prompt = patch.prompt;
+        if (patch.status !== undefined) node.data.status = patch.status as 'idle' | 'running' | 'done' | 'error';
+        if (patch.output !== undefined) node.data.output = patch.output;
+        if (patch.error !== undefined) node.data.error = patch.error;
+        if (patch.agentId !== undefined) node.data.agentId = patch.agentId;
+        node.updatedAt = Date.now();
+        await commitNodeMutation(workspaceId, { upsert: node }, storeDir);
+        await notifyCanvasUpdated({ workspaceId, nodeIds: [nodeId], kind: 'update' });
+        return { ok: true, data: undefined };
+      } catch {
+        return { ok: false, error: 'Agent write expects JSON: { prompt?, status?, output?, error?, agentId? }' };
+      }
+    }
     default:
       return { ok: false, error: 'Unknown node type' };
   }
@@ -157,6 +189,14 @@ export async function createNode(
       break;
     case 'frame':
       nodeData = { color: (inputData as Record<string, string>).color ?? '#9575d4', label: (inputData as Record<string, string>).label ?? '' };
+      break;
+    case 'agent':
+      nodeData = {
+        agentId: (inputData as Record<string, string>).agentId ?? '',
+        prompt: (inputData as Record<string, string>).prompt ?? '',
+        status: 'idle',
+        output: '',
+      };
       break;
   }
 

@@ -1,4 +1,4 @@
-export type NodeType = 'file' | 'terminal' | 'frame';
+export type NodeType = 'file' | 'terminal' | 'frame' | 'agent';
 export type NodeCapability = 'read' | 'write' | 'exec';
 
 export interface CanvasNodeData {
@@ -11,6 +11,11 @@ export interface CanvasNodeData {
   sessionId?: string;
   color?: string;
   label?: string;
+  agentId?: string;
+  prompt?: string;
+  status?: 'idle' | 'running' | 'done' | 'error';
+  output?: string;
+  error?: string;
   [key: string]: unknown;
 }
 

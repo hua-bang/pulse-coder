@@ -72,6 +72,10 @@
   color: var(--accent-frame);
 }
 
+.node-type-badge--agent {
+  color: #7c5cff;
+}
+
 .node-title {
   flex: 1;
   font-size: 13px;
