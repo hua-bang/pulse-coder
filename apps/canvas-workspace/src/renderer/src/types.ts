@@ -1,12 +1,12 @@
 export interface CanvasNode {
   id: string;
-  type: "file" | "terminal" | "frame";
+  type: "file" | "terminal" | "frame" | "agent";
   title: string;
   x: number;
   y: number;
   width: number;
   height: number;
-  data: FileNodeData | TerminalNodeData | FrameNodeData;
+  data: FileNodeData | TerminalNodeData | FrameNodeData | AgentNodeData;
   /** Epoch millis of last mutation; used for cross-process merge. */
   updatedAt?: number;
 }
@@ -27,6 +27,14 @@ export interface TerminalNodeData {
 export interface FrameNodeData {
   color: string;
   label?: string;
+}
+
+export interface AgentNodeData {
+  sessionId: string;
+  scrollback?: string;
+  cwd?: string;
+  agentType: string;
+  agentCommand: string;
 }
 
 export interface CanvasTransform {

@@ -173,9 +173,9 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
   );
 
   const handleCreateNode = useCallback(
-    (type: 'file' | 'terminal' | 'frame') => {
+    (type: 'file' | 'terminal' | 'frame' | 'agent', data?: Record<string, unknown>) => {
       if (!contextMenu) return;
-      const node = addNode(type, contextMenu.canvasX, contextMenu.canvasY);
+      const node = addNode(type, contextMenu.canvasX, contextMenu.canvasY, data);
       setSelectedNodeIds([node.id]);
       setContextMenu(null);
     },
@@ -183,11 +183,11 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
   );
 
   const handleToolbarAddNode = useCallback(
-    (type: 'file' | 'terminal' | 'frame') => {
+    (type: 'file' | 'terminal' | 'frame' | 'agent') => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const pos = screenToCanvas(rect.left + rect.width / 2, rect.top + rect.height / 2, containerRef.current);
-      const halfW = type === 'file' ? 210 : type === 'terminal' ? 240 : 300;
+      const halfW = type === 'file' ? 210 : type === 'terminal' ? 240 : type === 'agent' ? 260 : 300;
       const node = addNode(type, pos.x - halfW, pos.y - (type === 'frame' ? 200 : 150));
       setSelectedNodeIds([node.id]);
     },

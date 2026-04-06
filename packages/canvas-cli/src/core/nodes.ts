@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import { NODE_CAPABILITIES, DEFAULT_NODE_DIMENSIONS } from './constants';
+import { NODE_CAPABILITIES, DEFAULT_NODE_DIMENSIONS, AGENT_PRESETS } from './constants';
 import { loadCanvas, saveCanvas, ensureWorkspaceDir, getWorkspaceDir, commitNodeMutation } from './store';
 import { notifyCanvasUpdated } from './notifier';
 import type {
@@ -45,6 +45,15 @@ export async function readNode(node: CanvasNode): Promise<NodeReadResult> {
         capabilities,
         label: node.data.label ?? '',
         color: node.data.color ?? '',
+      };
+    case 'agent':
+      return {
+        type: 'agent',
+        capabilities,
+        cwd: node.data.cwd ?? '',
+        scrollback: node.data.scrollback ?? '',
+        agentType: node.data.agentType ?? 'codex',
+        agentCommand: node.data.agentCommand ?? 'codex',
       };
     default:
       return { type: node.type, capabilities };
@@ -92,6 +101,8 @@ export async function writeNode(
     }
     case 'terminal':
       return { ok: false, error: 'Terminal nodes do not support write. Use canvas_exec to send commands.' };
+    case 'agent':
+      return { ok: false, error: 'Agent nodes do not support write. Use canvas_exec to send commands.' };
     default:
       return { ok: false, error: 'Unknown node type' };
   }
@@ -158,6 +169,13 @@ export async function createNode(
     case 'frame':
       nodeData = { color: (inputData as Record<string, string>).color ?? '#9575d4', label: (inputData as Record<string, string>).label ?? '' };
       break;
+    case 'agent': {
+      const agentType = (inputData as Record<string, string>).agentType ?? 'codex';
+      const preset = AGENT_PRESETS[agentType];
+      const agentCommand = (inputData as Record<string, string>).agentCommand ?? preset?.command ?? 'codex';
+      nodeData = { sessionId: '', cwd: (inputData as Record<string, string>).cwd ?? '', agentType, agentCommand };
+      break;
+    }
   }
 
   // For file nodes, always create a notes file so the node has a valid filePath

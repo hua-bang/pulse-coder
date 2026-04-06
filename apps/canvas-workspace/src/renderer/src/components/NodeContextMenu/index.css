@@ -51,14 +51,15 @@
   color: var(--accent-file);
 }
 
-.context-menu-item:last-of-type .context-menu-icon {
-  background: rgba(15, 123, 108, 0.08);
-  color: var(--accent-term);
+.context-menu-icon--agent {
+  background: rgba(139, 92, 246, 0.08);
+  color: #8b5cf6;
 }
 
 .context-menu-label {
   display: flex;
   flex-direction: column;
+  flex: 1;
 }
 
 .context-menu-label strong {
@@ -70,4 +71,36 @@
 .context-menu-label small {
   font-size: 11px;
   color: var(--text-secondary);
+}
+
+/* Submenu trigger */
+.context-menu-item--submenu {
+  position: relative;
+}
+
+.context-menu-chevron {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* Submenu panel */
+.context-submenu {
+  position: absolute;
+  left: 100%;
+  top: -4px;
+  z-index: 1001;
+  min-width: 160px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  padding: 4px;
+  animation: menuAppear 0.12s ease;
+}
+
+.context-submenu .context-menu-item {
+  gap: 8px;
+  padding: 6px 10px;
 }

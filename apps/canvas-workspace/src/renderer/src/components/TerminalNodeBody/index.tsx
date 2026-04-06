@@ -14,6 +14,8 @@ interface Props {
   workspaceId?: string;
   workspaceName?: string;
   onUpdate: (id: string, patch: Partial<CanvasNode>) => void;
+  /** If set, this command is automatically written to the PTY after spawn. */
+  autoCommand?: string;
 }
 
 const SCROLLBACK_SAVE_INTERVAL = 2000;
@@ -33,7 +35,7 @@ const serializeBuffer = (term: Terminal): string => {
   return text;
 };
 
-export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, workspaceName, onUpdate }: Props) => {
+export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, workspaceName, onUpdate, autoCommand }: Props) => {
   const [pickerOpen, setPickerOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -111,6 +113,10 @@ export const TerminalNodeBody = ({ node, allNodes, rootFolder, workspaceId, work
     if (!result.ok) {
       term.writeln(`\x1b[31mFailed to spawn shell: ${result.error}\x1b[0m`);
       return;
+    }
+
+    if (autoCommand) {
+      api.write(sessionId, autoCommand + '\n');
     }
 
     const removeData = api.onData(sessionId, (d: string) => { term.write(d); });

@@ -276,8 +276,8 @@ export const useNodes = (
   }, [canvasId]);
 
   const addNode = useCallback(
-    (type: CanvasNode['type'], x: number, y: number) => {
-      const node = { ...createDefaultNode(type, x, y), updatedAt: Date.now() };
+    (type: CanvasNode['type'], x: number, y: number, data?: Record<string, unknown>) => {
+      const node = { ...createDefaultNode(type, x, y, data), updatedAt: Date.now() };
 
       if (type === 'file') {
         const api = window.canvasWorkspace?.file;

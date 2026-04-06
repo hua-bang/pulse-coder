@@ -1,0 +1,34 @@
+.agent-body-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.agent-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.06);
+  border-bottom: 1px solid rgba(139, 92, 246, 0.12);
+}
+
+.agent-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8b5cf6;
+  animation: agentDotPulse 2s ease-in-out infinite;
+}
+
+.agent-badge-label {
+  letter-spacing: 0.02em;
+}
+
+@keyframes agentDotPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
