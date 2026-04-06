@@ -53,6 +53,11 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
   const [cwdInput, setCwdInput] = useState(data.cwd || '');
   const [launched, setLaunched] = useState(status === 'running' || status === 'done');
 
+  // Refs that survive across the picker→terminal transition so the
+  // useEffect that spawns after re-render can read the user's selection.
+  const pendingAgentRef = useRef(data.agentType || 'claude-code');
+  const pendingCwdRef = useRef(data.cwd || '');
+
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -180,10 +185,12 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
     };
   }, [sessionId, rootFolder, workspaceId]);
 
-  // If already launched (e.g. restored from save with running status), auto-spawn
+  // Spawn the agent after React renders the terminal container.
+  // pendingAgentRef / pendingCwdRef hold the user's picker selection
+  // (or the restored values when resuming a previous session).
   useEffect(() => {
     if (launched && !spawnedRef.current) {
-      void spawnAgent(data.agentType, data.cwd ?? '');
+      void spawnAgent(pendingAgentRef.current, pendingCwdRef.current);
     }
     return () => {
       const api = window.canvasWorkspace?.pty;
@@ -217,9 +224,14 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
   }, [launched]);
 
   const handleLaunch = useCallback(() => {
+    // Store the user's selection in refs so the useEffect (which fires
+    // after React re-renders the terminal container) can read them.
+    // We must NOT call spawnAgent here because containerRef is still null
+    // (the picker UI is rendered, not the terminal div).
+    pendingAgentRef.current = selectedAgent;
+    pendingCwdRef.current = cwdInput;
     setLaunched(true);
-    void spawnAgent(selectedAgent, cwdInput);
-  }, [spawnAgent, selectedAgent, cwdInput]);
+  }, [selectedAgent, cwdInput]);
 
   const handleRestart = useCallback(() => {
     if (saveTimerRef.current) clearInterval(saveTimerRef.current);
