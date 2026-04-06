@@ -125,12 +125,23 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
     // the agent command. Writing immediately after spawn() would send the
     // command while the shell is still sourcing init scripts, causing it to
     // be lost or garbled.
+    //
+    // We start with a temporary onData listener that detects the first
+    // output, then swap to the permanent listener that simply forwards all
+    // data to xterm.
     let prompted = false;
+    let removeData: (() => void) | null = null;
+
+    const attachPermanentListener = () => {
+      removeData = api.onData(sessionId, (d: string) => { term.write(d); });
+    };
+
     const promptRemove = api.onData(sessionId, (d: string) => {
       term.write(d);
       if (!prompted) {
         prompted = true;
         promptRemove();
+        attachPermanentListener();
         setTimeout(writeCommand, 100);
       }
     });
@@ -163,6 +174,7 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
 
     cleanupRef.current = () => {
       if (!prompted) promptRemove();
+      removeData?.();
       removeExit();
       api.kill(sessionId);
     };
