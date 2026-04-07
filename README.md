@@ -239,10 +239,13 @@ System prompt content here.
 ### Workspace-level
 ```bash
 pnpm install
-pnpm run build
-pnpm run dev
+pnpm run build        # core workspace
+pnpm run build:all    # full workspace
+pnpm run dev          # core workspace
+pnpm run dev:all      # full workspace
 pnpm start
-pnpm test
+pnpm test             # core workspace
+pnpm run test:all     # full workspace
 pnpm run test:apps
 ```
 
@@ -258,8 +261,13 @@ pnpm --filter @pulse-coder/remote-server dev
 ```
 
 Notes:
-- `pnpm test` runs package tests (`./packages/*`).
-- `pnpm run test:apps` runs app tests (`./apps/*`), and `apps/coder-demo` currently keeps a placeholder test script.
+- `pnpm run build` / `pnpm run dev` / `pnpm test` target the core set by default:
+  - all `packages/*`
+  - `apps/remote-server`
+  - `apps/teams-cli`
+  - plus `apps/pulse-agent-test` for tests
+- Use `build:all` / `dev:all` / `test:all` for full-workspace runs.
+- `pnpm run test:apps` still runs tests under `./apps/*`, and `apps/coder-demo` keeps a placeholder test script.
 
 ---
 

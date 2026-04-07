@@ -19,10 +19,14 @@
     ]
   },
   "scripts": {
-    "build": "pnpm -r build",
-    "dev": "pnpm --parallel --filter \"./packages/*\" dev",
+    "build": "pnpm run build:core",
+    "build:core": "pnpm -r --filter \"./packages/*\" --filter \"@pulse-coder/remote-server\" --filter \"@pulse-coder/teams-cli\" build",
+    "build:all": "pnpm -r build",
+    "dev": "pnpm run dev:core",
+    "dev:core": "pnpm --parallel --filter \"./packages/*\" --filter \"@pulse-coder/remote-server\" --filter \"@pulse-coder/teams-cli\" dev",
     "dev:all": "pnpm -r --parallel dev",
-    "test": "pnpm run test:packages",
+    "test": "pnpm run test:core",
+    "test:core": "pnpm -r --if-present --filter \"./packages/*\" --filter \"@pulse-coder/remote-server\" --filter \"@pulse-coder/teams-cli\" --filter \"pulse-agent-test\" test",
     "test:packages": "pnpm -r --filter \"./packages/*\" test",
     "test:apps": "pnpm -r --filter \"./apps/*\" test",
     "test:all": "pnpm -r test",

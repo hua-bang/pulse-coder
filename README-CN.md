@@ -220,10 +220,13 @@ System prompt content here.
 ### 工作区级别
 ```bash
 pnpm install
-pnpm run build
-pnpm run dev
+pnpm run build        # 核心工作区
+pnpm run build:all    # 全量工作区
+pnpm run dev          # 核心工作区
+pnpm run dev:all      # 全量工作区
 pnpm start
-pnpm test
+pnpm test             # 核心工作区
+pnpm run test:all     # 全量工作区
 pnpm run test:apps
 ```
 
@@ -238,8 +241,13 @@ pnpm --filter pulse-agent-test test
 ```
 
 说明：
-- `pnpm test` 仅运行 packages 测试（`./packages/*`）。
-- `pnpm run test:apps` 运行 apps 测试（`./apps/*`），`apps/coder-demo` 当前仍是占位测试脚本。
+- `pnpm run build` / `pnpm run dev` / `pnpm test` 默认只跑核心集合：
+  - 全部 `packages/*`
+  - `apps/remote-server`
+  - `apps/teams-cli`
+  - 测试时额外包含 `apps/pulse-agent-test`
+- 需要全量执行时请使用 `build:all` / `dev:all` / `test:all`。
+- `pnpm run test:apps` 仍会跑 `./apps/*` 下的测试，`apps/coder-demo` 仍是占位测试脚本。
 
 ---
 
