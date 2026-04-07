@@ -1,3 +1,5 @@
 packages:
   - 'packages/*'
-  - 'apps/*'
+  - 'apps/remote-server'
+  - 'apps/teams-cli'
+  - 'apps/pulse-agent-test'

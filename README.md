@@ -266,6 +266,7 @@ Notes:
   - `apps/remote-server`
   - `apps/teams-cli`
   - plus `apps/pulse-agent-test` for tests
+- `pnpm-workspace.yaml` only includes the core set above. Experimental apps (`apps/coder-demo`, `apps/devtools-web`, `apps/canvas-workspace`, `apps/snake-game`) stay in the repo but are excluded from default workspace install/build (see `apps/EXPERIMENTAL.md`).
 - Use `build:all` / `dev:all` / `test:all` for full-workspace runs.
 - `pnpm run test:apps` still runs tests under `./apps/*`, and `apps/coder-demo` keeps a placeholder test script.
 

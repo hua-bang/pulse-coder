@@ -246,6 +246,7 @@ pnpm --filter pulse-agent-test test
   - `apps/remote-server`
   - `apps/teams-cli`
   - 测试时额外包含 `apps/pulse-agent-test`
+- `pnpm-workspace.yaml` 当前只纳入上述核心集合。实验 app（`apps/coder-demo`、`apps/devtools-web`、`apps/canvas-workspace`、`apps/snake-game`）仍保留在仓库中，但默认不参与 workspace 安装/构建（见 `apps/EXPERIMENTAL.md`）。
 - 需要全量执行时请使用 `build:all` / `dev:all` / `test:all`。
 - `pnpm run test:apps` 仍会跑 `./apps/*` 下的测试，`apps/coder-demo` 仍是占位测试脚本。
 
