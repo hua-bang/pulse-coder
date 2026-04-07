@@ -148,6 +148,23 @@ apps/remote-server/*.jpeg
 apps/remote-server/*.webp
 apps/remote-server/*.svg
 
+# Remote server generated artifacts (keep only docs placeholders)
+apps/remote-server/generated/*
+!apps/remote-server/generated/README.md
+!apps/remote-server/generated/.gitkeep
+
 # Local worktrees and vendor clones
 worktrees/
 .vendors/
+
+# Repo-wide: block new image assets from being committed
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.svg
+*.gif
+*.bmp
+*.tiff
+*.avif
+*.ico
