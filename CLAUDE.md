@@ -24,9 +24,7 @@ Primary packages:
 
 Apps:
 - `apps/remote-server`: HTTP wrapper around engine runtime.
-- `apps/pulse-agent-test`: lightweight integration checks.
 - `apps/coder-demo`: legacy experimental app.
-- `apps/snake-game`: static demo page.
 
 ## Build, Dev, and Test Commands
 

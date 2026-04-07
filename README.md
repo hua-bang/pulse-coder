@@ -17,9 +17,7 @@ This repo is a `pnpm` workspace monorepo:
 | `packages/pulse-sandbox` | Sandboxed JavaScript executor and `run_js` tool adapter |
 | `packages/memory-plugin` | Host-side memory plugin/integration service |
 | `apps/remote-server` | Optional HTTP service wrapper around the engine |
-| `apps/pulse-agent-test` | Lightweight integration checks for engine usage |
 | `apps/coder-demo` | Older experimental app |
-| `apps/snake-game` | Static demo page |
 | `docs/`, `architecture/` | Design and architecture documents |
 
 ---
@@ -256,7 +254,6 @@ pnpm --filter pulse-coder-engine typecheck
 pnpm --filter pulse-coder-cli test
 pnpm --filter pulse-sandbox test
 pnpm --filter pulse-coder-memory-plugin test
-pnpm --filter pulse-agent-test test
 pnpm --filter @pulse-coder/remote-server dev
 ```
 
@@ -265,8 +262,7 @@ Notes:
   - all `packages/*`
   - `apps/remote-server`
   - `apps/teams-cli`
-  - plus `apps/pulse-agent-test` for tests
-- `pnpm-workspace.yaml` only includes the core set above. Experimental apps (`apps/coder-demo`, `apps/devtools-web`, `apps/canvas-workspace`, `apps/snake-game`) stay in the repo but are excluded from default workspace install/build (see `apps/EXPERIMENTAL.md`).
+- `pnpm-workspace.yaml` only includes the core set above. Experimental apps (`apps/coder-demo`, `apps/devtools-web`, `apps/canvas-workspace`) stay in the repo but are excluded from default workspace install/build (see `apps/EXPERIMENTAL.md`).
 - Use `build:all` / `dev:all` / `test:all` for full-workspace runs.
 - `pnpm run test:apps` still runs tests under `./apps/*`, and `apps/coder-demo` keeps a placeholder test script.
 

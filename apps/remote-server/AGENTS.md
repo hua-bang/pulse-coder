@@ -7,7 +7,6 @@ This is a `pnpm` monorepo with workspaces under `packages/*` and `apps/*`. Sourc
 - `packages/pulse-sandbox`: sandboxed JS execution runtime and `run_js` tool adapter.
 - `packages/memory-plugin`: memory integration/service package.
 - `apps/remote-server`: optional HTTP service wrapper around the engine.
-- `apps/pulse-agent-test`: lightweight integration checks.
 - `apps/coder-demo`: legacy experimental app.
 
 ## Build, Test, and Development Commands

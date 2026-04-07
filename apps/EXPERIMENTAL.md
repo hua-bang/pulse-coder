@@ -5,7 +5,6 @@ The following apps are intentionally **excluded** from the default pnpm workspac
 - `apps/coder-demo`
 - `apps/devtools-web`
 - `apps/canvas-workspace`
-- `apps/snake-game`
 
 They are kept in-repo for reference and ad-hoc experiments.
 

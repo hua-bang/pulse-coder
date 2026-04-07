@@ -8,8 +8,7 @@
   "workspaces": [
     "packages/*",
     "apps/remote-server",
-    "apps/teams-cli",
-    "apps/pulse-agent-test"
+    "apps/teams-cli"
   ],
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -28,7 +27,7 @@
     "dev:core": "pnpm --parallel --filter \"./packages/*\" --filter \"@pulse-coder/remote-server\" --filter \"@pulse-coder/teams-cli\" dev",
     "dev:all": "pnpm -r --parallel dev",
     "test": "pnpm run test:core",
-    "test:core": "pnpm -r --if-present --filter \"./packages/*\" --filter \"@pulse-coder/remote-server\" --filter \"@pulse-coder/teams-cli\" --filter \"pulse-agent-test\" test",
+    "test:core": "pnpm -r --if-present --filter \"./packages/*\" --filter \"@pulse-coder/remote-server\" --filter \"@pulse-coder/teams-cli\" test",
     "test:packages": "pnpm -r --filter \"./packages/*\" test",
     "test:apps": "pnpm -r --filter \"./apps/*\" test",
     "test:all": "pnpm -r test",

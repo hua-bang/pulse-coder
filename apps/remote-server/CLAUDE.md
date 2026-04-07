@@ -22,7 +22,7 @@ npm run pm2:restart      # Rebuild + restart
 npm run pm2:logs         # Stream logs
 ```
 
-No dedicated test suite — this is a runtime app. Integration tests live in `apps/pulse-agent-test`. Manual testing uses `curl` against `/internal/agent/run`.
+No dedicated test suite — this is a runtime app. Manual testing uses `curl` against `/internal/agent/run`.
 
 ## Architecture
 

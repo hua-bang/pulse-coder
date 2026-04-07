@@ -8,7 +8,6 @@ This repo is a `pnpm` monorepo with workspaces in `packages/*` and `apps/*`.
 - `packages/pulse-sandbox`: sandboxed JS execution runtime and `run_js` tool adapter.
 - `packages/memory-plugin`: memory integration/service package.
 - `apps/remote-server`: optional HTTP service wrapper around the engine.
-- `apps/pulse-agent-test`: lightweight integration checks.
 - `apps/coder-demo`: legacy experimental app.
 
 Primary source code lives under each package/app `src/` directory; build output goes to `dist/`.
@@ -61,7 +60,6 @@ Add tests for behavior changes in:
 - CLI command handling and session workflows,
 - memory integration boundaries.
 
-For quick integration checks, use `apps/pulse-agent-test` (`pnpm --filter pulse-agent-test test`).
 
 ## Commit & Pull Request Guidelines
 Follow Conventional Commits (scope optional):

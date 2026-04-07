@@ -17,9 +17,7 @@
 | `packages/pulse-sandbox` | 沙箱 JavaScript 执行器与 `run_js` 适配 |
 | `packages/memory-plugin` | memory 插件/集成服务 |
 | `apps/remote-server` | 可选 HTTP 服务封装 |
-| `apps/pulse-agent-test` | 轻量集成检查 |
 | `apps/coder-demo` | 早期实验 app |
-| `apps/snake-game` | 静态 demo 页面 |
 | `docs/`, `architecture/` | 设计与架构文档 |
 
 ---
@@ -237,7 +235,6 @@ pnpm --filter pulse-coder-engine typecheck
 pnpm --filter pulse-coder-cli test
 pnpm --filter pulse-sandbox test
 pnpm --filter pulse-coder-memory-plugin test
-pnpm --filter pulse-agent-test test
 ```
 
 说明：
@@ -245,8 +242,7 @@ pnpm --filter pulse-agent-test test
   - 全部 `packages/*`
   - `apps/remote-server`
   - `apps/teams-cli`
-  - 测试时额外包含 `apps/pulse-agent-test`
-- `pnpm-workspace.yaml` 当前只纳入上述核心集合。实验 app（`apps/coder-demo`、`apps/devtools-web`、`apps/canvas-workspace`、`apps/snake-game`）仍保留在仓库中，但默认不参与 workspace 安装/构建（见 `apps/EXPERIMENTAL.md`）。
+- `pnpm-workspace.yaml` 当前只纳入上述核心集合。实验 app（`apps/coder-demo`、`apps/devtools-web`、`apps/canvas-workspace`）仍保留在仓库中，但默认不参与 workspace 安装/构建（见 `apps/EXPERIMENTAL.md`）。
 - 需要全量执行时请使用 `build:all` / `dev:all` / `test:all`。
 - `pnpm run test:apps` 仍会跑 `./apps/*` 下的测试，`apps/coder-demo` 仍是占位测试脚本。
 
