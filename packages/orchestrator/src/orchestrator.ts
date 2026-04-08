@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 import type { OrchestrationInput, OrchestrationResult, TaskGraph, TeamRole } from './types';
 import type { AgentRunner, OrchestratorLogger } from './runner';
 import type { ArtifactStore } from './artifact-store';

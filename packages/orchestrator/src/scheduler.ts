@@ -53,7 +53,7 @@ export async function runTaskGraph(options: ScheduleOptions): Promise<Record<str
       result.endedAt = Date.now();
       result.durationMs = result.endedAt - result.startedAt;
       results[node.id] = result;
-      if (result.status === 'failed') failed.add(node.id);
+      if (result.status === 'failed') hardFailed.add(node.id);
       return;
     }
 

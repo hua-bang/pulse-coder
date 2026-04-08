@@ -47,7 +47,10 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "pnpm run build:js && pnpm run build:types:maybe",
+    "build:js": "tsup",
+    "build:types": "tsc -p tsconfig.types.json",
+    "build:types:maybe": "if [ \"$SKIP_DTS\" = \"1\" ] || [ \"$TSUP_SKIP_DTS\" = \"1\" ]; then echo 'Skipping plugin-kit DTS build'; else pnpm run build:types; fi",
     "dev": "tsup --watch",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

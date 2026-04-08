@@ -1,7 +1,7 @@
-import { randomUUID } from 'crypto';
-import { promises as fs } from 'fs';
-import { homedir } from 'os';
-import { join } from 'path';
+import { randomUUID } from 'node:crypto';
+import { promises as fs } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { z } from 'zod';
 import type { Context, EnginePlugin, OnCompactedEvent, Tool, ToolExecutionContext } from 'pulse-coder-engine';
 

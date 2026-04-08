@@ -1,5 +1,5 @@
-import { mkdir, writeFile, rm } from 'fs/promises';
-import { join } from 'path';
+import { mkdir, writeFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 
 export interface ArtifactStore {
   write(runId: string, nodeId: string, role: string, content: string): Promise<string>;
