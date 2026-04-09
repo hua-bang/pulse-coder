@@ -307,19 +307,17 @@
 
 /* Blinking cursor while streaming */
 .chat-md--streaming::after {
-  content: '';
+  content: ' ...';
   display: inline-block;
-  width: 2px;
-  height: 1em;
-  background: #37352f;
-  margin-left: 2px;
-  vertical-align: text-bottom;
-  animation: chat-cursor-blink 0.8s steps(2) infinite;
+  width: 0;
+  overflow: hidden;
+  vertical-align: bottom;
+  color: rgba(55, 53, 47, 0.35);
+  animation: chat-dots 1.4s steps(4, end) infinite;
 }
 
-@keyframes chat-cursor-blink {
-  0% { opacity: 1; }
-  100% { opacity: 0; }
+@keyframes chat-dots {
+  to { width: 1.5em; }
 }
 
 /* ─── Loading ──────────────────────────────────────────────── */

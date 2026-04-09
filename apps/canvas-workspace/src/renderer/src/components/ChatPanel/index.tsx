@@ -495,10 +495,16 @@ export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeSta
                   </div>
                 )}
                 {msg.role === 'assistant' ? (
-                  <div
-                    className={`chat-message-content chat-md${isStreaming ? ' chat-md--streaming' : ''}`}
-                    dangerouslySetInnerHTML={{ __html: md.render(msg.content) }}
-                  />
+                  isStreaming ? (
+                    <div className="chat-message-content chat-md chat-md--streaming">
+                      {msg.content}
+                    </div>
+                  ) : (
+                    <div
+                      className="chat-message-content chat-md"
+                      dangerouslySetInnerHTML={{ __html: md.render(msg.content) }}
+                    />
+                  )
                 ) : (
                   <div className="chat-message-content">{msg.content}</div>
                 )}
