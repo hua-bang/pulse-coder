@@ -565,9 +565,9 @@ export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeSta
                           <path d="M4 3.5h6M4 7h4M4 10.5h5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
                         </svg>
                         <span className="chat-session-menu-item-text">
-                          {s.isCurrent ? 'Current chat' : s.date}
+                          {s.isCurrent ? 'Current chat' : (s.preview || s.date)}
                         </span>
-                        <span className="chat-session-menu-item-count">{s.messageCount} msgs</span>
+                        <span className="chat-session-menu-item-count">{s.messageCount}</span>
                       </button>
                     ))}
                   </div>

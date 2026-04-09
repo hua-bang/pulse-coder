@@ -190,18 +190,20 @@ export class CanvasAgent {
   /**
    * List all sessions (current + archived).
    */
-  async listSessions(): Promise<Array<{ sessionId: string; date: string; messageCount: number; isCurrent: boolean }>> {
+  async listSessions(): Promise<Array<{ sessionId: string; date: string; messageCount: number; isCurrent: boolean; preview: string }>> {
     const archived = await this.sessionStore.listArchivedSessions();
-    const result: Array<{ sessionId: string; date: string; messageCount: number; isCurrent: boolean }> = [];
+    const result: Array<{ sessionId: string; date: string; messageCount: number; isCurrent: boolean; preview: string }> = [];
 
     // Add current session first if it exists
     const current = this.sessionStore.getCurrentSession();
     if (current) {
+      const firstUserMsg = current.messages.find(m => m.role === 'user');
       result.push({
         sessionId: current.sessionId,
         date: current.startedAt.slice(0, 10),
         messageCount: current.messages.length,
         isCurrent: true,
+        preview: firstUserMsg ? firstUserMsg.content.slice(0, 50) : '',
       });
     }
 

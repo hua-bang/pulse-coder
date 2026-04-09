@@ -80,20 +80,22 @@ export class SessionStore {
   /**
    * List archived sessions (date + message count).
    */
-  async listArchivedSessions(): Promise<Array<{ sessionId: string; date: string; messageCount: number }>> {
+  async listArchivedSessions(): Promise<Array<{ sessionId: string; date: string; messageCount: number; preview: string }>> {
     try {
       const files = await fs.readdir(this.archiveDir);
-      const sessions: Array<{ sessionId: string; date: string; messageCount: number }> = [];
+      const sessions: Array<{ sessionId: string; date: string; messageCount: number; preview: string }> = [];
 
       for (const file of files) {
         if (!file.endsWith('.json')) continue;
         try {
           const raw = await fs.readFile(join(this.archiveDir, file), 'utf-8');
           const data = JSON.parse(raw) as CanvasAgentSession;
+          const firstUserMsg = data.messages.find(m => m.role === 'user');
           sessions.push({
             sessionId: data.sessionId,
-            date: file.replace('.json', ''),
+            date: data.startedAt?.slice(0, 10) || file.replace('.json', '').slice(0, 10),
             messageCount: data.messages.length,
+            preview: firstUserMsg ? firstUserMsg.content.slice(0, 50) : '',
           });
         } catch {
           // skip corrupted files

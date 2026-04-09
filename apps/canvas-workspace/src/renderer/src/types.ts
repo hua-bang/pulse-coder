@@ -127,6 +127,7 @@ export interface AgentSessionInfo {
   date: string;
   messageCount: number;
   isCurrent: boolean;
+  preview?: string;
 }
 
 export interface AgentApi {
