@@ -234,10 +234,12 @@ export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeSta
 
   // Clean up streaming subscriptions and reset state on workspace switch
   useEffect(() => {
+    let cancelled = false;
+
     // Load history for the new workspace
     void (async () => {
       const result = await window.canvasWorkspace.agent.getHistory(workspaceId);
-      if (result.ok && result.messages) {
+      if (!cancelled && result.ok && result.messages) {
         setMessages(result.messages);
       }
     })();
@@ -246,6 +248,8 @@ export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeSta
     filesCacheRef.current = null;
 
     return () => {
+      cancelled = true;
+
       // Unsubscribe any in-flight streaming listeners from the previous workspace
       for (const unsub of activeUnsubsRef.current) {
         unsub();
