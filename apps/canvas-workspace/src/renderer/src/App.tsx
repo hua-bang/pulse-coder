@@ -97,11 +97,13 @@ const App = () => {
             />
           ))}
         </div>
-        {chatPanelOpen && activeId && (
-          <ChatPanel
-            workspaceId={activeId}
-            onClose={() => setChatPanelOpen(false)}
-          />
+        {activeId && (
+          <div className={`chat-panel-wrapper${chatPanelOpen ? ' chat-panel-wrapper--open' : ''}`}>
+            <ChatPanel
+              workspaceId={activeId}
+              onClose={() => setChatPanelOpen(false)}
+            />
+          </div>
         )}
       </div>
     </div>

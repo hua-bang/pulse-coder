@@ -19,3 +19,14 @@
   position: relative;
   overflow: hidden;
 }
+
+.chat-panel-wrapper {
+  width: 0;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chat-panel-wrapper--open {
+  width: 380px;
+}
