@@ -122,6 +122,13 @@ export interface AgentChatMessage {
   timestamp: number;
 }
 
+export interface AgentSessionInfo {
+  sessionId: string;
+  date: string;
+  messageCount: number;
+  isCurrent: boolean;
+}
+
 export interface AgentApi {
   chat: (
     workspaceId: string,
@@ -141,6 +148,16 @@ export interface AgentApi {
   getHistory: (
     workspaceId: string
   ) => Promise<{ ok: boolean; messages?: AgentChatMessage[] }>;
+  listSessions: (
+    workspaceId: string
+  ) => Promise<{ ok: boolean; sessions?: AgentSessionInfo[]; error?: string }>;
+  newSession: (
+    workspaceId: string
+  ) => Promise<{ ok: boolean; error?: string }>;
+  loadSession: (
+    workspaceId: string,
+    sessionId: string
+  ) => Promise<{ ok: boolean; messages?: AgentChatMessage[]; error?: string }>;
   activate: (workspaceId: string) => Promise<{ ok: boolean; error?: string }>;
   deactivate: (workspaceId: string) => Promise<{ ok: boolean; error?: string }>;
 }

@@ -148,10 +148,62 @@ export class CanvasAgent {
   }
 
   /**
+   * Get the current session ID.
+   */
+  getCurrentSessionId(): string | null {
+    return this.sessionStore.getCurrentSession()?.sessionId ?? null;
+  }
+
+  /**
    * Get the message count for the current session.
    */
   getMessageCount(): number {
     return this.sessionStore.getMessages().length;
+  }
+
+  /**
+   * List all sessions (current + archived).
+   */
+  async listSessions(): Promise<Array<{ sessionId: string; date: string; messageCount: number; isCurrent: boolean }>> {
+    const archived = await this.sessionStore.listArchivedSessions();
+    const result: Array<{ sessionId: string; date: string; messageCount: number; isCurrent: boolean }> = [];
+
+    // Add current session first if it exists
+    const current = this.sessionStore.getCurrentSession();
+    if (current) {
+      result.push({
+        sessionId: current.sessionId,
+        date: current.startedAt.slice(0, 10),
+        messageCount: current.messages.length,
+        isCurrent: true,
+      });
+    }
+
+    // Add archived sessions
+    for (const s of archived) {
+      result.push({ ...s, isCurrent: false });
+    }
+
+    return result;
+  }
+
+  /**
+   * Start a new session (archives current if any).
+   */
+  async newSession(): Promise<void> {
+    await this.sessionStore.startSession();
+    this.messages = [];
+  }
+
+  /**
+   * Load a specific archived session by sessionId.
+   */
+  async loadSession(sessionId: string): Promise<CanvasAgentMessage[]> {
+    const session = await this.sessionStore.loadSession(sessionId);
+    if (!session) return [];
+    // Rebuild in-memory messages from loaded session
+    this.messages = session.messages.map(m => ({ role: m.role, content: m.content } as any));
+    return session.messages;
   }
 
   /**

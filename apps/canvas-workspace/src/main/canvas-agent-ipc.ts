@@ -2,11 +2,14 @@
  * IPC handlers for the Canvas Agent.
  *
  * Channels:
- *   canvas-agent:chat     — send a message, stream text deltas, get final response
- *   canvas-agent:status   — check if agent is active
- *   canvas-agent:history  — get current session messages
- *   canvas-agent:activate — explicitly start the agent
- *   canvas-agent:deactivate — stop the agent and archive session
+ *   canvas-agent:chat         — send a message, stream text deltas, get final response
+ *   canvas-agent:status       — check if agent is active
+ *   canvas-agent:history      — get current session messages
+ *   canvas-agent:sessions     — list all sessions (current + archived)
+ *   canvas-agent:new-session  — start a new session
+ *   canvas-agent:load-session — load an archived session
+ *   canvas-agent:activate     — explicitly start the agent
+ *   canvas-agent:deactivate   — stop the agent and archive session
  *
  * Streaming:
  *   canvas-agent:chat returns { ok, sessionId } immediately.
@@ -73,6 +76,40 @@ export function setupCanvasAgentIpc(): void {
     'canvas-agent:history',
     (_event, payload: { workspaceId: string }) => {
       return { ok: true, messages: svc.getHistory(payload.workspaceId) };
+    },
+  );
+
+  ipcMain.handle(
+    'canvas-agent:sessions',
+    async (_event, payload: { workspaceId: string }) => {
+      try {
+        const sessions = await svc.listSessions(payload.workspaceId);
+        return { ok: true, sessions };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'canvas-agent:new-session',
+    async (_event, payload: { workspaceId: string }) => {
+      try {
+        return await svc.newSession(payload.workspaceId);
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'canvas-agent:load-session',
+    async (_event, payload: { workspaceId: string; sessionId: string }) => {
+      try {
+        return await svc.loadSession(payload.workspaceId, payload.sessionId);
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
     },
   );
 

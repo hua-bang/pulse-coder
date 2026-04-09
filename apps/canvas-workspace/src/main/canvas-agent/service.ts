@@ -73,6 +73,43 @@ export class CanvasAgentService {
   }
 
   /**
+   * List all sessions (current + archived) for a workspace.
+   */
+  async listSessions(workspaceId: string): Promise<Array<{ sessionId: string; date: string; messageCount: number; isCurrent: boolean }>> {
+    await this.activate(workspaceId);
+    const agent = this.agents.get(workspaceId)!;
+    return agent.listSessions();
+  }
+
+  /**
+   * Start a new session for a workspace.
+   */
+  async newSession(workspaceId: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+      await this.activate(workspaceId);
+      const agent = this.agents.get(workspaceId)!;
+      await agent.newSession();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  }
+
+  /**
+   * Load a specific session by sessionId.
+   */
+  async loadSession(workspaceId: string, sessionId: string): Promise<{ ok: boolean; messages?: CanvasAgentMessage[]; error?: string }> {
+    try {
+      await this.activate(workspaceId);
+      const agent = this.agents.get(workspaceId)!;
+      const messages = await agent.loadSession(sessionId);
+      return { ok: true, messages };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  }
+
+  /**
    * Deactivate and archive the Canvas Agent for a workspace.
    */
   async deactivate(workspaceId: string): Promise<void> {

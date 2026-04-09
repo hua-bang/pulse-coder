@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import MarkdownIt from 'markdown-it';
-import type { AgentChatMessage } from '../../types';
+import type { AgentChatMessage, AgentSessionInfo } from '../../types';
 import './ChatPanel.css';
 
 interface ChatPanelProps {
@@ -57,8 +57,11 @@ export const ChatPanel = ({ workspaceId, onClose, onResizeStart }: ChatPanelProp
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
+  const [sessions, setSessions] = useState<AgentSessionInfo[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const sessionMenuRef = useRef<HTMLDivElement>(null);
 
   // Load history on mount
   useEffect(() => {
@@ -68,6 +71,45 @@ export const ChatPanel = ({ workspaceId, onClose, onResizeStart }: ChatPanelProp
         setMessages(result.messages);
       }
     })();
+  }, [workspaceId]);
+
+  // Close session menu on outside click
+  useEffect(() => {
+    if (!sessionMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (sessionMenuRef.current && !sessionMenuRef.current.contains(e.target as Node)) {
+        setSessionMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [sessionMenuOpen]);
+
+  // Load sessions list when menu opens
+  const openSessionMenu = useCallback(async () => {
+    if (sessionMenuOpen) {
+      setSessionMenuOpen(false);
+      return;
+    }
+    const result = await window.canvasWorkspace.agent.listSessions(workspaceId);
+    if (result.ok && result.sessions) {
+      setSessions(result.sessions);
+    }
+    setSessionMenuOpen(true);
+  }, [sessionMenuOpen, workspaceId]);
+
+  const handleNewSession = useCallback(async () => {
+    setSessionMenuOpen(false);
+    await window.canvasWorkspace.agent.newSession(workspaceId);
+    setMessages([]);
+  }, [workspaceId]);
+
+  const handleLoadSession = useCallback(async (sessionId: string) => {
+    setSessionMenuOpen(false);
+    const result = await window.canvasWorkspace.agent.loadSession(workspaceId, sessionId);
+    if (result.ok && result.messages) {
+      setMessages(result.messages);
+    }
   }, [workspaceId]);
 
   // Scroll to bottom when messages change
@@ -199,14 +241,64 @@ export const ChatPanel = ({ workspaceId, onClose, onResizeStart }: ChatPanelProp
         <div className="chat-panel-resize" onMouseDown={onResizeStart} />
       )}
       <div className="chat-panel-header">
-        <div className="chat-panel-title">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="6" r="3" stroke="currentColor" strokeWidth="1.3" />
-            <path d="M4 14c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-          </svg>
-          <span>Pulse Agent</span>
+        <div className="chat-panel-title-wrapper" ref={sessionMenuRef}>
+          <button className="chat-panel-title-btn" onClick={() => void openSessionMenu()}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="6" r="3" stroke="currentColor" strokeWidth="1.3" />
+              <path d="M4 14c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            </svg>
+            <span>Pulse Agent</span>
+            <svg className="chat-panel-title-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {sessionMenuOpen && (
+            <div className="chat-session-menu">
+              <button className="chat-session-menu-new" onClick={() => void handleNewSession()}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M7 3v8M3 7h8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                </svg>
+                <span>New chat</span>
+              </button>
+              {sessions.length > 0 && (
+                <>
+                  <div className="chat-session-menu-divider" />
+                  <div className="chat-session-menu-label">Recent</div>
+                  <div className="chat-session-menu-list">
+                    {sessions.map((s) => (
+                      <button
+                        key={s.sessionId}
+                        className={`chat-session-menu-item${s.isCurrent ? ' chat-session-menu-item--active' : ''}`}
+                        onClick={() => {
+                          if (!s.isCurrent) void handleLoadSession(s.sessionId);
+                          else setSessionMenuOpen(false);
+                        }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                          <path d="M4 3.5h6M4 7h4M4 10.5h5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                        </svg>
+                        <span className="chat-session-menu-item-text">
+                          {s.isCurrent ? 'Current chat' : s.date}
+                        </span>
+                        <span className="chat-session-menu-item-count">{s.messageCount} msgs</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
         <div className="chat-panel-actions">
+          <button
+            className="chat-panel-action-btn"
+            onClick={() => void handleNewSession()}
+            title="New chat"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            </svg>
+          </button>
           <button className="chat-panel-action-btn" onClick={onClose} title="Close panel">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />

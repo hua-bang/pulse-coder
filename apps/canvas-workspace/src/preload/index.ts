@@ -168,6 +168,15 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
     getHistory: (workspaceId: string) =>
       ipcRenderer.invoke("canvas-agent:history", { workspaceId }),
 
+    listSessions: (workspaceId: string) =>
+      ipcRenderer.invoke("canvas-agent:sessions", { workspaceId }),
+
+    newSession: (workspaceId: string) =>
+      ipcRenderer.invoke("canvas-agent:new-session", { workspaceId }),
+
+    loadSession: (workspaceId: string, sessionId: string) =>
+      ipcRenderer.invoke("canvas-agent:load-session", { workspaceId, sessionId }),
+
     activate: (workspaceId: string) =>
       ipcRenderer.invoke("canvas-agent:activate", { workspaceId }),
 

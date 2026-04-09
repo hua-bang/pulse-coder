@@ -118,6 +118,40 @@ export class SessionStore {
     }
   }
 
+  /**
+   * Get the current session metadata (for listing alongside archived ones).
+   */
+  getCurrentSession(): CanvasAgentSession | null {
+    return this.session;
+  }
+
+  /**
+   * Load an archived session as the current session (for viewing/resuming).
+   * Archives the current session first if it has messages.
+   */
+  async loadSession(sessionId: string): Promise<CanvasAgentSession | null> {
+    // Find the archived session by sessionId
+    try {
+      const files = await fs.readdir(this.archiveDir);
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        const raw = await fs.readFile(join(this.archiveDir, file), 'utf-8');
+        const data = JSON.parse(raw) as CanvasAgentSession;
+        if (data.sessionId === sessionId) {
+          // Archive current session first
+          await this.archiveCurrentIfExists();
+          // Set as current
+          this.session = data;
+          await this.persist();
+          return data;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
   // ─── Internal ────────────────────────────────────────────────
 
   private async persist(): Promise<void> {
