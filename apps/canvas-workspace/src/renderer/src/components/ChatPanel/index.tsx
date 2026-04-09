@@ -217,7 +217,7 @@ export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeSta
   const toolIdCounter = useRef(0);
   const streamingMsgIdx = useRef(-1);
 
-  // Track active streaming subscriptions so they can be cleaned up on workspace switch
+  // Track active streaming subscriptions so they can be cleaned up on unmount
   const activeUnsubsRef = useRef<(() => void)[]>([]);
 
   // @ mention state
@@ -232,38 +232,21 @@ export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeSta
   const sessionMenuRef = useRef<HTMLDivElement>(null);
   const mentionRef = useRef<HTMLDivElement>(null);
 
-  // Clean up streaming subscriptions and reset state on workspace switch
+  // Load history on mount and clean up streaming subscriptions on unmount
   useEffect(() => {
-    let cancelled = false;
-
-    // Load history for the new workspace
     void (async () => {
       const result = await window.canvasWorkspace.agent.getHistory(workspaceId);
-      if (!cancelled && result.ok && result.messages) {
+      if (result.ok && result.messages) {
         setMessages(result.messages);
       }
     })();
 
-    // Reset files cache for new workspace
-    filesCacheRef.current = null;
-
     return () => {
-      cancelled = true;
-
-      // Unsubscribe any in-flight streaming listeners from the previous workspace
+      // Unsubscribe any in-flight streaming listeners on unmount
       for (const unsub of activeUnsubsRef.current) {
         unsub();
       }
       activeUnsubsRef.current = [];
-
-      // Reset all streaming/chat state so the new workspace starts clean
-      setLoading(false);
-      setStreamingTools([]);
-      setExpandedTools(new Set());
-      setMessageTools(new Map());
-      setCollapsedSections(new Set());
-      setSessionMenuOpen(false);
-      streamingMsgIdx.current = -1;
     };
   }, [workspaceId]);
 
@@ -434,10 +417,7 @@ export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeSta
         unsubComplete();
         unsubToolCall();
         unsubToolResult();
-        // Remove these from the tracked active unsubs
-        activeUnsubsRef.current = activeUnsubsRef.current.filter(
-          fn => fn !== unsubDelta && fn !== unsubComplete && fn !== unsubToolCall && fn !== unsubToolResult
-        );
+        activeUnsubsRef.current = [];
       };
 
       // Subscribe to tool call events

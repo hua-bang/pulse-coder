@@ -129,21 +129,22 @@ const App = () => {
             />
           ))}
         </div>
-        {activeId && (
+        {workspaces.map((ws) => (
           <div
-            className={`chat-panel-wrapper${chatPanelOpen ? ' chat-panel-wrapper--open' : ''}`}
-            style={chatPanelOpen ? { width: chatWidth } : undefined}
+            key={ws.id}
+            className={`chat-panel-wrapper${chatPanelOpen && ws.id === activeId ? ' chat-panel-wrapper--open' : ''}`}
+            style={chatPanelOpen && ws.id === activeId ? { width: chatWidth } : { display: 'none' }}
           >
             <ChatPanel
-              workspaceId={activeId}
-              nodes={allNodes[activeId] || []}
-              rootFolder={workspaces.find(w => w.id === activeId)?.rootFolder}
+              workspaceId={ws.id}
+              nodes={allNodes[ws.id] || []}
+              rootFolder={ws.rootFolder}
               onClose={() => setChatPanelOpen(false)}
               onResizeStart={handleResizeStart}
               onNodeFocus={setFocusNodeId}
             />
           </div>
-        )}
+        ))}
       </div>
     </div>
   );
