@@ -787,15 +787,6 @@
   background: rgba(55, 53, 47, 0.1);
 }
 
-.chat-mention-chip--clickable {
-  cursor: pointer;
-}
-
-.chat-mention-chip--clickable:hover {
-  background: rgba(35, 131, 226, 0.1);
-  border-color: rgba(35, 131, 226, 0.25);
-}
-
 .chat-mention-chip-icon {
   display: inline-flex;
   align-items: center;
@@ -814,6 +805,15 @@
   font-weight: 500;
 }
 
+.chat-mention-chip--clickable {
+  cursor: pointer;
+}
+
+.chat-mention-chip--clickable:hover {
+  background: rgba(55, 53, 47, 0.12);
+  border-color: rgba(55, 53, 47, 0.18);
+}
+
 /* Node-type color accents */
 .chat-mention-chip[data-node-type="terminal"] {
   background: rgba(35, 131, 226, 0.07);
@@ -821,6 +821,10 @@
 }
 .chat-mention-chip[data-node-type="terminal"] .chat-mention-chip-icon {
   color: rgba(35, 131, 226, 0.7);
+}
+.chat-mention-chip--clickable[data-node-type="terminal"]:hover {
+  background: rgba(35, 131, 226, 0.14);
+  border-color: rgba(35, 131, 226, 0.25);
 }
 
 .chat-mention-chip[data-node-type="agent"] {
@@ -830,6 +834,10 @@
 .chat-mention-chip[data-node-type="agent"] .chat-mention-chip-icon {
   color: rgba(155, 89, 182, 0.7);
 }
+.chat-mention-chip--clickable[data-node-type="agent"]:hover {
+  background: rgba(155, 89, 182, 0.14);
+  border-color: rgba(155, 89, 182, 0.25);
+}
 
 .chat-mention-chip[data-node-type="frame"] {
   background: rgba(233, 168, 0, 0.07);
@@ -837,6 +845,10 @@
 }
 .chat-mention-chip[data-node-type="frame"] .chat-mention-chip-icon {
   color: rgba(233, 168, 0, 0.7);
+}
+.chat-mention-chip--clickable[data-node-type="frame"]:hover {
+  background: rgba(233, 168, 0, 0.14);
+  border-color: rgba(233, 168, 0, 0.25);
 }
 
 /* Input chip variant — inline non-editable mention in contentEditable */
