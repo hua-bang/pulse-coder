@@ -1,12 +1,40 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import MarkdownIt from 'markdown-it';
-import type { AgentChatMessage, AgentSessionInfo } from '../../types';
+import type { AgentChatMessage, AgentSessionInfo, CanvasNode } from '../../types';
 import './ChatPanel.css';
 
 interface ChatPanelProps {
   workspaceId: string;
+  nodes?: CanvasNode[];
+  rootFolder?: string;
   onClose: () => void;
   onResizeStart?: (e: React.MouseEvent) => void;
+}
+
+interface ToolCallStatus {
+  name: string;
+  args?: any;
+  status: 'running' | 'done';
+}
+
+interface MentionItem {
+  type: 'node' | 'file';
+  label: string;
+  nodeType?: string;
+  path?: string;
+}
+
+function formatToolArgs(name: string, args: any): string {
+  if (!args) return '';
+  if (name === 'read' || name === 'write' || name === 'edit') return args.file_path || args.filePath || '';
+  if (name === 'bash') return args.command ? args.command.slice(0, 60) : '';
+  if (name === 'grep') return args.pattern || '';
+  if (name === 'ls') return args.path || '';
+  if (name === 'canvas_read_node') return args.nodeId || '';
+  if (name === 'canvas_create_node') return args.type || '';
+  if (name === 'canvas_update_node') return args.nodeId || '';
+  if (name === 'canvas_delete_node') return args.nodeId || '';
+  return '';
 }
 
 const QUICK_ACTIONS = [
@@ -53,15 +81,26 @@ const QUICK_ACTIONS = [
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 
-export const ChatPanel = ({ workspaceId, onClose, onResizeStart }: ChatPanelProps) => {
+export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeStart }: ChatPanelProps) => {
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [sessions, setSessions] = useState<AgentSessionInfo[]>([]);
+  const [streamingTools, setStreamingTools] = useState<ToolCallStatus[]>([]);
+
+  // @ mention state
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionItems, setMentionItems] = useState<MentionItem[]>([]);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionStart, setMentionStart] = useState(-1); // cursor position of '@'
+  const filesCacheRef = useRef<MentionItem[] | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sessionMenuRef = useRef<HTMLDivElement>(null);
+  const mentionRef = useRef<HTMLDivElement>(null);
 
   // Load history on mount
   useEffect(() => {
@@ -112,18 +151,79 @@ export const ChatPanel = ({ workspaceId, onClose, onResizeStart }: ChatPanelProp
     }
   }, [workspaceId]);
 
-  // Scroll to bottom when messages change
+  // Scroll to bottom when messages or streaming tools change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, streamingTools]);
 
-  // Auto-resize textarea
+  // Build mention items from nodes + files
+  const buildMentionItems = useCallback(async (query: string) => {
+    const items: MentionItem[] = [];
+    // Canvas nodes
+    if (nodes) {
+      for (const n of nodes) {
+        items.push({ type: 'node', label: n.title, nodeType: n.type, path: (n.data as any)?.filePath });
+      }
+    }
+    // Project files (cached)
+    if (rootFolder) {
+      if (!filesCacheRef.current) {
+        try {
+          const result = await window.canvasWorkspace.file.listDir(rootFolder, 2);
+          if (result.ok && result.entries) {
+            const flatFiles: MentionItem[] = [];
+            const flatten = (entries: any[], prefix: string) => {
+              for (const e of entries) {
+                const path = prefix ? `${prefix}/${e.name}` : e.name;
+                if (e.type === 'file') {
+                  flatFiles.push({ type: 'file', label: path, path: `${rootFolder}/${path}` });
+                } else if (e.children) {
+                  flatten(e.children, path);
+                }
+              }
+            };
+            flatten(result.entries, '');
+            filesCacheRef.current = flatFiles;
+          }
+        } catch {
+          filesCacheRef.current = [];
+        }
+      }
+      if (filesCacheRef.current) items.push(...filesCacheRef.current);
+    }
+    // Filter by query
+    const q = query.toLowerCase();
+    const filtered = q ? items.filter(it => it.label.toLowerCase().includes(q)) : items;
+    return filtered.slice(0, 12);
+  }, [nodes, rootFolder]);
+
+  // Auto-resize textarea + detect @ mention
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
+    const val = e.target.value;
+    setInput(val);
     const el = e.target;
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 120) + 'px';
-  }, []);
+
+    // Detect @ mention trigger
+    const pos = el.selectionStart ?? val.length;
+    const textBefore = val.slice(0, pos);
+    const atMatch = textBefore.match(/@([^\s@]*)$/);
+
+    if (atMatch) {
+      const start = pos - atMatch[0].length;
+      const query = atMatch[1];
+      setMentionStart(start);
+      setMentionQuery(query);
+      setMentionIndex(0);
+      void buildMentionItems(query).then(items => {
+        setMentionItems(items);
+        setMentionOpen(items.length > 0);
+      });
+    } else {
+      setMentionOpen(false);
+    }
+  }, [buildMentionItems]);
 
   const sendMessage = useCallback(async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
@@ -159,6 +259,19 @@ export const ChatPanel = ({ workspaceId, onClose, onResizeStart }: ChatPanelProp
 
       // Lazily create assistant message on first text delta
       const assistantIdx = { current: -1 };
+      const toolCalls: ToolCallStatus[] = [];
+
+      // Subscribe to tool call events
+      const unsubToolCall = window.canvasWorkspace.agent.onToolCall(sessionId, (data) => {
+        toolCalls.push({ name: data.name, args: data.args, status: 'running' });
+        setStreamingTools([...toolCalls]);
+      });
+
+      const unsubToolResult = window.canvasWorkspace.agent.onToolResult(sessionId, (data) => {
+        const tc = toolCalls.find(t => t.name === data.name && t.status === 'running');
+        if (tc) tc.status = 'done';
+        setStreamingTools([...toolCalls]);
+      });
 
       // Subscribe to text deltas
       const unsubDelta = window.canvasWorkspace.agent.onTextDelta(sessionId, (delta) => {
@@ -180,6 +293,9 @@ export const ChatPanel = ({ workspaceId, onClose, onResizeStart }: ChatPanelProp
       const unsubComplete = window.canvasWorkspace.agent.onChatComplete(sessionId, (completeResult) => {
         unsubDelta();
         unsubComplete();
+        unsubToolCall();
+        unsubToolResult();
+        setStreamingTools([]);
 
         if (!completeResult.ok) {
           setMessages(prev => {
@@ -218,12 +334,44 @@ export const ChatPanel = ({ workspaceId, onClose, onResizeStart }: ChatPanelProp
     }
   }, [input, loading, workspaceId]);
 
+  const selectMention = useCallback((item: MentionItem) => {
+    // Replace @query with @[label]
+    const before = input.slice(0, mentionStart);
+    const after = input.slice(mentionStart + 1 + mentionQuery.length);
+    const newInput = `${before}@[${item.label}] ${after}`;
+    setInput(newInput);
+    setMentionOpen(false);
+    textareaRef.current?.focus();
+  }, [input, mentionStart, mentionQuery]);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (mentionOpen && mentionItems.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIndex(i => (i + 1) % mentionItems.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIndex(i => (i - 1 + mentionItems.length) % mentionItems.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        selectMention(mentionItems[mentionIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMentionOpen(false);
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void sendMessage();
     }
-  }, [sendMessage]);
+  }, [sendMessage, mentionOpen, mentionItems, mentionIndex, selectMention]);
 
   const handleQuickAction = useCallback((prompt: string) => {
     if (prompt) {
@@ -357,7 +505,30 @@ export const ChatPanel = ({ workspaceId, onClose, onResizeStart }: ChatPanelProp
               </div>
             );
           })}
-          {loading && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant') && (
+          {streamingTools.length > 0 && (
+            <div className="chat-tool-calls">
+              {streamingTools.map((tc, i) => (
+                <div key={i} className={`chat-tool-call chat-tool-call--${tc.status}`}>
+                  <span className="chat-tool-call-icon">
+                    {tc.status === 'running' ? (
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="chat-tool-call-spinner">
+                        <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.2" strokeDasharray="14 14" strokeLinecap="round" />
+                      </svg>
+                    ) : (
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M3 6l2 2 4-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </span>
+                  <span className="chat-tool-call-name">{tc.name}</span>
+                  {formatToolArgs(tc.name, tc.args) && (
+                    <span className="chat-tool-call-args">{formatToolArgs(tc.name, tc.args)}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {loading && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant') && streamingTools.length === 0 && (
             <div className="chat-message chat-message-assistant">
               <div className="chat-message-avatar">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -377,6 +548,37 @@ export const ChatPanel = ({ workspaceId, onClose, onResizeStart }: ChatPanelProp
       )}
 
       <div className="chat-input-container">
+        {mentionOpen && mentionItems.length > 0 && (
+          <div className="chat-mention-popup" ref={mentionRef}>
+            {mentionItems.map((item, i) => (
+              <button
+                key={`${item.type}-${item.label}`}
+                className={`chat-mention-item${i === mentionIndex ? ' chat-mention-item--active' : ''}`}
+                onMouseDown={(e) => { e.preventDefault(); selectMention(item); }}
+                onMouseEnter={() => setMentionIndex(i)}
+              >
+                <span className="chat-mention-item-icon">
+                  {item.type === 'node' ? (
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      {item.nodeType === 'file' && <><rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" /><path d="M4.5 5h5M4.5 7.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" /></>}
+                      {item.nodeType === 'terminal' && <><rect x="1.5" y="2" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" /><path d="M4 6l2 1.5L4 9" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" /></>}
+                      {item.nodeType === 'agent' && <><circle cx="7" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.2" /><path d="M3.5 12c0-1.9 1.6-3.5 3.5-3.5s3.5 1.6 3.5 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></>}
+                      {item.nodeType === 'frame' && <rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.2" />}
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      <path d="M7 1.5v11M4 4l-2.5 2.5L4 9M10 4l2.5 2.5L10 9" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </span>
+                <span className="chat-mention-item-label">{item.label}</span>
+                {item.type === 'node' && item.nodeType && (
+                  <span className="chat-mention-item-type">{item.nodeType}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="chat-input-box">
           <textarea
             ref={textareaRef}

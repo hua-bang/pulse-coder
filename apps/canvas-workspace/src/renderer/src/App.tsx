@@ -136,6 +136,8 @@ const App = () => {
           >
             <ChatPanel
               workspaceId={activeId}
+              nodes={allNodes[activeId] || []}
+              rootFolder={workspaces.find(w => w.id === activeId)?.rootFolder}
               onClose={() => setChatPanelOpen(false)}
               onResizeStart={handleResizeStart}
             />

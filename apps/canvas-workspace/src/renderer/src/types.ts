@@ -142,6 +142,14 @@ export interface AgentApi {
     sessionId: string,
     callback: (result: { ok: boolean; response?: string; error?: string }) => void
   ) => () => void;
+  onToolCall: (
+    sessionId: string,
+    callback: (data: { name: string; args: any }) => void
+  ) => () => void;
+  onToolResult: (
+    sessionId: string,
+    callback: (data: { name: string; result: string }) => void
+  ) => () => void;
   getStatus: (
     workspaceId: string
   ) => Promise<{ ok: boolean; active: boolean; messageCount: number }>;

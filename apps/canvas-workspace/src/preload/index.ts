@@ -162,6 +162,26 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
       };
     },
 
+    onToolCall: (sessionId: string, callback: (data: { name: string; args: any }) => void) => {
+      const channel = `canvas-agent:tool-call:${sessionId}`;
+      const handler = (_event: Electron.IpcRendererEvent, data: { name: string; args: any }) =>
+        callback(data);
+      ipcRenderer.on(channel, handler);
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+      };
+    },
+
+    onToolResult: (sessionId: string, callback: (data: { name: string; result: string }) => void) => {
+      const channel = `canvas-agent:tool-result:${sessionId}`;
+      const handler = (_event: Electron.IpcRendererEvent, data: { name: string; result: string }) =>
+        callback(data);
+      ipcRenderer.on(channel, handler);
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+      };
+    },
+
     getStatus: (workspaceId: string) =>
       ipcRenderer.invoke("canvas-agent:status", { workspaceId }),
 

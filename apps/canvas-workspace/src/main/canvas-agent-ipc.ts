@@ -13,8 +13,10 @@
  *
  * Streaming:
  *   canvas-agent:chat returns { ok, sessionId } immediately.
- *   Text deltas arrive on  `canvas-agent:text-delta:{sessionId}`.
- *   Completion arrives on   `canvas-agent:chat-complete:{sessionId}`.
+ *   Text deltas arrive on    `canvas-agent:text-delta:{sessionId}`.
+ *   Tool call starts arrive on `canvas-agent:tool-call:{sessionId}`.
+ *   Tool results arrive on    `canvas-agent:tool-result:{sessionId}`.
+ *   Completion arrives on     `canvas-agent:chat-complete:{sessionId}`.
  */
 
 import { ipcMain } from 'electron';
@@ -42,11 +44,25 @@ export function setupCanvasAgentIpc(): void {
       // Fire-and-forget: run the agent asynchronously, streaming text deltas
       void (async () => {
         try {
-          const result = await svc.chat(payload.workspaceId, payload.message, (delta) => {
-            if (!sender.isDestroyed()) {
-              sender.send(`canvas-agent:text-delta:${sessionId}`, delta);
-            }
-          });
+          const result = await svc.chat(
+            payload.workspaceId,
+            payload.message,
+            (delta) => {
+              if (!sender.isDestroyed()) {
+                sender.send(`canvas-agent:text-delta:${sessionId}`, delta);
+              }
+            },
+            (toolCall) => {
+              if (!sender.isDestroyed()) {
+                sender.send(`canvas-agent:tool-call:${sessionId}`, toolCall);
+              }
+            },
+            (toolResult) => {
+              if (!sender.isDestroyed()) {
+                sender.send(`canvas-agent:tool-result:${sessionId}`, toolResult);
+              }
+            },
+          );
           if (!sender.isDestroyed()) {
             sender.send(`canvas-agent:chat-complete:${sessionId}`, result);
           }

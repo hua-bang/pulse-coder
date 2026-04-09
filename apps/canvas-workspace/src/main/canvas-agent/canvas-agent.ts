@@ -104,8 +104,15 @@ export class CanvasAgent {
   /**
    * Send a user message and get the agent's response.
    * @param onText — optional callback receiving streaming text deltas
+   * @param onToolCall — optional callback when a tool call starts
+   * @param onToolResult — optional callback when a tool call completes
    */
-  async chat(message: string, onText?: (delta: string) => void): Promise<string> {
+  async chat(
+    message: string,
+    onText?: (delta: string) => void,
+    onToolCall?: (data: { name: string; args: any }) => void,
+    onToolResult?: (data: { name: string; result: string }) => void,
+  ): Promise<string> {
     // Refresh workspace summary for system prompt
     const summary = await buildWorkspaceSummary(this.config.workspaceId);
     const systemPrompt = buildSystemPrompt(summary);
@@ -121,6 +128,18 @@ export class CanvasAgent {
       systemPrompt,
       maxSteps: 10,
       onText,
+      onToolCall: onToolCall
+        ? (chunk: any) => { onToolCall({ name: chunk.toolName, args: chunk.args }); }
+        : undefined,
+      onToolResult: onToolResult
+        ? (chunk: any) => {
+            const result = chunk.result;
+            onToolResult({
+              name: chunk.toolName,
+              result: typeof result === 'string' ? result : JSON.stringify(result),
+            });
+          }
+        : undefined,
       onResponse: (msgs: ModelMessage[]) => {
         for (const msg of msgs) {
           this.messages.push(msg);
