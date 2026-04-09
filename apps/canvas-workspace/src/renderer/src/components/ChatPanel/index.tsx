@@ -242,26 +242,29 @@ export const ChatPanel = ({ workspaceId, onClose, onResizeStart }: ChatPanelProp
         </div>
       ) : (
         <div className="chat-messages">
-          {messages.map((msg, i) => (
-            <div key={i} className={`chat-message chat-message-${msg.role}`}>
-              {msg.role === 'assistant' && (
-                <div className="chat-message-avatar">
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <circle cx="8" cy="6" r="3" stroke="currentColor" strokeWidth="1.3" />
-                    <path d="M4 14c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                  </svg>
-                </div>
-              )}
-              {msg.role === 'assistant' ? (
-                <div
-                  className="chat-message-content chat-md"
-                  dangerouslySetInnerHTML={{ __html: md.render(msg.content) }}
-                />
-              ) : (
-                <div className="chat-message-content">{msg.content}</div>
-              )}
-            </div>
-          ))}
+          {messages.map((msg, i) => {
+            const isStreaming = loading && msg.role === 'assistant' && i === messages.length - 1;
+            return (
+              <div key={i} className={`chat-message chat-message-${msg.role}`}>
+                {msg.role === 'assistant' && (
+                  <div className="chat-message-avatar">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <circle cx="8" cy="6" r="3" stroke="currentColor" strokeWidth="1.3" />
+                      <path d="M4 14c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                    </svg>
+                  </div>
+                )}
+                {msg.role === 'assistant' ? (
+                  <div
+                    className={`chat-message-content chat-md${isStreaming ? ' chat-md--streaming' : ''}`}
+                    dangerouslySetInnerHTML={{ __html: md.render(msg.content) }}
+                  />
+                ) : (
+                  <div className="chat-message-content">{msg.content}</div>
+                )}
+              </div>
+            );
+          })}
           {loading && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant') && (
             <div className="chat-message chat-message-assistant">
               <div className="chat-message-avatar">

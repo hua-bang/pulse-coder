@@ -183,6 +183,23 @@
   padding: 2px 0;
 }
 
+/* Blinking cursor while streaming */
+.chat-md--streaming::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: #37352f;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: chat-cursor-blink 0.8s steps(2) infinite;
+}
+
+@keyframes chat-cursor-blink {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 /* ─── Loading ──────────────────────────────────────────────── */
 
 .chat-loading {
