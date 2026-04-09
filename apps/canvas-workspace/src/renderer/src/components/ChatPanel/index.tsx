@@ -217,6 +217,9 @@ export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeSta
   const toolIdCounter = useRef(0);
   const streamingMsgIdx = useRef(-1);
 
+  // Track active streaming subscriptions so they can be cleaned up on workspace switch
+  const activeUnsubsRef = useRef<(() => void)[]>([]);
+
   // @ mention state
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
@@ -229,14 +232,35 @@ export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeSta
   const sessionMenuRef = useRef<HTMLDivElement>(null);
   const mentionRef = useRef<HTMLDivElement>(null);
 
-  // Load history on mount
+  // Clean up streaming subscriptions and reset state on workspace switch
   useEffect(() => {
+    // Load history for the new workspace
     void (async () => {
       const result = await window.canvasWorkspace.agent.getHistory(workspaceId);
       if (result.ok && result.messages) {
         setMessages(result.messages);
       }
     })();
+
+    // Reset files cache for new workspace
+    filesCacheRef.current = null;
+
+    return () => {
+      // Unsubscribe any in-flight streaming listeners from the previous workspace
+      for (const unsub of activeUnsubsRef.current) {
+        unsub();
+      }
+      activeUnsubsRef.current = [];
+
+      // Reset all streaming/chat state so the new workspace starts clean
+      setLoading(false);
+      setStreamingTools([]);
+      setExpandedTools(new Set());
+      setMessageTools(new Map());
+      setCollapsedSections(new Set());
+      setSessionMenuOpen(false);
+      streamingMsgIdx.current = -1;
+    };
   }, [workspaceId]);
 
   // Close session menu on outside click
@@ -401,6 +425,17 @@ export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeSta
         });
       };
 
+      const cleanupAllSubs = () => {
+        unsubDelta();
+        unsubComplete();
+        unsubToolCall();
+        unsubToolResult();
+        // Remove these from the tracked active unsubs
+        activeUnsubsRef.current = activeUnsubsRef.current.filter(
+          fn => fn !== unsubDelta && fn !== unsubComplete && fn !== unsubToolCall && fn !== unsubToolResult
+        );
+      };
+
       // Subscribe to tool call events
       const unsubToolCall = window.canvasWorkspace.agent.onToolCall(sessionId, (data) => {
         ensureAssistantMessage();
@@ -440,10 +475,7 @@ export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeSta
 
       // Subscribe to completion
       const unsubComplete = window.canvasWorkspace.agent.onChatComplete(sessionId, (completeResult) => {
-        unsubDelta();
-        unsubComplete();
-        unsubToolCall();
-        unsubToolResult();
+        cleanupAllSubs();
         // Collapse the tool section (don't clear — keep in messageTools)
         if (assistantIdx.current >= 0 && toolCalls.length > 0) {
           setCollapsedSections(prev => new Set(prev).add(assistantIdx.current));
@@ -478,6 +510,9 @@ export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeSta
 
         setLoading(false);
       });
+
+      // Track all subscriptions so they can be cleaned up on workspace switch
+      activeUnsubsRef.current.push(unsubToolCall, unsubToolResult, unsubDelta, unsubComplete);
     } catch (err) {
       const errorMsg: AgentChatMessage = {
         role: 'assistant',
