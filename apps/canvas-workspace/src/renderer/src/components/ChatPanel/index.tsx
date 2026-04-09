@@ -115,18 +115,19 @@ export const ChatPanel = ({ workspaceId, onClose, onResizeStart }: ChatPanelProp
 
       const sessionId = result.sessionId;
 
-      // Add a placeholder assistant message for streaming
-      const placeholderIdx = { current: -1 };
-      setMessages(prev => {
-        placeholderIdx.current = prev.length;
-        return [...prev, { role: 'assistant' as const, content: '', timestamp: Date.now() }];
-      });
+      // Lazily create assistant message on first text delta
+      const assistantIdx = { current: -1 };
 
       // Subscribe to text deltas
       const unsubDelta = window.canvasWorkspace.agent.onTextDelta(sessionId, (delta) => {
         setMessages(prev => {
-          const idx = placeholderIdx.current;
-          if (idx < 0 || idx >= prev.length) return prev;
+          if (assistantIdx.current < 0) {
+            // First delta — create the assistant message now
+            assistantIdx.current = prev.length;
+            return [...prev, { role: 'assistant' as const, content: delta, timestamp: Date.now() }];
+          }
+          const idx = assistantIdx.current;
+          if (idx >= prev.length) return prev;
           const updated = [...prev];
           updated[idx] = { ...updated[idx], content: updated[idx].content + delta };
           return updated;
@@ -140,21 +141,22 @@ export const ChatPanel = ({ workspaceId, onClose, onResizeStart }: ChatPanelProp
 
         if (!completeResult.ok) {
           setMessages(prev => {
-            const idx = placeholderIdx.current;
-            if (idx < 0 || idx >= prev.length) return prev;
+            if (assistantIdx.current < 0) {
+              return [...prev, { role: 'assistant' as const, content: `Error: ${completeResult.error ?? 'Unknown error'}`, timestamp: Date.now() }];
+            }
+            const idx = assistantIdx.current;
             const updated = [...prev];
-            const existing = updated[idx].content;
-            updated[idx] = {
-              ...updated[idx],
-              content: existing || `Error: ${completeResult.error ?? 'Unknown error'}`,
-            };
+            const existing = updated[idx]?.content;
+            updated[idx] = { ...updated[idx], content: existing || `Error: ${completeResult.error ?? 'Unknown error'}` };
             return updated;
           });
         } else if (completeResult.response) {
-          // Replace with final complete text for accuracy
           setMessages(prev => {
-            const idx = placeholderIdx.current;
-            if (idx < 0 || idx >= prev.length) return prev;
+            if (assistantIdx.current < 0) {
+              // No deltas arrived — add complete message directly
+              return [...prev, { role: 'assistant' as const, content: completeResult.response!, timestamp: Date.now() }];
+            }
+            const idx = assistantIdx.current;
             const updated = [...prev];
             updated[idx] = { ...updated[idx], content: completeResult.response! };
             return updated;
@@ -260,7 +262,7 @@ export const ChatPanel = ({ workspaceId, onClose, onResizeStart }: ChatPanelProp
               )}
             </div>
           ))}
-          {loading && !messages.some((m, i) => i === messages.length - 1 && m.role === 'assistant' && m.content) && (
+          {loading && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant') && (
             <div className="chat-message chat-message-assistant">
               <div className="chat-message-avatar">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
