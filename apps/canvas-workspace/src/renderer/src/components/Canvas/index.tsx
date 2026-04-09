@@ -15,7 +15,7 @@ import { ZoomIndicator } from '../ZoomIndicator';
 import { SearchPalette } from '../SearchPalette';
 import { CanvasEmptyHint } from '../CanvasEmptyHint';
 
-export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange, focusNodeId, onFocusComplete, deleteNodeId, onDeleteComplete }: { canvasId: string; canvasName?: string; rootFolder?: string; hidden?: boolean; onNodesChange?: (canvasId: string, nodes: CanvasNode[]) => void; focusNodeId?: string; onFocusComplete?: () => void; deleteNodeId?: string; onDeleteComplete?: () => void }) => {
+export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange, focusNodeId, onFocusComplete, deleteNodeId, onDeleteComplete, chatPanelOpen, onChatToggle }: { canvasId: string; canvasName?: string; rootFolder?: string; hidden?: boolean; onNodesChange?: (canvasId: string, nodes: CanvasNode[]) => void; focusNodeId?: string; onFocusComplete?: () => void; deleteNodeId?: string; onDeleteComplete?: () => void; chatPanelOpen?: boolean; onChatToggle?: () => void }) => {
   const [activeTool, setActiveTool] = useState('select');
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [clipboardNodes, setClipboardNodes] = useState<CanvasNode[]>([]);
@@ -306,6 +306,8 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
         activeTool={activeTool}
         onToolChange={setActiveTool}
         onAddNode={handleToolbarAddNode}
+        chatPanelOpen={chatPanelOpen}
+        onChatToggle={onChatToggle}
       />
 
       <ZoomIndicator scale={transform.scale} onReset={resetTransform} />

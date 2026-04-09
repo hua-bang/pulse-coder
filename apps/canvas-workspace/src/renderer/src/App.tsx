@@ -46,7 +46,7 @@ const App = () => {
   // Keyboard shortcut: Cmd/Ctrl+Shift+A to toggle chat panel
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'a') {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         setChatPanelOpen(prev => !prev);
       }
@@ -92,6 +92,8 @@ const App = () => {
               onFocusComplete={handleFocusComplete}
               deleteNodeId={ws.id === activeId ? deleteNodeId : undefined}
               onDeleteComplete={handleDeleteComplete}
+              chatPanelOpen={chatPanelOpen}
+              onChatToggle={() => setChatPanelOpen(prev => !prev)}
             />
           ))}
         </div>
