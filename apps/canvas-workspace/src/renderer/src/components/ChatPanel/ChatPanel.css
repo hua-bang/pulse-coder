@@ -164,6 +164,29 @@
   flex-shrink: 0;
 }
 
+.chat-session-menu-item--other-ws {
+  padding-left: 18px;
+}
+
+.chat-session-menu-group {
+  margin-bottom: 2px;
+}
+
+.chat-session-menu-group-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #787774;
+  padding: 5px 10px 2px;
+}
+
+.chat-session-menu-group-name svg {
+  color: #9b9a97;
+  flex-shrink: 0;
+}
+
 .chat-panel-action-btn {
   width: 28px;
   height: 28px;

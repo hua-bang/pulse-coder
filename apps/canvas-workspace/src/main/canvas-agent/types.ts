@@ -95,3 +95,21 @@ export interface SessionListResponse {
   ok: boolean;
   sessions?: Array<{ sessionId: string; date: string; messageCount: number }>;
 }
+
+export interface CrossWorkspaceSessionGroup {
+  workspaceId: string;
+  workspaceName: string;
+  sessions: Array<{
+    sessionId: string;
+    date: string;
+    messageCount: number;
+    preview: string;
+    isCurrent: boolean;
+  }>;
+}
+
+export interface AllSessionsResponse {
+  ok: boolean;
+  groups?: CrossWorkspaceSessionGroup[];
+  error?: string;
+}

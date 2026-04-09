@@ -154,6 +154,131 @@ export class SessionStore {
     return null;
   }
 
+  // ─── Cross-workspace scanning ────────────────────────────────
+
+  /**
+   * Scan all workspace directories and return sessions grouped by workspace.
+   * Reads current.json + archive/ for each workspace found under STORE_DIR.
+   */
+  static async listAllWorkspaceSessions(): Promise<
+    Array<{
+      workspaceId: string;
+      sessions: Array<{ sessionId: string; date: string; messageCount: number; preview: string; isCurrent: boolean }>;
+    }>
+  > {
+    const results: Array<{
+      workspaceId: string;
+      sessions: Array<{ sessionId: string; date: string; messageCount: number; preview: string; isCurrent: boolean }>;
+    }> = [];
+
+    let dirs: string[];
+    try {
+      dirs = await fs.readdir(STORE_DIR);
+    } catch {
+      return results;
+    }
+
+    for (const dir of dirs) {
+      // Skip manifest and non-directory entries
+      if (dir.startsWith('__') || dir.startsWith('.')) continue;
+
+      const sessionsDir = join(STORE_DIR, dir, 'agent-sessions');
+      const archiveDir = join(sessionsDir, 'archive');
+      const currentPath = join(sessionsDir, 'current.json');
+
+      const sessions: Array<{ sessionId: string; date: string; messageCount: number; preview: string; isCurrent: boolean }> = [];
+
+      // Read current session
+      try {
+        const raw = await fs.readFile(currentPath, 'utf-8');
+        const data = JSON.parse(raw) as CanvasAgentSession;
+        if (data.messages && data.messages.length > 0) {
+          const firstUserMsg = data.messages.find(m => m.role === 'user');
+          sessions.push({
+            sessionId: data.sessionId,
+            date: data.startedAt?.slice(0, 10) || '',
+            messageCount: data.messages.length,
+            preview: firstUserMsg ? firstUserMsg.content.slice(0, 50) : '',
+            isCurrent: true,
+          });
+        }
+      } catch {
+        // No current session
+      }
+
+      // Read archived sessions
+      try {
+        const files = await fs.readdir(archiveDir);
+        for (const file of files) {
+          if (!file.endsWith('.json')) continue;
+          try {
+            const raw = await fs.readFile(join(archiveDir, file), 'utf-8');
+            const data = JSON.parse(raw) as CanvasAgentSession;
+            const firstUserMsg = data.messages.find(m => m.role === 'user');
+            sessions.push({
+              sessionId: data.sessionId,
+              date: data.startedAt?.slice(0, 10) || file.replace('.json', '').slice(0, 10),
+              messageCount: data.messages.length,
+              preview: firstUserMsg ? firstUserMsg.content.slice(0, 50) : '',
+              isCurrent: false,
+            });
+          } catch {
+            // skip corrupted files
+          }
+        }
+      } catch {
+        // No archive dir
+      }
+
+      if (sessions.length > 0) {
+        sessions.sort((a, b) => {
+          if (a.isCurrent && !b.isCurrent) return -1;
+          if (!a.isCurrent && b.isCurrent) return 1;
+          return b.date.localeCompare(a.date);
+        });
+        results.push({ workspaceId: dir, sessions });
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Load a session by ID from another workspace's archive (read-only).
+   */
+  static async readSessionFromWorkspace(
+    sourceWorkspaceId: string,
+    sessionId: string,
+  ): Promise<CanvasAgentSession | null> {
+    const sessionsDir = join(STORE_DIR, sourceWorkspaceId, 'agent-sessions');
+    const currentPath = join(sessionsDir, 'current.json');
+    const archiveDir = join(sessionsDir, 'archive');
+
+    // Check current session first
+    try {
+      const raw = await fs.readFile(currentPath, 'utf-8');
+      const data = JSON.parse(raw) as CanvasAgentSession;
+      if (data.sessionId === sessionId) return data;
+    } catch {
+      // ignore
+    }
+
+    // Check archive
+    try {
+      const files = await fs.readdir(archiveDir);
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        const raw = await fs.readFile(join(archiveDir, file), 'utf-8');
+        const data = JSON.parse(raw) as CanvasAgentSession;
+        if (data.sessionId === sessionId) return data;
+      }
+    } catch {
+      // ignore
+    }
+
+    return null;
+  }
+
   // ─── Internal ────────────────────────────────────────────────
 
   private async persist(): Promise<void> {

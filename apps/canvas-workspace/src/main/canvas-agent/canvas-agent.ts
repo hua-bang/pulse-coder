@@ -266,6 +266,19 @@ export class CanvasAgent {
   }
 
   /**
+   * Load messages from a cross-workspace session as the current view.
+   * Archives current session first, then sets the loaded messages.
+   */
+  async loadCrossWorkspaceSession(loadedMessages: CanvasAgentMessage[]): Promise<void> {
+    await this.sessionStore.startSession();
+    this.messages = loadedMessages.map(m => ({ role: m.role, content: m.content } as any));
+    // Persist each message into the new current session
+    for (const m of loadedMessages) {
+      this.sessionStore.addMessage(m);
+    }
+  }
+
+  /**
    * Destroy the agent (called when workspace is closed).
    */
   async destroy(): Promise<void> {
