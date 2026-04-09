@@ -151,14 +151,26 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
     canvas_create_node: {
       name: 'canvas_create_node',
       description:
-        'Create a new node on the canvas. For file nodes, a notes file is automatically created in the workspace.',
+        'Create a new node on the canvas.\n' +
+        '- **file**: Creates a markdown note with a backing file. Use `content` for initial text.\n' +
+        '- **terminal**: Spawns an interactive shell session on the canvas. The PTY starts automatically. Use `data.cwd` to set the working directory.\n' +
+        '- **frame**: Creates a grouping container. Use `data.color` (hex) and `data.label`.\n' +
+        '- **agent**: Creates an AI agent node (Claude Code, Codex, Pulse Coder). ' +
+        'Set `data.agentType` ("claude-code" | "codex" | "pulse-coder"), `data.cwd` for the working directory, ' +
+        'and `data.status` to "running" to auto-launch (default "idle" shows a picker). ' +
+        'Optional `data.agentArgs` passes extra arguments to the agent command.',
       inputSchema: z.object({
         type: z.enum(['file', 'terminal', 'frame', 'agent']).describe('Node type.'),
         title: z.string().optional().describe('Node title.'),
         content: z.string().optional().describe('Initial content (for file nodes).'),
         x: z.number().optional().describe('X position (auto-placed if omitted).'),
         y: z.number().optional().describe('Y position (auto-placed if omitted).'),
-        data: z.record(z.string(), z.unknown()).optional().describe('Additional node data (e.g. color/label for frames, cwd for terminals).'),
+        data: z.record(z.string(), z.unknown()).optional().describe(
+          'Additional node data. Keys vary by type:\n' +
+          '- terminal: { cwd?: string }\n' +
+          '- agent: { agentType?: "claude-code"|"codex"|"pulse-coder", cwd?: string, status?: "idle"|"running", agentArgs?: string }\n' +
+          '- frame: { color?: string, label?: string }',
+        ),
       }),
       execute: async (input) => {
         const nodeType = input.type as NodeType;
@@ -191,14 +203,19 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
               label: (extraData.label as string) ?? '',
             };
             break;
-          case 'agent':
+          case 'agent': {
+            const requestedStatus = (extraData.status as string) ?? 'idle';
+            const validStatuses = ['idle', 'running'];
+            const status = validStatuses.includes(requestedStatus) ? requestedStatus : 'idle';
             nodeData = {
               sessionId: '',
               cwd: (extraData.cwd as string) ?? '',
               agentType: (extraData.agentType as string) ?? 'claude-code',
-              status: 'idle',
+              status,
+              agentArgs: (extraData.agentArgs as string) ?? '',
             };
             break;
+          }
         }
 
         // For file nodes, create a backing notes file

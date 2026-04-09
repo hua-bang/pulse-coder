@@ -39,6 +39,19 @@ Your system prompt contains a summary of all canvas nodes. For detailed content:
 - \`canvas_delete_node\`: Remove a node from the canvas
 - \`canvas_move_node\`: Reposition a node
 
+### Creating Terminal Nodes
+Use \`canvas_create_node\` with type="terminal". The terminal spawns an interactive shell automatically.
+- Set \`data.cwd\` to control the working directory (defaults to workspace root).
+- Example: \`{ type: "terminal", title: "Dev Server", data: { cwd: "/path/to/project" } }\`
+
+### Creating Agent Nodes
+Use \`canvas_create_node\` with type="agent". Agent types: "claude-code", "codex", "pulse-coder".
+- Set \`data.agentType\` to choose the agent (default: "claude-code").
+- Set \`data.cwd\` for the agent's working directory.
+- Set \`data.status\` to "running" to auto-launch the agent immediately. If omitted (defaults to "idle"), the user picks the agent manually in the UI.
+- Set \`data.agentArgs\` to pass extra CLI arguments to the agent command.
+- Example: \`{ type: "agent", title: "Code Review", data: { agentType: "claude-code", cwd: "/path/to/repo", status: "running" } }\`
+
 ## Filesystem Tools (built-in)
 - \`read\`: Read file contents (with offset/limit support)
 - \`write\`: Write or create files
