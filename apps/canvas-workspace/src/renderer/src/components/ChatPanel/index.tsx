@@ -103,6 +103,20 @@ const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 // ─── @ Mention rendering ─────────────────────────────────────────
 const MENTION_RE = /@\[([^\]]+)\]/g;
 
+/** SVG icon markup for a given node type (HTML attributes use kebab-case). */
+function mentionIconSvg(nodeType: string): string {
+  switch (nodeType) {
+    case 'terminal':
+      return '<rect x="1.5" y="2" width="11" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M4 6l2 1.5L4 9" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>';
+    case 'agent':
+      return '<circle cx="7" cy="5" r="2.5" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 12c0-1.9 1.6-3.5 3.5-3.5s3.5 1.6 3.5 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>';
+    case 'frame':
+      return '<rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1.2"/>';
+    default: // file
+      return '<rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 5h5M4.5 7.5h3" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>';
+  }
+}
+
 /** Serialize a contentEditable div back to plain text with @[label] syntax. */
 function serializeEditable(el: HTMLElement): string {
   let text = '';
@@ -185,15 +199,7 @@ function renderMdWithMentions(content: string, nodes?: CanvasNode[]): string {
     const node = nodes?.find(n => n.title === label);
     const nodeType = node?.type ?? 'file';
     const nodeId = node?.id ?? '';
-    return `<span class="chat-mention-chip chat-mention-chip--clickable" data-node-type="${nodeType}" data-node-id="${nodeId}"><span class="chat-mention-chip-icon"><svg width="12" height="12" viewBox="0 0 14 14" fill="none">${
-      nodeType === 'terminal'
-        ? '<rect x="1.5" y="2" width="11" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M4 6l2 1.5L4 9" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>'
-        : nodeType === 'agent'
-          ? '<circle cx="7" cy="5" r="2.5" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 12c0-1.9 1.6-3.5 3.5-3.5s3.5 1.6 3.5 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>'
-          : nodeType === 'frame'
-            ? '<rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1.2"/>'
-            : '<rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 5h5M4.5 7.5h3" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>'
-    }</svg></span><span class="chat-mention-chip-label">${label}</span></span>`;
+    return `<span class="chat-mention-chip chat-mention-chip--clickable" data-node-type="${nodeType}" data-node-id="${nodeId}"><span class="chat-mention-chip-icon"><svg width="12" height="12" viewBox="0 0 14 14" fill="none">${mentionIconSvg(nodeType)}</svg></span><span class="chat-mention-chip-label">${label}</span></span>`;
   });
 }
 
@@ -500,13 +506,18 @@ export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeSta
     const beforeAt = text.slice(0, atIdx);
     const afterCursor = text.slice(anchorOffset);
 
-    // Build chip element
+    // Build chip element with icon + label
     const nodeMatch = nodes?.find(n => n.title === item.label);
+    const nodeType = nodeMatch?.type ?? (item.nodeType ?? 'file');
     const chip = document.createElement('span');
     chip.className = 'chat-mention-chip chat-mention-chip--input';
     chip.contentEditable = 'false';
     chip.dataset.mention = item.label;
-    chip.dataset.nodeType = nodeMatch?.type ?? (item.nodeType ?? 'file');
+    chip.dataset.nodeType = nodeType;
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'chat-mention-chip-icon';
+    iconSpan.innerHTML = `<svg width="12" height="12" viewBox="0 0 14 14" fill="none">${mentionIconSvg(nodeType)}</svg>`;
+    chip.appendChild(iconSpan);
     const labelSpan = document.createElement('span');
     labelSpan.className = 'chat-mention-chip-label';
     labelSpan.textContent = item.label;

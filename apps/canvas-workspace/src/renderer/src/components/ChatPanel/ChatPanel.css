@@ -841,19 +841,8 @@
 
 /* Input chip variant — inline non-editable mention in contentEditable */
 .chat-mention-chip--input {
-  padding: 1px 6px;
-  margin: 0 1px;
-  gap: 0;
   font-size: inherit;
   line-height: 1.4;
   vertical-align: baseline;
-  border: 1px solid rgba(35, 131, 226, 0.2);
-  border-radius: 4px;
-  background: rgba(35, 131, 226, 0.08);
-  color: rgb(35, 131, 226);
   user-select: all;
-}
-.chat-mention-chip--input .chat-mention-chip-label {
-  font-weight: 500;
-  color: inherit;
 }
