@@ -10,11 +10,13 @@
 import { join } from 'path';
 import { homedir } from 'os';
 import { CanvasAgent } from './canvas-agent';
+import { SessionStore } from './session-store';
 import type {
   ChatResponse,
   AgentStatusResponse,
   SessionListResponse,
   CanvasAgentMessage,
+  CrossWorkspaceSessionGroup,
 } from './types';
 
 const STORE_DIR = join(homedir(), '.pulse-coder', 'canvas');
@@ -110,6 +112,66 @@ export class CanvasAgentService {
       const agent = this.agents.get(workspaceId)!;
       const messages = await agent.loadSession(sessionId);
       return { ok: true, messages };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  }
+
+  /**
+   * List sessions from ALL workspaces, grouped by workspace.
+   * @param workspaceNames — map of workspaceId → display name (from renderer manifest)
+   */
+  async listAllSessions(
+    workspaceNames: Record<string, string>,
+  ): Promise<CrossWorkspaceSessionGroup[]> {
+    const diskGroups = await SessionStore.listAllWorkspaceSessions();
+    const groups: CrossWorkspaceSessionGroup[] = [];
+
+    for (const g of diskGroups) {
+      // If this workspace has an active in-memory agent, use its live session list
+      const agent = this.agents.get(g.workspaceId);
+      const sessions = agent
+        ? await agent.listSessions()
+        : g.sessions;
+
+      groups.push({
+        workspaceId: g.workspaceId,
+        workspaceName: workspaceNames[g.workspaceId] || g.workspaceId,
+        sessions,
+      });
+    }
+
+    // Sort: ensure workspaces with more recent sessions come first
+    groups.sort((a, b) => {
+      const aDate = a.sessions[0]?.date ?? '';
+      const bDate = b.sessions[0]?.date ?? '';
+      return bDate.localeCompare(aDate);
+    });
+
+    return groups;
+  }
+
+  /**
+   * Load a session from a different workspace into the current workspace's agent.
+   */
+  async loadCrossWorkspaceSession(
+    targetWorkspaceId: string,
+    sourceWorkspaceId: string,
+    sessionId: string,
+  ): Promise<{ ok: boolean; messages?: CanvasAgentMessage[]; error?: string }> {
+    try {
+      // Read session data from source workspace
+      const session = await SessionStore.readSessionFromWorkspace(sourceWorkspaceId, sessionId);
+      if (!session) return { ok: false, error: 'Session not found in source workspace' };
+
+      // Activate target workspace agent
+      await this.activate(targetWorkspaceId);
+      const agent = this.agents.get(targetWorkspaceId)!;
+
+      // Archive current session, then set loaded messages as current view
+      await agent.loadCrossWorkspaceSession(session.messages);
+
+      return { ok: true, messages: session.messages };
     } catch (err) {
       return { ok: false, error: String(err) };
     }

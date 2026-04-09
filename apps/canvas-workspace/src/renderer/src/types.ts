@@ -136,6 +136,12 @@ export interface AgentSessionInfo {
   preview?: string;
 }
 
+export interface CrossWorkspaceSessionGroup {
+  workspaceId: string;
+  workspaceName: string;
+  sessions: AgentSessionInfo[];
+}
+
 export interface AgentApi {
   chat: (
     workspaceId: string,
@@ -172,6 +178,14 @@ export interface AgentApi {
   loadSession: (
     workspaceId: string,
     sessionId: string
+  ) => Promise<{ ok: boolean; messages?: AgentChatMessage[]; error?: string }>;
+  listAllSessions: (
+    workspaceNames: Record<string, string>,
+  ) => Promise<{ ok: boolean; groups?: CrossWorkspaceSessionGroup[]; error?: string }>;
+  loadCrossWorkspaceSession: (
+    targetWorkspaceId: string,
+    sourceWorkspaceId: string,
+    sessionId: string,
   ) => Promise<{ ok: boolean; messages?: AgentChatMessage[]; error?: string }>;
   activate: (workspaceId: string) => Promise<{ ok: boolean; error?: string }>;
   deactivate: (workspaceId: string) => Promise<{ ok: boolean; error?: string }>;

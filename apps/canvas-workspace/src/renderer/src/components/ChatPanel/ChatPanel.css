@@ -164,6 +164,23 @@
   flex-shrink: 0;
 }
 
+.chat-session-menu-item--other-ws .chat-session-menu-item-text {
+  opacity: 0.85;
+}
+
+.chat-session-menu-item-ws {
+  font-size: 10px;
+  color: #9b9a97;
+  background: rgba(55, 53, 47, 0.06);
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .chat-panel-action-btn {
   width: 28px;
   height: 28px;

@@ -130,6 +130,33 @@ export function setupCanvasAgentIpc(): void {
   );
 
   ipcMain.handle(
+    'canvas-agent:all-sessions',
+    async (_event, payload: { workspaceNames: Record<string, string> }) => {
+      try {
+        const groups = await svc.listAllSessions(payload.workspaceNames);
+        return { ok: true, groups };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'canvas-agent:load-cross-workspace-session',
+    async (_event, payload: { targetWorkspaceId: string; sourceWorkspaceId: string; sessionId: string }) => {
+      try {
+        return await svc.loadCrossWorkspaceSession(
+          payload.targetWorkspaceId,
+          payload.sourceWorkspaceId,
+          payload.sessionId,
+        );
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+  );
+
+  ipcMain.handle(
     'canvas-agent:activate',
     async (_event, payload: { workspaceId: string }) => {
       try {

@@ -197,6 +197,12 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
     loadSession: (workspaceId: string, sessionId: string) =>
       ipcRenderer.invoke("canvas-agent:load-session", { workspaceId, sessionId }),
 
+    listAllSessions: (workspaceNames: Record<string, string>) =>
+      ipcRenderer.invoke("canvas-agent:all-sessions", { workspaceNames }),
+
+    loadCrossWorkspaceSession: (targetWorkspaceId: string, sourceWorkspaceId: string, sessionId: string) =>
+      ipcRenderer.invoke("canvas-agent:load-cross-workspace-session", { targetWorkspaceId, sourceWorkspaceId, sessionId }),
+
     activate: (workspaceId: string) =>
       ipcRenderer.invoke("canvas-agent:activate", { workspaceId }),
 

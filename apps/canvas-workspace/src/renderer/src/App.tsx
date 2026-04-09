@@ -137,6 +137,7 @@ const App = () => {
           >
             <ChatPanel
               workspaceId={ws.id}
+              allWorkspaces={workspaces}
               nodes={allNodes[ws.id] || []}
               rootFolder={ws.rootFolder}
               onClose={() => setChatPanelOpen(false)}

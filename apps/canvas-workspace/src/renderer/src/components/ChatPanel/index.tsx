@@ -1,10 +1,17 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import MarkdownIt from 'markdown-it';
 import type { AgentChatMessage, AgentSessionInfo, CanvasNode } from '../../types';
+
+interface OtherWorkspaceSession extends AgentSessionInfo {
+  sourceWorkspaceId: string;
+  workspaceName: string;
+}
 import './ChatPanel.css';
 
 interface ChatPanelProps {
   workspaceId: string;
+  /** All workspaces — used to load cross-workspace sessions. */
+  allWorkspaces?: Array<{ id: string; name: string }>;
   nodes?: CanvasNode[];
   rootFolder?: string;
   onClose: () => void;
@@ -203,12 +210,13 @@ function renderMdWithMentions(content: string, nodes?: CanvasNode[]): string {
   });
 }
 
-export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeStart, onNodeFocus }: ChatPanelProps) => {
+export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClose, onResizeStart, onNodeFocus }: ChatPanelProps) => {
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [sessions, setSessions] = useState<AgentSessionInfo[]>([]);
+  const [otherSessions, setOtherSessions] = useState<OtherWorkspaceSession[]>([]);
   const [streamingTools, setStreamingTools] = useState<ToolCallStatus[]>([]);
   const [expandedTools, setExpandedTools] = useState<Set<number>>(new Set());
   // Persist tool calls per message (msgIndex → tools). Not stored in message data.
@@ -262,18 +270,42 @@ export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeSta
     return () => document.removeEventListener('mousedown', handler);
   }, [sessionMenuOpen]);
 
-  // Load sessions list when menu opens
+  // Load sessions list when menu opens (current + other workspaces)
   const openSessionMenu = useCallback(async () => {
     if (sessionMenuOpen) {
       setSessionMenuOpen(false);
       return;
     }
+    // Load current workspace sessions
     const result = await window.canvasWorkspace.agent.listSessions(workspaceId);
     if (result.ok && result.sessions) {
       setSessions(result.sessions);
     }
+    // Load all workspace sessions for cross-workspace display
+    if (allWorkspaces && allWorkspaces.length > 1) {
+      const nameMap: Record<string, string> = {};
+      for (const ws of allWorkspaces) {
+        nameMap[ws.id] = ws.name;
+      }
+      const allResult = await window.canvasWorkspace.agent.listAllSessions(nameMap);
+      if (allResult.ok && allResult.groups) {
+        // Flatten into a single list with workspace metadata, exclude current workspace
+        const flat: OtherWorkspaceSession[] = [];
+        for (const g of allResult.groups) {
+          if (g.workspaceId === workspaceId) continue;
+          for (const s of g.sessions) {
+            flat.push({ ...s, sourceWorkspaceId: g.workspaceId, workspaceName: g.workspaceName });
+          }
+        }
+        // Sort by date descending (newest first)
+        flat.sort((a, b) => b.date.localeCompare(a.date));
+        setOtherSessions(flat);
+      }
+    } else {
+      setOtherSessions([]);
+    }
     setSessionMenuOpen(true);
-  }, [sessionMenuOpen, workspaceId]);
+  }, [sessionMenuOpen, workspaceId, allWorkspaces]);
 
   const handleNewSession = useCallback(async () => {
     setSessionMenuOpen(false);
@@ -283,9 +315,15 @@ export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeSta
     setCollapsedSections(new Set());
   }, [workspaceId]);
 
-  const handleLoadSession = useCallback(async (sessionId: string) => {
+  const handleLoadSession = useCallback(async (sessionId: string, sourceWorkspaceId?: string) => {
     setSessionMenuOpen(false);
-    const result = await window.canvasWorkspace.agent.loadSession(workspaceId, sessionId);
+    let result: { ok: boolean; messages?: AgentChatMessage[] };
+    if (sourceWorkspaceId && sourceWorkspaceId !== workspaceId) {
+      // Cross-workspace load
+      result = await window.canvasWorkspace.agent.loadCrossWorkspaceSession(workspaceId, sourceWorkspaceId, sessionId);
+    } else {
+      result = await window.canvasWorkspace.agent.loadSession(workspaceId, sessionId);
+    }
     if (result.ok && result.messages) {
       setMessages(result.messages);
     }
@@ -751,6 +789,30 @@ export const ChatPanel = ({ workspaceId, nodes, rootFolder, onClose, onResizeSta
                         <span className="chat-session-menu-item-text">
                           {s.isCurrent ? 'Current chat' : (s.preview || s.date)}
                         </span>
+                        <span className="chat-session-menu-item-count">{s.messageCount}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              {otherSessions.length > 0 && (
+                <>
+                  <div className="chat-session-menu-divider" />
+                  <div className="chat-session-menu-label">Other Workspaces</div>
+                  <div className="chat-session-menu-list">
+                    {otherSessions.map((s) => (
+                      <button
+                        key={s.sessionId}
+                        className="chat-session-menu-item chat-session-menu-item--other-ws"
+                        onClick={() => void handleLoadSession(s.sessionId, s.sourceWorkspaceId)}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                          <path d="M4 3.5h6M4 7h4M4 10.5h5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                        </svg>
+                        <span className="chat-session-menu-item-text">
+                          {s.preview || s.date}
+                        </span>
+                        <span className="chat-session-menu-item-ws">{s.workspaceName}</span>
                         <span className="chat-session-menu-item-count">{s.messageCount}</span>
                       </button>
                     ))}
