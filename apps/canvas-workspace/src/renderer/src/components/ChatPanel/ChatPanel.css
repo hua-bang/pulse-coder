@@ -294,11 +294,17 @@
   max-width: 85%;
 }
 
+.chat-message-user .chat-message-body {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .chat-message-user .chat-message-content {
   background: rgba(55, 53, 47, 0.06);
   padding: 8px 12px;
   border-radius: 12px;
   border-bottom-right-radius: 4px;
+  max-width: 85%;
 }
 
 .chat-message-assistant .chat-message-content {
