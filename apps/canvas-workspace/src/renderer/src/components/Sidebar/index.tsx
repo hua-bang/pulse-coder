@@ -170,6 +170,23 @@ export const Sidebar = ({
   } | null>(null);
 
   const layerTree = useMemo(() => buildLayerTree(activeNodes), [activeNodes]);
+  const frameIds = useMemo(
+    () => layerTree.filter((n) => n.node.type === 'frame').map((n) => n.node.id),
+    [layerTree],
+  );
+  const anyFrameExpanded = useMemo(
+    () => frameIds.some((id) => !collapsedLayers.has(id)),
+    [frameIds, collapsedLayers],
+  );
+
+  const toggleAllLayers = useCallback(() => {
+    setCollapsedLayers((prev) => {
+      if (frameIds.length === 0) return prev;
+      // If any frame is currently expanded → collapse them all. Otherwise expand.
+      const anyExpanded = frameIds.some((id) => !prev.has(id));
+      return anyExpanded ? new Set(frameIds) : new Set();
+    });
+  }, [frameIds]);
 
   const handleLayerContextMenu = useCallback((e: ReactMouseEvent, nodeId: string) => {
     e.preventDefault();
@@ -640,7 +657,39 @@ export const Sidebar = ({
         <div className="sidebar-layers">
           <div className="sidebar-section-header">
             <span className="sidebar-section-title">Layers</span>
-            <span className="sidebar-layer-count">{activeNodes.length}</span>
+            <div className="sidebar-section-actions">
+              <span className="sidebar-layer-count">{activeNodes.length}</span>
+              {frameIds.length > 0 && (
+                <button
+                  className="sidebar-section-btn"
+                  onClick={toggleAllLayers}
+                  title={anyFrameExpanded ? 'Collapse all frames' : 'Expand all frames'}
+                  aria-label={anyFrameExpanded ? 'Collapse all frames' : 'Expand all frames'}
+                >
+                  {anyFrameExpanded ? (
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M4 2l4 4 4-4M4 14l4-4 4 4"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M4 6l4-4 4 4M4 10l4 4 4-4"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
           <div className="sidebar-layers-scroll">
             {layerTree.map(({ node, children }) => {
@@ -732,6 +781,21 @@ export const Sidebar = ({
           onMouseDown={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >
+          <button
+            className="sidebar-layer-context-menu-item"
+            onClick={() => {
+              onNodeFocus?.(layerContextMenu.nodeId);
+              setLayerContextMenu(null);
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.3" />
+              <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+              <path d="M8 1.5v1.5M8 13v1.5M1.5 8h1.5M13 8h1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            </svg>
+            <span>Focus</span>
+          </button>
+          <div className="sidebar-layer-context-menu-separator" />
           <button
             className="sidebar-layer-context-menu-item sidebar-layer-context-menu-item--danger"
             onClick={() => {

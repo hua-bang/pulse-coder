@@ -467,7 +467,7 @@
 .sidebar-layer-count {
   font-size: 11px;
   color: var(--text-muted);
-  margin-left: auto;
+  padding: 0 2px;
 }
 
 .sidebar-layers-scroll {
@@ -560,8 +560,8 @@
 }
 
 .sidebar-layer-children {
-  padding-left: 12px;
-  margin-left: 8px;
+  padding: 0 0 0 10px;
+  margin: 0 6px 0 12px;
   border-left: 1.5px solid var(--border-light);
 }
 
@@ -593,7 +593,7 @@
 
 .sidebar-folder-children {
   padding: 0 0 0 10px;
-  margin: 0 6px 0 16px;
+  margin: 0 6px 0 12px;
   border-left: 1.5px solid var(--border-light);
   transition: border-color 0.15s;
   min-height: 2px;
@@ -680,4 +680,10 @@
 .sidebar-layer-context-menu-item--danger:hover {
   background: rgba(192, 57, 43, 0.08);
   color: #c0392b;
+}
+
+.sidebar-layer-context-menu-separator {
+  height: 1px;
+  background: var(--border-light);
+  margin: 4px 2px;
 }
