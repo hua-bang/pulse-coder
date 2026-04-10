@@ -10,7 +10,6 @@
   flex-direction: column;
   overflow: hidden;
   transition: box-shadow 0.15s ease, border-color 0.15s ease;
-  animation: nodeAppear 0.2s ease;
 }
 
 .canvas-node:hover {
@@ -219,17 +218,6 @@
   10% { opacity: 1; transform: translateY(0); }
   80% { opacity: 1; transform: translateY(0); }
   100% { opacity: 0; transform: translateY(-2px); }
-}
-
-@keyframes nodeAppear {
-  from {
-    opacity: 0;
-    transform: translate(var(--x, 0), var(--y, 0)) scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: translate(var(--x, 0), var(--y, 0)) scale(1);
-  }
 }
 
 @keyframes nodeHighlight {
