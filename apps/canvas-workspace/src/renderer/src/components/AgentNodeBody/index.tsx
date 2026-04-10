@@ -165,6 +165,17 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
       } else {
         api.write(sessionId, `${command}\n`);
       }
+
+      // The initial prompt is a one-shot task: once it has been written to
+      // the PTY it has been consumed and must not be replayed. Clear the
+      // persisted fields so that reopening the canvas re-attaches without
+      // re-executing the same command. (We intentionally leave agentArgs
+      // alone — that's a stable CLI arg the user may want on restart.)
+      if (inlinePrompt || promptFile) {
+        onUpdateRef.current(nodeIdRef.current, {
+          data: { ...dataRef.current, inlinePrompt: '', promptFile: '' },
+        });
+      }
     };
 
     // Wait for the shell to emit its first output (prompt) before writing
