@@ -51,11 +51,18 @@ export class CanvasAgentService {
     onText?: (delta: string) => void,
     onToolCall?: (data: { name: string; args: any }) => void,
     onToolResult?: (data: { name: string; result: string }) => void,
+    mentionedWorkspaceIds?: string[],
   ): Promise<ChatResponse> {
     try {
       await this.activate(workspaceId);
       const agent = this.agents.get(workspaceId)!;
-      const response = await agent.chat(message, onText, onToolCall, onToolResult);
+      const response = await agent.chat(
+        message,
+        onText,
+        onToolCall,
+        onToolResult,
+        mentionedWorkspaceIds,
+      );
       return { ok: true, response };
     } catch (err) {
       console.error(`[canvas-agent-service] chat error for ${workspaceId}:`, err);

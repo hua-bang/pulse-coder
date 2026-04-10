@@ -57,6 +57,20 @@ async function loadManifest(): Promise<WorkspaceManifest> {
   }
 }
 
+/**
+ * Resolve a set of workspaceIds to `{ id, name }` pairs using the on-disk
+ * manifest. IDs that don't exist in the manifest still come back, with their
+ * name falling back to the ID itself so the caller can always reference them.
+ */
+export async function resolveWorkspaceNames(
+  workspaceIds: string[],
+): Promise<Array<{ id: string; name: string }>> {
+  if (workspaceIds.length === 0) return [];
+  const manifest = await loadManifest();
+  const byId = new Map(manifest.workspaces.map(w => [w.id, w.name] as const));
+  return workspaceIds.map(id => ({ id, name: byId.get(id) ?? id }));
+}
+
 // ─── Summary builder ───────────────────────────────────────────────
 
 function summarizeNode(node: CanvasNode): NodeSummary {

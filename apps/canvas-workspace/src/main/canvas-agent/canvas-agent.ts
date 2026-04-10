@@ -9,7 +9,11 @@
 import { Engine, builtInSkillsPlugin } from 'pulse-coder-engine';
 import { createOpenAI } from '@ai-sdk/openai';
 import type { ModelMessage } from 'ai';
-import { buildWorkspaceSummary, formatSummaryForPrompt } from './context-builder';
+import {
+  buildWorkspaceSummary,
+  formatSummaryForPrompt,
+  resolveWorkspaceNames,
+} from './context-builder';
 import { createCanvasTools } from './tools';
 import { SessionStore } from './session-store';
 import type { CanvasAgentConfig, CanvasAgentMessage, WorkspaceSummary } from './types';
@@ -86,11 +90,44 @@ Use these alongside canvas_* tools for full workspace control.
 
 `;
 
-function buildSystemPrompt(summary: WorkspaceSummary | null): string {
-  if (!summary) {
-    return BASE_SYSTEM_PROMPT + '\n## Current Canvas\n(empty workspace — no nodes yet)\n';
+function buildSystemPrompt(
+  summary: WorkspaceSummary | null,
+  mentionedCanvases: Array<{ id: string; name: string }> = [],
+): string {
+  const base = summary
+    ? BASE_SYSTEM_PROMPT + '\n## Current Canvas\n' + formatSummaryForPrompt(summary)
+    : BASE_SYSTEM_PROMPT + '\n## Current Canvas\n(empty workspace — no nodes yet)\n';
+
+  if (mentionedCanvases.length === 0) return base;
+
+  const lines: string[] = [
+    '',
+    '## Other Canvases Referenced by the User',
+    'The user has `@`-mentioned the canvases listed below. This is a ' +
+      '**reference table only** — it tells you which workspaceIds the user ' +
+      'might be talking about. It is **not** an instruction to read them.',
+    '',
+    '**Strict rule — do NOT auto-read:** Do not call `canvas_read_context` ' +
+      'or `canvas_read_node` for any canvas in this list unless the user\'s ' +
+      'current message **explicitly asks** you to read, open, look at, ' +
+      'summarize, compare, or otherwise use content from that specific ' +
+      'canvas. A bare mention like "`@[canvas:Foo]` 怎么样？" where "怎么样" ' +
+      'stands alone is **not** an explicit read request — ask the user what ' +
+      'they want to know about it instead. Fetching without an explicit ' +
+      'request wastes the user\'s tokens and is considered incorrect behavior.',
+    '',
+    'When the user **does** explicitly ask, use the matching `workspaceId` ' +
+      'from the list with `canvas_read_context` (detail="summary" for the ' +
+      'node list, detail="full" for file contents and terminal scrollback), ' +
+      'or with `canvas_read_node` for a single node.',
+    '',
+    'Mentioned canvases:',
+  ];
+  for (const c of mentionedCanvases) {
+    lines.push(`- **${c.name}** — workspaceId: \`${c.id}\``);
   }
-  return BASE_SYSTEM_PROMPT + '\n## Current Canvas\n' + formatSummaryForPrompt(summary);
+  lines.push('');
+  return base + lines.join('\n');
 }
 
 // ─── Canvas Agent ──────────────────────────────────────────────────
@@ -143,10 +180,24 @@ export class CanvasAgent {
     onText?: (delta: string) => void,
     onToolCall?: (data: { name: string; args: any }) => void,
     onToolResult?: (data: { name: string; result: string }) => void,
+    mentionedWorkspaceIds?: string[],
   ): Promise<string> {
     // Refresh workspace summary for system prompt
     const summary = await buildWorkspaceSummary(this.config.workspaceId);
-    const systemPrompt = buildSystemPrompt(summary);
+
+    // For any other canvases the user @-mentioned, we only inject the
+    // `{ id, name }` pair into the system prompt — the agent is expected to
+    // call `canvas_read_context({ workspaceId })` on demand if it actually
+    // needs that canvas's content.
+    let mentionedCanvases: Array<{ id: string; name: string }> = [];
+    if (mentionedWorkspaceIds && mentionedWorkspaceIds.length > 0) {
+      const unique = Array.from(new Set(mentionedWorkspaceIds)).filter(
+        id => id && id !== this.config.workspaceId,
+      );
+      mentionedCanvases = await resolveWorkspaceNames(unique);
+    }
+
+    const systemPrompt = buildSystemPrompt(summary, mentionedCanvases);
 
     // Add user message
     this.messages.push({ role: 'user', content: message } as ModelMessage);

@@ -145,7 +145,8 @@ export interface CrossWorkspaceSessionGroup {
 export interface AgentApi {
   chat: (
     workspaceId: string,
-    message: string
+    message: string,
+    mentionedWorkspaceIds?: string[]
   ) => Promise<{ ok: boolean; sessionId?: string; error?: string }>;
   onTextDelta: (
     sessionId: string,

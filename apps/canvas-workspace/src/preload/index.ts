@@ -134,8 +134,8 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
   },
 
   agent: {
-    chat: (workspaceId: string, message: string) =>
-      ipcRenderer.invoke("canvas-agent:chat", { workspaceId, message }),
+    chat: (workspaceId: string, message: string, mentionedWorkspaceIds?: string[]) =>
+      ipcRenderer.invoke("canvas-agent:chat", { workspaceId, message, mentionedWorkspaceIds }),
 
     onTextDelta: (sessionId: string, callback: (delta: string) => void) => {
       const channel = `canvas-agent:text-delta:${sessionId}`;
