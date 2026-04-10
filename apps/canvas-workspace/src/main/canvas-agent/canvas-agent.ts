@@ -103,13 +103,25 @@ function buildSystemPrompt(
   const lines: string[] = [
     '',
     '## Other Canvases Referenced by the User',
-    'The user has `@`-mentioned the canvases listed below. No content is ' +
-      'pre-loaded — call `canvas_read_context` with the matching `workspaceId` ' +
-      '(detail="summary" for the node list, detail="full" for file contents ' +
-      'and terminal scrollback) when you actually need to read one. For a ' +
-      'single node, call `canvas_read_node` with both `workspaceId` and ' +
-      '`nodeId`. Only fetch what the user\'s request actually needs.',
+    'The user has `@`-mentioned the canvases listed below. This is a ' +
+      '**reference table only** — it tells you which workspaceIds the user ' +
+      'might be talking about. It is **not** an instruction to read them.',
     '',
+    '**Strict rule — do NOT auto-read:** Do not call `canvas_read_context` ' +
+      'or `canvas_read_node` for any canvas in this list unless the user\'s ' +
+      'current message **explicitly asks** you to read, open, look at, ' +
+      'summarize, compare, or otherwise use content from that specific ' +
+      'canvas. A bare mention like "`@[canvas:Foo]` 怎么样？" where "怎么样" ' +
+      'stands alone is **not** an explicit read request — ask the user what ' +
+      'they want to know about it instead. Fetching without an explicit ' +
+      'request wastes the user\'s tokens and is considered incorrect behavior.',
+    '',
+    'When the user **does** explicitly ask, use the matching `workspaceId` ' +
+      'from the list with `canvas_read_context` (detail="summary" for the ' +
+      'node list, detail="full" for file contents and terminal scrollback), ' +
+      'or with `canvas_read_node` for a single node.',
+    '',
+    'Mentioned canvases:',
   ];
   for (const c of mentionedCanvases) {
     lines.push(`- **${c.name}** — workspaceId: \`${c.id}\``);
