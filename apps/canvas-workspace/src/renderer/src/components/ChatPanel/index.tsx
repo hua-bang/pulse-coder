@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, Fragment } from 'react';
 import MarkdownIt from 'markdown-it';
 import type { AgentChatMessage, AgentSessionInfo, CanvasNode } from '../../types';
 
@@ -38,6 +38,44 @@ interface MentionItem {
 
 /** Prefix used to distinguish canvas/workspace mentions in the @[...] token. */
 const CANVAS_MENTION_PREFIX = 'canvas:';
+
+/**
+ * Groups shown as section headers in the @ mention popup, in display order.
+ * The key identifies the group for sort + render boundaries; `label` is the
+ * header text the user sees.
+ */
+const MENTION_GROUPS = [
+  { key: 'canvas',    label: 'Canvas' },
+  { key: 'file',      label: 'File' },
+  { key: 'agent',     label: 'Agent' },
+  { key: 'terminal',  label: 'Terminal' },
+  { key: 'frame',     label: 'Frame' },
+  { key: 'proj-file', label: 'Project Files' },
+] as const;
+
+type MentionGroupKey = (typeof MENTION_GROUPS)[number]['key'];
+
+const MENTION_GROUP_ORDER: MentionGroupKey[] = MENTION_GROUPS.map(g => g.key);
+const MENTION_GROUP_LABEL: Record<MentionGroupKey, string> = Object.fromEntries(
+  MENTION_GROUPS.map(g => [g.key, g.label]),
+) as Record<MentionGroupKey, string>;
+
+function getMentionGroupKey(item: MentionItem): MentionGroupKey {
+  if (item.type === 'workspace') return 'canvas';
+  if (item.type === 'file') return 'proj-file';
+  // type === 'node' — discriminate by nodeType
+  switch (item.nodeType) {
+    case 'agent':    return 'agent';
+    case 'terminal': return 'terminal';
+    case 'frame':    return 'frame';
+    case 'file':
+    default:         return 'file';
+  }
+}
+
+/** Max candidates shown in the @ popup. High enough that canvas nodes don't
+ *  get clipped off the bottom even with many workspaces + project files. */
+const MENTION_MAX_ITEMS = 30;
 
 function truncStr(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 3) + '...' : s;
@@ -439,7 +477,16 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
     // Filter by query
     const q = query.toLowerCase();
     const filtered = q ? items.filter(it => it.label.toLowerCase().includes(q)) : items;
-    return filtered.slice(0, 12);
+    // Sort by group order so rendering can insert section headers on group
+    // boundaries. `sort` is stable in modern JS engines so intra-group order
+    // is preserved (workspaces by manifest order, canvas nodes by z-order,
+    // project files by listDir order).
+    filtered.sort((a, b) => {
+      const aOrder = MENTION_GROUP_ORDER.indexOf(getMentionGroupKey(a));
+      const bOrder = MENTION_GROUP_ORDER.indexOf(getMentionGroupKey(b));
+      return aOrder - bOrder;
+    });
+    return filtered.slice(0, MENTION_MAX_ITEMS);
   }, [allWorkspaces, workspaceId, nodes, rootFolder]);
 
   // Handle input in contentEditable + detect @ mention
@@ -1018,42 +1065,47 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
       <div className="chat-input-container">
         {mentionOpen && mentionItems.length > 0 && (
           <div className="chat-mention-popup" ref={mentionRef}>
-            {mentionItems.map((item, i) => (
-              <button
-                key={`${item.type}-${item.label}`}
-                className={`chat-mention-item${i === mentionIndex ? ' chat-mention-item--active' : ''}`}
-                onMouseDown={(e) => { e.preventDefault(); selectMention(item); }}
-                onMouseEnter={() => setMentionIndex(i)}
-              >
-                <span className="chat-mention-item-icon">
-                  {item.type === 'workspace' ? (
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <rect x="1.5" y="1.5" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-                      <rect x="3.5" y="3.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
-                      <rect x="7.5" y="3.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
-                      <rect x="3.5" y="7.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
-                    </svg>
-                  ) : item.type === 'node' ? (
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      {item.nodeType === 'file' && <><rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" /><path d="M4.5 5h5M4.5 7.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" /></>}
-                      {item.nodeType === 'terminal' && <><rect x="1.5" y="2" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" /><path d="M4 6l2 1.5L4 9" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" /></>}
-                      {item.nodeType === 'agent' && <><circle cx="7" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.2" /><path d="M3.5 12c0-1.9 1.6-3.5 3.5-3.5s3.5 1.6 3.5 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></>}
-                      {item.nodeType === 'frame' && <rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.2" />}
-                    </svg>
-                  ) : (
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <path d="M7 1.5v11M4 4l-2.5 2.5L4 9M10 4l2.5 2.5L10 9" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
+            {mentionItems.map((item, i) => {
+              const groupKey = getMentionGroupKey(item);
+              const prevGroupKey = i > 0 ? getMentionGroupKey(mentionItems[i - 1]) : null;
+              const showHeader = prevGroupKey !== groupKey;
+              return (
+                <Fragment key={`${item.type}-${item.nodeType ?? ''}-${item.workspaceId ?? ''}-${item.label}-${i}`}>
+                  {showHeader && (
+                    <div className="chat-mention-group-header">{MENTION_GROUP_LABEL[groupKey]}</div>
                   )}
-                </span>
-                <span className="chat-mention-item-label">{item.label}</span>
-                {item.type === 'workspace' ? (
-                  <span className="chat-mention-item-type">canvas</span>
-                ) : item.type === 'node' && item.nodeType ? (
-                  <span className="chat-mention-item-type">{item.nodeType}</span>
-                ) : null}
-              </button>
-            ))}
+                  <button
+                    className={`chat-mention-item${i === mentionIndex ? ' chat-mention-item--active' : ''}`}
+                    onMouseDown={(e) => { e.preventDefault(); selectMention(item); }}
+                    onMouseEnter={() => setMentionIndex(i)}
+                  >
+                    <span className="chat-mention-item-icon">
+                      {item.type === 'workspace' ? (
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                          <rect x="1.5" y="1.5" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+                          <rect x="3.5" y="3.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+                          <rect x="7.5" y="3.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+                          <rect x="3.5" y="7.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+                        </svg>
+                      ) : item.type === 'node' ? (
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                          {item.nodeType === 'file' && <><rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" /><path d="M4.5 5h5M4.5 7.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" /></>}
+                          {item.nodeType === 'terminal' && <><rect x="1.5" y="2" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" /><path d="M4 6l2 1.5L4 9" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" /></>}
+                          {item.nodeType === 'agent' && <><circle cx="7" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.2" /><path d="M3.5 12c0-1.9 1.6-3.5 3.5-3.5s3.5 1.6 3.5 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></>}
+                          {item.nodeType === 'frame' && <rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.2" />}
+                        </svg>
+                      ) : (
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                          <rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+                          <path d="M4.5 5h5M4.5 7.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                        </svg>
+                      )}
+                    </span>
+                    <span className="chat-mention-item-label">{item.label}</span>
+                  </button>
+                </Fragment>
+              );
+            })}
           </div>
         )}
         <div className="chat-input-box">

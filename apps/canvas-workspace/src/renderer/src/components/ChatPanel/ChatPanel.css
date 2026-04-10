@@ -732,6 +732,20 @@
   z-index: 20;
 }
 
+.chat-mention-group-header {
+  padding: 10px 10px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: rgba(55, 53, 47, 0.4);
+  pointer-events: none;
+  user-select: none;
+}
+.chat-mention-popup > .chat-mention-group-header:first-child {
+  padding-top: 6px;
+}
+
 .chat-mention-item {
   display: flex;
   align-items: center;
