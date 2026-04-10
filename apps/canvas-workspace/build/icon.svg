@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0%" stop-color="#1C1C1E"/>
+      <stop offset="100%" stop-color="#0A0A0C"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Squircle -->
+  <rect x="32" y="32" width="448" height="448" rx="96" ry="96" fill="url(#bg)"/>
+
+  <!-- The pulse — a single, quiet heartbeat across an empty canvas -->
+  <path
+    d="M 104,264
+       H 200
+       L 228,264
+       L 248,204
+       L 268,324
+       L 288,184
+       L 308,264
+       H 408"
+    fill="none"
+    stroke="rgba(255,255,255,0.88)"
+    stroke-width="3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>
