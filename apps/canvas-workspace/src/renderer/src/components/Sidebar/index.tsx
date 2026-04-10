@@ -380,6 +380,23 @@ export const Sidebar = ({
     <aside className={`sidebar${collapsed ? ' sidebar--collapsed' : ''}`}>
       {!collapsed && (
         <>
+          {/* Brand header */}
+          <div className="sidebar-brand-header">
+            <span className="sidebar-brand-mark" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 512 512" fill="none">
+                <rect x="32" y="32" width="448" height="448" rx="96" ry="96" fill="#1D1D1F" />
+                <path
+                  d="M 80,268 H 188 L 228,178 L 260,370 L 292,148 L 328,268 H 432"
+                  stroke="#FFFFFF"
+                  strokeWidth="22"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
+            <span className="sidebar-brand">Pulse Canvas</span>
+          </div>
+
           {/* Section header with add + collapse buttons */}
           <div className="sidebar-section-header">
             <span className="sidebar-section-title">Workspaces</span>

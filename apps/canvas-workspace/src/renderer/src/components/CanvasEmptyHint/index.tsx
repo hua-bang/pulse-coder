@@ -3,21 +3,13 @@ import './index.css';
 export const CanvasEmptyHint = () => (
   <div className="canvas-empty-hint">
     <div className="hint-icon">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-        <rect
-          x="4"
-          y="4"
-          width="16"
-          height="16"
-          rx="3"
-          stroke="currentColor"
-          strokeWidth="1.5"
-        />
+      <svg width="32" height="32" viewBox="0 0 512 512" fill="none" aria-hidden="true">
         <path
-          d="M10 12h4M12 10v4"
+          d="M 80,268 H 188 L 228,178 L 260,370 L 292,148 L 328,268 H 432"
           stroke="currentColor"
-          strokeWidth="1.5"
+          strokeWidth="22"
           strokeLinecap="round"
+          strokeLinejoin="round"
         />
       </svg>
     </div>
