@@ -102,6 +102,16 @@ app.whenReady().then(() => {
     }
   }
 
+  // About panel: shown by the native menu (macOS: Pulse Canvas > About;
+  // Linux: Help > About). iconPath is honored on Linux/Windows; macOS
+  // reads the icon from the app bundle.
+  app.setAboutPanelOptions({
+    applicationName: "Pulse Canvas",
+    applicationVersion: app.getVersion(),
+    copyright: "Copyright © 2025",
+    ...(resolvedIconPath ? { iconPath: resolvedIconPath } : {})
+  });
+
   ipcMain.on("app:log", (_event, payload) => {
     const level = payload?.level ?? "renderer";
     const message = payload?.message ?? "log";

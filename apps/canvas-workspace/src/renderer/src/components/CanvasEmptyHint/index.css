@@ -10,8 +10,8 @@
 }
 
 .hint-icon {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: var(--shadow-card);
