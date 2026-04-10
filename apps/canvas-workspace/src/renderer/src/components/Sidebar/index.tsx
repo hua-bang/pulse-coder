@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, useState, useCallback, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import type { WorkspaceEntry, FolderEntry } from '../../hooks/useWorkspaces';
 import type { CanvasNode } from '../../types';
+import {
+  CloseIcon,
+  PlusIcon,
+  ChevronRightIcon,
+  WorkspaceIcon,
+  FolderIcon,
+  NodeTypeIcon,
+} from '../icons';
 import './index.css';
 
 /* ---- Spatial containment (same logic as useNodeDrag) ---- */
@@ -52,6 +60,14 @@ const buildLayerTree = (nodes: CanvasNode[]): LayerTreeNode[] => {
   }
   return tree;
 };
+
+/** Icon for the sidebar panel toggle (used in both expanded + collapsed states). */
+const SidebarToggleIcon = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <rect x="1.5" y="2.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M6 2.5v11" stroke="currentColor" strokeWidth="1.3" />
+  </svg>
+);
 
 interface Props {
   collapsed: boolean;
@@ -118,6 +134,23 @@ export const Sidebar = ({
   } | null>(null);
 
   const layerTree = useMemo(() => buildLayerTree(activeNodes), [activeNodes]);
+  const frameIds = useMemo(
+    () => layerTree.filter((n) => n.node.type === 'frame').map((n) => n.node.id),
+    [layerTree],
+  );
+  const anyFrameExpanded = useMemo(
+    () => frameIds.some((id) => !collapsedLayers.has(id)),
+    [frameIds, collapsedLayers],
+  );
+
+  const toggleAllLayers = useCallback(() => {
+    setCollapsedLayers((prev) => {
+      if (frameIds.length === 0) return prev;
+      // If any frame is currently expanded → collapse them all. Otherwise expand.
+      const anyExpanded = frameIds.some((id) => !prev.has(id));
+      return anyExpanded ? new Set(frameIds) : new Set();
+    });
+  }, [frameIds]);
 
   const handleLayerContextMenu = useCallback((e: ReactMouseEvent, nodeId: string) => {
     e.preventDefault();
@@ -349,19 +382,14 @@ export const Sidebar = ({
             title="Double-click to rename"
           >
             <span className="sidebar-item-icon">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.3" />
-                <path d="M5 6h6M5 9h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-              </svg>
+              <WorkspaceIcon size={14} />
             </span>
             <span className="sidebar-item-name">{ws.name}</span>
           </button>
         )}
         {workspaces.length > 1 && renamingId !== ws.id && (
           <button className="sidebar-item-delete" onClick={() => onDelete(ws.id)} title="Delete">
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
+            <CloseIcon size={12} strokeWidth={1.5} />
           </button>
         )}
       </div>
@@ -406,15 +434,10 @@ export const Sidebar = ({
                 onClick={() => setShowAddMenu((v) => !v)}
                 title="Add workspace or folder"
               >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                  <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
+                <PlusIcon size={14} />
               </button>
               <button className="sidebar-section-btn" onClick={onToggle} title="Collapse sidebar">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                  <rect x="1.5" y="2.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.3" />
-                  <path d="M6 2.5v11" stroke="currentColor" strokeWidth="1.3" />
-                </svg>
+                <SidebarToggleIcon size={14} />
               </button>
               {showAddMenu && (
                 <div className="sidebar-add-menu">
@@ -422,19 +445,14 @@ export const Sidebar = ({
                     className="sidebar-add-menu-item"
                     onClick={() => { setShowAddMenu(false); setInlineCreate('workspace'); setInlineCreateValue(''); }}
                   >
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                      <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.3" />
-                      <path d="M5 6h6M5 9h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                    </svg>
+                    <WorkspaceIcon size={14} />
                     <span>New Workspace</span>
                   </button>
                   <button
                     className="sidebar-add-menu-item"
                     onClick={() => { setShowAddMenu(false); setInlineCreate('folder'); setInlineCreateValue(''); }}
                   >
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                      <path d="M2 4.5A1.5 1.5 0 013.5 3H6l1.5 1.5h5A1.5 1.5 0 0114 6v5.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5v-7z" stroke="currentColor" strokeWidth="1.2" />
-                    </svg>
+                    <FolderIcon size={14} />
                     <span>New Folder</span>
                   </button>
                 </div>
@@ -496,18 +514,10 @@ export const Sidebar = ({
                         title="Click to toggle · Double-click to rename"
                       >
                         <span className={`sidebar-folder-chevron${isOpen ? ' sidebar-folder-chevron--open' : ''}`}>
-                          <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
-                            <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
+                          <ChevronRightIcon size={10} />
                         </span>
                         <span className="sidebar-folder-icon">
-                          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                            {isOpen ? (
-                              <path d="M2 5.5A1.5 1.5 0 013.5 4H6l1.5 1.5h5A1.5 1.5 0 0114 7v4.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5v-6z" fill="currentColor" opacity="0.15" stroke="currentColor" strokeWidth="1.1" />
-                            ) : (
-                              <path d="M2 4.5A1.5 1.5 0 013.5 3H6l1.5 1.5h5A1.5 1.5 0 0114 6v5.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5v-7z" stroke="currentColor" strokeWidth="1.2" />
-                            )}
-                          </svg>
+                          <FolderIcon size={18} open={isOpen} strokeWidth={isOpen ? 1.1 : 1.2} />
                         </span>
                         <span className="sidebar-folder-name">{folder.name}</span>
                       </button>
@@ -518,9 +528,7 @@ export const Sidebar = ({
                         onClick={() => onDeleteFolder(folder.id)}
                         title="Delete folder"
                       >
-                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                          <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                        </svg>
+                        <CloseIcon size={12} strokeWidth={1.5} />
                       </button>
                     )}
                   </div>
@@ -553,16 +561,7 @@ export const Sidebar = ({
               <div className="sidebar-list">
                 <div className="sidebar-inline-create">
                   <span className="sidebar-item-icon">
-                    {inlineCreate === 'folder' ? (
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                        <path d="M2 4.5A1.5 1.5 0 013.5 3H6l1.5 1.5h5A1.5 1.5 0 0114 6v5.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5v-7z" stroke="currentColor" strokeWidth="1.2" />
-                      </svg>
-                    ) : (
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                        <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.3" />
-                        <path d="M5 6h6M5 9h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                      </svg>
-                    )}
+                    {inlineCreate === 'folder' ? <FolderIcon size={14} /> : <WorkspaceIcon size={14} />}
                   </span>
                   <input
                     ref={inlineCreateRef}
@@ -588,7 +587,39 @@ export const Sidebar = ({
         <div className="sidebar-layers">
           <div className="sidebar-section-header">
             <span className="sidebar-section-title">Layers</span>
-            <span className="sidebar-layer-count">{activeNodes.length}</span>
+            <div className="sidebar-section-actions">
+              <span className="sidebar-layer-count">{activeNodes.length}</span>
+              {frameIds.length > 0 && (
+                <button
+                  className="sidebar-section-btn"
+                  onClick={toggleAllLayers}
+                  title={anyFrameExpanded ? 'Collapse all frames' : 'Expand all frames'}
+                  aria-label={anyFrameExpanded ? 'Collapse all frames' : 'Expand all frames'}
+                >
+                  {anyFrameExpanded ? (
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M4 2l4 4 4-4M4 14l4-4 4 4"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M4 6l4-4 4 4M4 10l4 4 4-4"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
           <div className="sidebar-layers-scroll">
             {layerTree.map(({ node, children }) => {
@@ -602,33 +633,18 @@ export const Sidebar = ({
                     onContextMenu={(e) => handleLayerContextMenu(e, node.id)}
                     title={node.title}
                   >
-                    {isFrame && (
+                    {isFrame ? (
                       <span
                         className={`sidebar-layer-chevron${isOpen ? ' sidebar-layer-chevron--open' : ''}`}
                         onClick={(e) => { e.stopPropagation(); toggleLayerCollapse(node.id); }}
                       >
-                        <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
-                          <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
+                        <ChevronRightIcon size={10} />
                       </span>
+                    ) : (
+                      <span className="sidebar-layer-spacer" aria-hidden="true" />
                     )}
                     <span className="sidebar-layer-icon">
-                      {node.type === 'file' ? (
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                          <path d="M4 2h5l3 3v9H4V2z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-                          <path d="M9 2v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      ) : node.type === 'terminal' ? (
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                          <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-                          <path d="M5 7l2 1.5L5 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                          <path d="M9 10h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                        </svg>
-                      ) : (
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                          <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2 2" />
-                        </svg>
-                      )}
+                      <NodeTypeIcon type={node.type} />
                     </span>
                     <span className="sidebar-layer-name">
                       {node.type === 'frame' ? (node.title || (node.data as { label?: string }).label || 'Frame') : node.title}
@@ -649,18 +665,7 @@ export const Sidebar = ({
                           title={child.title}
                         >
                           <span className="sidebar-layer-icon">
-                            {child.type === 'file' ? (
-                              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                <path d="M4 2h5l3 3v9H4V2z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-                                <path d="M9 2v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            ) : (
-                              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-                                <path d="M5 7l2 1.5L5 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                                <path d="M9 10h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                              </svg>
-                            )}
+                            <NodeTypeIcon type={child.type} />
                           </span>
                           <span className="sidebar-layer-name">{child.title}</span>
                         </button>
@@ -705,6 +710,21 @@ export const Sidebar = ({
           onContextMenu={(e) => e.preventDefault()}
         >
           <button
+            className="sidebar-layer-context-menu-item"
+            onClick={() => {
+              onNodeFocus?.(layerContextMenu.nodeId);
+              setLayerContextMenu(null);
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.3" />
+              <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+              <path d="M8 1.5v1.5M8 13v1.5M1.5 8h1.5M13 8h1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            </svg>
+            <span>Focus</span>
+          </button>
+          <div className="sidebar-layer-context-menu-separator" />
+          <button
             className="sidebar-layer-context-menu-item sidebar-layer-context-menu-item--danger"
             onClick={() => {
               onNodeDelete?.(layerContextMenu.nodeId);
@@ -722,10 +742,7 @@ export const Sidebar = ({
       {collapsed && (
         <div className="sidebar-collapsed-toggle">
           <button className="sidebar-toggle" onClick={onToggle} title="Expand sidebar">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <rect x="1.5" y="2.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.3" />
-              <path d="M6 2.5v11" stroke="currentColor" strokeWidth="1.3" />
-            </svg>
+            <SidebarToggleIcon size={16} />
           </button>
         </div>
       )}
