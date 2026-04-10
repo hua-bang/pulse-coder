@@ -133,7 +133,7 @@ const App = () => {
           <div
             key={ws.id}
             className={`chat-panel-wrapper${chatPanelOpen && ws.id === activeId ? ' chat-panel-wrapper--open' : ''}`}
-            style={chatPanelOpen && ws.id === activeId ? { width: chatWidth } : { display: 'none' }}
+            style={ws.id !== activeId ? { display: 'none' } : chatPanelOpen ? { width: chatWidth } : undefined}
           >
             <ChatPanel
               workspaceId={ws.id}
