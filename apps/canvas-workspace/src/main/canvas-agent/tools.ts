@@ -11,6 +11,7 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { randomUUID } from 'crypto';
 import { BrowserWindow } from 'electron';
 import { z } from 'zod';
 import {
@@ -102,11 +103,28 @@ function autoPlace(nodes: CanvasNode[]): { x: number; y: number } {
 
 // ─── Canvas Tool type (matches Engine's Tool interface) ────────────
 
+/**
+ * Subset of pulse-coder-engine's ToolExecutionContext that canvas tools may
+ * use. Kept loose so the shim (engine.d.ts) does not need to export this type.
+ */
+export interface CanvasToolExecutionContext {
+  /** Called when a tool needs to ask the user a clarifying question. */
+  onClarificationRequest?: (request: {
+    id: string;
+    question: string;
+    context?: string;
+    defaultAnswer?: string;
+    timeout: number;
+  }) => Promise<string>;
+  /** Abort signal for the current engine run. */
+  abortSignal?: AbortSignal;
+}
+
 export interface CanvasTool {
   name: string;
   description: string;
   inputSchema: z.ZodType;
-  execute: (input: any) => Promise<string>;
+  execute: (input: any, ctx?: CanvasToolExecutionContext) => Promise<string>;
 }
 
 /** Prompts shorter than this are passed directly as CLI args; longer ones go to a file. */
@@ -116,6 +134,49 @@ const INLINE_PROMPT_THRESHOLD = 256;
 
 export function createCanvasTools(workspaceId: string): Record<string, CanvasTool> {
   return {
+    canvas_ask_user: {
+      name: 'canvas_ask_user',
+      description:
+        'Ask the user a clarifying question and wait for their reply. Use this whenever you need more information, a choice between options, or confirmation before proceeding. Do NOT guess — ask.',
+      inputSchema: z.object({
+        question: z.string().describe('The question to ask the user. Be concise and specific.'),
+        context: z.string().optional().describe('Optional extra context to help the user answer.'),
+      }),
+      execute: async (input, ctx) => {
+        const ask = ctx?.onClarificationRequest;
+        if (!ask) {
+          return 'Clarification is not supported in this context. Proceed with best judgement.';
+        }
+        const signal = ctx?.abortSignal;
+        const requestId = randomUUID();
+        const askPromise = ask({
+          id: requestId,
+          question: input.question,
+          context: input.context,
+          timeout: 0,
+        });
+        if (!signal) return askPromise;
+        return await new Promise<string>((resolve, reject) => {
+          if (signal.aborted) {
+            reject(new Error('Aborted'));
+            return;
+          }
+          const onAbort = () => reject(new Error('Aborted'));
+          signal.addEventListener('abort', onAbort, { once: true });
+          askPromise.then(
+            (answer) => {
+              signal.removeEventListener('abort', onAbort);
+              resolve(answer);
+            },
+            (err) => {
+              signal.removeEventListener('abort', onAbort);
+              reject(err);
+            },
+          );
+        });
+      },
+    },
+
     canvas_read_context: {
       name: 'canvas_read_context',
       description:

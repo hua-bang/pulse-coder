@@ -300,6 +300,12 @@ function renderMdWithMentions(content: string, nodes?: CanvasNode[]): string {
   });
 }
 
+interface PendingClarification {
+  id: string;
+  question: string;
+  context?: string;
+}
+
 export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClose, onResizeStart, onNodeFocus }: ChatPanelProps) => {
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -314,6 +320,14 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
   const [collapsedSections, setCollapsedSections] = useState<Set<number>>(new Set());
   const toolIdCounter = useRef(0);
   const streamingMsgIdx = useRef(-1);
+
+  // SessionId of the currently-running chat turn, used by the stop button
+  // and the clarification answer flow. Null when idle.
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  // In-flight clarification request — when set, render an inline question
+  // card with its own input. Cleared on answer, abort, or completion.
+  const [pendingClarify, setPendingClarify] = useState<PendingClarification | null>(null);
+  const [clarifyInput, setClarifyInput] = useState('');
 
   // Track active streaming subscriptions so they can be cleaned up on unmount
   const activeUnsubsRef = useRef<(() => void)[]>([]);
@@ -338,6 +352,12 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
         setMessages(result.messages);
       }
     })();
+
+    // Reset per-run state when the user switches workspaces so nothing from
+    // a previous workspace's in-flight run leaks into the new panel.
+    setActiveSessionId(null);
+    setPendingClarify(null);
+    setClarifyInput('');
 
     return () => {
       // Unsubscribe any in-flight streaming listeners on unmount
@@ -421,10 +441,10 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
     setCollapsedSections(new Set());
   }, [workspaceId]);
 
-  // Scroll to bottom when messages or streaming tools change
+  // Scroll to bottom when messages, streaming tools, or a clarification card change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingTools]);
+  }, [messages, streamingTools, pendingClarify]);
 
   // Build mention items from nodes + files + other workspaces
   const buildMentionItems = useCallback(async (query: string) => {
@@ -550,6 +570,7 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
       }
 
       const sessionId = result.sessionId;
+      setActiveSessionId(sessionId);
 
       // Create assistant message lazily on first event (tool call or text delta)
       const assistantIdx = { current: -1 };
@@ -570,6 +591,7 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
         unsubComplete();
         unsubToolCall();
         unsubToolResult();
+        unsubClarify();
         activeUnsubsRef.current = [];
       };
 
@@ -610,6 +632,14 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
         });
       });
 
+      // Subscribe to clarification requests — render an inline card with its
+      // own input so the user can answer without touching the main composer.
+      const unsubClarify = window.canvasWorkspace.agent.onClarifyRequest(sessionId, (req) => {
+        ensureAssistantMessage();
+        setPendingClarify({ id: req.id, question: req.question, context: req.context });
+        setClarifyInput('');
+      });
+
       // Subscribe to completion
       const unsubComplete = window.canvasWorkspace.agent.onChatComplete(sessionId, (completeResult) => {
         cleanupAllSubs();
@@ -620,6 +650,9 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
         setStreamingTools([]);
         setExpandedTools(new Set());
         streamingMsgIdx.current = -1;
+        setActiveSessionId(null);
+        setPendingClarify(null);
+        setClarifyInput('');
 
         if (!completeResult.ok) {
           setMessages(prev => {
@@ -649,7 +682,7 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
       });
 
       // Track all subscriptions so they can be cleaned up on workspace switch
-      activeUnsubsRef.current.push(unsubToolCall, unsubToolResult, unsubDelta, unsubComplete);
+      activeUnsubsRef.current.push(unsubToolCall, unsubToolResult, unsubDelta, unsubComplete, unsubClarify);
     } catch (err) {
       const errorMsg: AgentChatMessage = {
         role: 'assistant',
@@ -658,8 +691,43 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
       };
       setMessages(prev => [...prev, errorMsg]);
       setLoading(false);
+      setActiveSessionId(null);
+      setPendingClarify(null);
+      setClarifyInput('');
     }
   }, [input, loading, workspaceId, allWorkspaces]);
+
+  /** Interrupt the currently-running generation. */
+  const handleAbort = useCallback(async () => {
+    const sid = activeSessionId;
+    if (!sid) return;
+    // Optimistically clear the pending clarify card so the UI responds
+    // instantly; the chat-complete event will finish resetting state.
+    setPendingClarify(null);
+    setClarifyInput('');
+    try {
+      await window.canvasWorkspace.agent.abort(sid);
+    } catch (err) {
+      console.error('[chat-panel] abort failed:', err);
+    }
+  }, [activeSessionId]);
+
+  /** Submit the user's reply to an in-flight clarification request. */
+  const handleAnswerClarification = useCallback(async () => {
+    const pending = pendingClarify;
+    const sid = activeSessionId;
+    if (!pending || !sid) return;
+    const answer = clarifyInput.trim();
+    if (!answer) return;
+    // Hide the card immediately — the agent will continue and stream again.
+    setPendingClarify(null);
+    setClarifyInput('');
+    try {
+      await window.canvasWorkspace.agent.answerClarification(sid, pending.id, answer);
+    } catch (err) {
+      console.error('[chat-panel] clarification answer failed:', err);
+    }
+  }, [pendingClarify, activeSessionId, clarifyInput]);
 
   const selectMention = useCallback((item: MentionItem) => {
     const el = editableRef.current;
@@ -1033,6 +1101,45 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
               </div>
             </div>
           )}
+          {pendingClarify && (
+            <div className="chat-message chat-message-assistant">
+              <div className="chat-message-avatar">
+                <AvatarIcon size={14} />
+              </div>
+              <div className="chat-message-body">
+                <div className="chat-clarify-card">
+                  <div className="chat-clarify-label">Needs clarification</div>
+                  <div className="chat-clarify-question">{pendingClarify.question}</div>
+                  {pendingClarify.context && (
+                    <div className="chat-clarify-context">{pendingClarify.context}</div>
+                  )}
+                  <div className="chat-clarify-form">
+                    <input
+                      type="text"
+                      className="chat-clarify-input"
+                      value={clarifyInput}
+                      onChange={(e) => setClarifyInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          void handleAnswerClarification();
+                        }
+                      }}
+                      placeholder="Type your answer…"
+                      autoFocus
+                    />
+                    <button
+                      className="chat-clarify-submit"
+                      onClick={() => void handleAnswerClarification()}
+                      disabled={!clarifyInput.trim()}
+                    >
+                      Reply
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           <div ref={messagesEndRef} />
         </div>
       )}
@@ -1073,29 +1180,51 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
             })}
           </div>
         )}
-        <div className="chat-input-box">
+        <div className={`chat-input-box${loading ? ' chat-input-box--generating' : ''}`}>
           <div
             ref={editableRef}
             className="chat-input"
-            contentEditable={!loading}
+            contentEditable={true}
             role="textbox"
-            data-placeholder="Ask anything..."
+            data-placeholder={loading ? 'Generating… you can type your next message' : 'Ask anything...'}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
           />
           <div className="chat-input-footer">
-            <div className="chat-input-footer-left" />
-            <button
-              className={`chat-send-btn${input.trim() ? ' chat-send-btn--active' : ''}`}
-              onClick={() => void sendMessage()}
-              disabled={!input.trim() || loading}
-              title="Send message"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M8 12V4M8 4l-3.5 3.5M8 4l3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
+            <div className="chat-input-footer-left">
+              {loading && (
+                <div className="chat-generating-indicator" aria-live="polite">
+                  <div className="chat-loading-dot" />
+                  <div className="chat-loading-dot" />
+                  <div className="chat-loading-dot" />
+                  <span className="chat-generating-label">Generating…</span>
+                </div>
+              )}
+            </div>
+            {loading ? (
+              <button
+                className="chat-send-btn chat-send-btn--stop"
+                onClick={() => void handleAbort()}
+                title="Stop generating"
+                aria-label="Stop generating"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <rect x="3" y="3" width="8" height="8" rx="1.5" fill="currentColor" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                className={`chat-send-btn${input.trim() ? ' chat-send-btn--active' : ''}`}
+                onClick={() => void sendMessage()}
+                disabled={!input.trim()}
+                title="Send message"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M8 12V4M8 4l-3.5 3.5M8 4l3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
       </div>

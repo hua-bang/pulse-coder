@@ -182,6 +182,27 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
       };
     },
 
+    onClarifyRequest: (
+      sessionId: string,
+      callback: (data: { id: string; question: string; context?: string }) => void,
+    ) => {
+      const channel = `canvas-agent:clarify-request:${sessionId}`;
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        data: { id: string; question: string; context?: string },
+      ) => callback(data);
+      ipcRenderer.on(channel, handler);
+      return () => {
+        ipcRenderer.removeListener(channel, handler);
+      };
+    },
+
+    answerClarification: (sessionId: string, requestId: string, answer: string) =>
+      ipcRenderer.invoke("canvas-agent:clarify-answer", { sessionId, requestId, answer }),
+
+    abort: (sessionId: string) =>
+      ipcRenderer.invoke("canvas-agent:abort", { sessionId }),
+
     getStatus: (workspaceId: string) =>
       ipcRenderer.invoke("canvas-agent:status", { workspaceId }),
 

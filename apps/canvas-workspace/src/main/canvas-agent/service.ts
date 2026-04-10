@@ -9,7 +9,7 @@
 
 import { join } from 'path';
 import { homedir } from 'os';
-import { CanvasAgent } from './canvas-agent';
+import { CanvasAgent, type CanvasClarificationRequest } from './canvas-agent';
 import { SessionStore } from './session-store';
 import type {
   ChatResponse,
@@ -44,6 +44,9 @@ export class CanvasAgentService {
    * Send a chat message to the workspace's Canvas Agent.
    * Auto-activates the agent if not already active.
    * @param onText — optional callback receiving streaming text deltas
+   * @param onClarificationRequest — invoked when the agent needs to ask the
+   *   user a clarifying question; the caller must eventually deliver the
+   *   reply via `answerClarification` or cancel via `abort`.
    */
   async chat(
     workspaceId: string,
@@ -52,6 +55,7 @@ export class CanvasAgentService {
     onToolCall?: (data: { name: string; args: any }) => void,
     onToolResult?: (data: { name: string; result: string }) => void,
     mentionedWorkspaceIds?: string[],
+    onClarificationRequest?: (req: CanvasClarificationRequest) => void,
   ): Promise<ChatResponse> {
     try {
       await this.activate(workspaceId);
@@ -62,12 +66,31 @@ export class CanvasAgentService {
         onToolCall,
         onToolResult,
         mentionedWorkspaceIds,
+        onClarificationRequest,
       );
       return { ok: true, response };
     } catch (err) {
       console.error(`[canvas-agent-service] chat error for ${workspaceId}:`, err);
       return { ok: false, error: String(err) };
     }
+  }
+
+  /**
+   * Abort the workspace's currently-running chat turn (if any). No-op when
+   * the agent is idle or not activated.
+   */
+  abort(workspaceId: string): void {
+    this.agents.get(workspaceId)?.abort();
+  }
+
+  /**
+   * Deliver the user's answer to a pending clarification request.
+   * Returns true if a matching pending request was resolved.
+   */
+  answerClarification(workspaceId: string, requestId: string, answer: string): boolean {
+    const agent = this.agents.get(workspaceId);
+    if (!agent) return false;
+    return agent.answerClarification(requestId, answer);
   }
 
   /**

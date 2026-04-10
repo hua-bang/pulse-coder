@@ -453,6 +453,129 @@
   cursor: not-allowed;
 }
 
+.chat-send-btn--stop {
+  background: #37352f;
+  color: #fff;
+}
+
+.chat-send-btn--stop:hover {
+  background: #2f2e2a;
+}
+
+/* ─── Generating state (input while a turn is streaming) ──── */
+
+.chat-input-box--generating {
+  /* Subtle animated border to signal "generating" without disabling input. */
+  border-color: rgba(55, 53, 47, 0.32);
+  box-shadow: 0 0 0 3px rgba(55, 53, 47, 0.04);
+}
+
+.chat-input-box--generating:focus-within {
+  border-color: rgba(55, 53, 47, 0.45);
+}
+
+.chat-generating-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  color: #8a8a87;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.chat-generating-indicator .chat-loading-dot {
+  width: 4px;
+  height: 4px;
+}
+
+.chat-generating-label {
+  margin-left: 2px;
+}
+
+/* ─── Clarification card ──────────────────────────────────── */
+
+.chat-clarify-card {
+  border: 1px solid rgba(55, 53, 47, 0.12);
+  border-radius: 10px;
+  background: #fafaf9;
+  padding: 12px 14px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.chat-clarify-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8a8a87;
+  margin-bottom: 6px;
+}
+
+.chat-clarify-question {
+  font-size: 14px;
+  color: #37352f;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-clarify-context {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #6b6b68;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-clarify-form {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.chat-clarify-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #37352f;
+  background: #fff;
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.chat-clarify-input:focus {
+  border-color: rgba(55, 53, 47, 0.4);
+}
+
+.chat-clarify-submit {
+  padding: 0 12px;
+  height: 30px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  background: #37352f;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.chat-clarify-submit:hover:not(:disabled) {
+  background: #2f2e2a;
+}
+
+.chat-clarify-submit:disabled {
+  background: rgba(55, 53, 47, 0.2);
+  cursor: not-allowed;
+}
+
 /* ─── Markdown content ────────────────────────────────────── */
 
 .chat-md {

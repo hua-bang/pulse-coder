@@ -44,6 +44,7 @@ Your system prompt contains a summary of all canvas nodes. For detailed content:
 - \`canvas_update_node\`: Update existing nodes (content, title, data)
 - \`canvas_delete_node\`: Remove a node from the canvas
 - \`canvas_move_node\`: Reposition a node
+- \`canvas_ask_user\`: **Ask the user a clarifying question** — use this whenever the request is ambiguous, you need a choice between options, or you need confirmation before taking a destructive action. Prefer asking over guessing.
 
 ### Delegating Tasks to Agent Nodes
 Use \`canvas_create_agent_node\` to spawn another agent (Claude Code, Codex, Pulse Coder) with context.
@@ -132,11 +133,23 @@ function buildSystemPrompt(
 
 // ─── Canvas Agent ──────────────────────────────────────────────────
 
+/** Request payload emitted when the agent wants to ask the user a question. */
+export interface CanvasClarificationRequest {
+  id: string;
+  question: string;
+  context?: string;
+}
+
 export class CanvasAgent {
   private engine: any; // Engine type from pulse-coder-engine (no .d.ts yet)
   private messages: ModelMessage[] = [];
   private sessionStore: SessionStore;
   private config: CanvasAgentConfig;
+
+  /** AbortController for the currently-running chat turn, if any. */
+  private currentAbortController: AbortController | null = null;
+  /** Pending clarification resolvers keyed by request id. */
+  private pendingClarifications = new Map<string, (answer: string) => void>();
 
   constructor(config: CanvasAgentConfig) {
     this.config = config;
@@ -171,9 +184,15 @@ export class CanvasAgent {
 
   /**
    * Send a user message and get the agent's response.
+   *
    * @param onText — optional callback receiving streaming text deltas
    * @param onToolCall — optional callback when a tool call starts
    * @param onToolResult — optional callback when a tool call completes
+   * @param mentionedWorkspaceIds — workspaces the user @-mentioned
+   * @param onClarificationRequest — optional callback invoked when the agent
+   *   wants to ask the user a clarifying question. The caller is responsible
+   *   for displaying it and eventually calling `answerClarification` with the
+   *   user's reply (or `abort()` to cancel the run).
    */
   async chat(
     message: string,
@@ -181,6 +200,7 @@ export class CanvasAgent {
     onToolCall?: (data: { name: string; args: any }) => void,
     onToolResult?: (data: { name: string; result: string }) => void,
     mentionedWorkspaceIds?: string[],
+    onClarificationRequest?: (req: CanvasClarificationRequest) => void,
   ): Promise<string> {
     // Refresh workspace summary for system prompt
     const summary = await buildWorkspaceSummary(this.config.workspaceId);
@@ -206,46 +226,97 @@ export class CanvasAgent {
     // Build the context — pass a mutable reference so onResponse/onCompacted can update it
     const context = { messages: this.messages };
 
-    const resultText = await this.engine.run(context, {
-      systemPrompt,
-      maxSteps: 10,
-      onText,
-      onToolCall: onToolCall
-        ? (chunk: any) => {
-            // AI SDK v6 uses `input`; older versions use `args`
-            const args = chunk.input ?? chunk.args;
-            console.info('[canvas-agent] tool-call chunk keys:', Object.keys(chunk), 'input:', chunk.input, 'args:', chunk.args);
-            onToolCall({ name: chunk.toolName, args });
-          }
-        : undefined,
-      onToolResult: onToolResult
-        ? (chunk: any) => {
-            // AI SDK v6 uses `output`; older versions use `result`
-            const raw = chunk.output ?? chunk.result;
-            console.info('[canvas-agent] tool-result chunk keys:', Object.keys(chunk), 'output:', typeof chunk.output, 'result:', typeof chunk.result);
-            onToolResult({
-              name: chunk.toolName,
-              result: typeof raw === 'string' ? raw : JSON.stringify(raw),
+    // One AbortController per chat turn. Exposed via this.abort() so callers
+    // can interrupt a long-running generation.
+    const abortController = new AbortController();
+    this.currentAbortController = abortController;
+
+    // Wire the clarify tool through: each clarification request gets a
+    // resolver stashed in `pendingClarifications` keyed by request id. The
+    // caller (IPC handler) dispatches the request to the renderer and calls
+    // `answerClarification(id, answer)` when the user replies.
+    const engineClarificationHandler = onClarificationRequest
+      ? async (req: { id: string; question: string; context?: string }) => {
+          return await new Promise<string>((resolve) => {
+            this.pendingClarifications.set(req.id, resolve);
+            onClarificationRequest({
+              id: req.id,
+              question: req.question,
+              context: req.context,
             });
-          }
-        : undefined,
-      onResponse: (msgs: ModelMessage[]) => {
-        for (const msg of msgs) {
-          this.messages.push(msg);
+          });
         }
-      },
-      onCompacted: (newMessages: ModelMessage[]) => {
-        this.messages = newMessages;
-        context.messages = newMessages;
-      },
-    });
+      : undefined;
 
-    const responseText = resultText || '(no response)';
+    try {
+      const resultText = await this.engine.run(context, {
+        systemPrompt,
+        maxSteps: 10,
+        abortSignal: abortController.signal,
+        onClarificationRequest: engineClarificationHandler,
+        onText,
+        onToolCall: onToolCall
+          ? (chunk: any) => {
+              // AI SDK v6 uses `input`; older versions use `args`
+              const args = chunk.input ?? chunk.args;
+              console.info('[canvas-agent] tool-call chunk keys:', Object.keys(chunk), 'input:', chunk.input, 'args:', chunk.args);
+              onToolCall({ name: chunk.toolName, args });
+            }
+          : undefined,
+        onToolResult: onToolResult
+          ? (chunk: any) => {
+              // AI SDK v6 uses `output`; older versions use `result`
+              const raw = chunk.output ?? chunk.result;
+              console.info('[canvas-agent] tool-result chunk keys:', Object.keys(chunk), 'output:', typeof chunk.output, 'result:', typeof chunk.result);
+              onToolResult({
+                name: chunk.toolName,
+                result: typeof raw === 'string' ? raw : JSON.stringify(raw),
+              });
+            }
+          : undefined,
+        onResponse: (msgs: ModelMessage[]) => {
+          for (const msg of msgs) {
+            this.messages.push(msg);
+          }
+        },
+        onCompacted: (newMessages: ModelMessage[]) => {
+          this.messages = newMessages;
+          context.messages = newMessages;
+        },
+      });
 
-    // Persist assistant response
-    this.sessionStore.addMessage({ role: 'assistant', content: responseText, timestamp: Date.now() });
+      const responseText = resultText || '(no response)';
 
-    return responseText;
+      // Persist assistant response
+      this.sessionStore.addMessage({ role: 'assistant', content: responseText, timestamp: Date.now() });
+
+      return responseText;
+    } finally {
+      if (this.currentAbortController === abortController) {
+        this.currentAbortController = null;
+      }
+      this.pendingClarifications.clear();
+    }
+  }
+
+  /**
+   * Abort the current chat turn if one is running. Safe to call when no
+   * turn is active — it becomes a no-op.
+   */
+  abort(): void {
+    this.currentAbortController?.abort();
+  }
+
+  /**
+   * Deliver a user's answer to a pending clarification request. Returns
+   * true if the answer matched a pending request, false otherwise.
+   */
+  answerClarification(requestId: string, answer: string): boolean {
+    const resolver = this.pendingClarifications.get(requestId);
+    if (!resolver) return false;
+    this.pendingClarifications.delete(requestId);
+    resolver(answer);
+    return true;
   }
 
   /**

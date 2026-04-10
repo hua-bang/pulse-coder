@@ -164,6 +164,16 @@ export interface AgentApi {
     sessionId: string,
     callback: (data: { name: string; result: string }) => void
   ) => () => void;
+  onClarifyRequest: (
+    sessionId: string,
+    callback: (data: { id: string; question: string; context?: string }) => void
+  ) => () => void;
+  answerClarification: (
+    sessionId: string,
+    requestId: string,
+    answer: string
+  ) => Promise<{ ok: boolean; error?: string }>;
+  abort: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
   getStatus: (
     workspaceId: string
   ) => Promise<{ ok: boolean; active: boolean; messageCount: number }>;
