@@ -28,11 +28,16 @@ interface ToolCallStatus {
 }
 
 interface MentionItem {
-  type: 'node' | 'file';
+  type: 'node' | 'file' | 'workspace';
   label: string;
   nodeType?: string;
   path?: string;
+  /** For workspace mentions — the target workspace's ID. */
+  workspaceId?: string;
 }
+
+/** Prefix used to distinguish canvas/workspace mentions in the @[...] token. */
+const CANVAS_MENTION_PREFIX = 'canvas:';
 
 function truncStr(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 3) + '...' : s;
@@ -119,9 +124,33 @@ function mentionIconSvg(nodeType: string): string {
       return '<circle cx="7" cy="5" r="2.5" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 12c0-1.9 1.6-3.5 3.5-3.5s3.5 1.6 3.5 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>';
     case 'frame':
       return '<rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1.2"/>';
+    case 'workspace':
+      return '<rect x="1.5" y="1.5" width="11" height="11" rx="1.5" stroke="currentColor" stroke-width="1.2"/><rect x="3.5" y="3.5" width="3" height="3" rx="0.5" stroke="currentColor" stroke-width="1"/><rect x="7.5" y="3.5" width="3" height="3" rx="0.5" stroke="currentColor" stroke-width="1"/><rect x="3.5" y="7.5" width="3" height="3" rx="0.5" stroke="currentColor" stroke-width="1"/>';
     default: // file
       return '<rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 5h5M4.5 7.5h3" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>';
   }
+}
+
+/**
+ * Extract `@[canvas:Name]` tokens from a serialized message and resolve each
+ * to a workspaceId using the caller's manifest. The current workspace and any
+ * unresolved names are dropped. The returned list is deduped.
+ */
+function extractMentionedWorkspaceIds(
+  text: string,
+  allWorkspaces: Array<{ id: string; name: string }> | undefined,
+  currentWorkspaceId: string,
+): string[] {
+  if (!allWorkspaces || allWorkspaces.length === 0) return [];
+  const re = new RegExp(`@\\[${CANVAS_MENTION_PREFIX}([^\\]]+)\\]`, 'g');
+  const ids = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const name = m[1];
+    const ws = allWorkspaces.find(w => w.name === name);
+    if (ws && ws.id !== currentWorkspaceId) ids.add(ws.id);
+  }
+  return Array.from(ids);
 }
 
 /** Serialize a contentEditable div back to plain text with @[label] syntax. */
@@ -157,7 +186,31 @@ function renderUserContent(content: string, nodes?: CanvasNode[]): React.ReactNo
     if (match.index > lastIndex) {
       parts.push(content.slice(lastIndex, match.index));
     }
-    const label = match[1];
+    const rawLabel = match[1];
+    // Workspace (canvas) mention — shown as a dedicated chip style
+    if (rawLabel.startsWith(CANVAS_MENTION_PREFIX)) {
+      const wsLabel = rawLabel.slice(CANVAS_MENTION_PREFIX.length);
+      parts.push(
+        <span
+          key={match.index}
+          className="chat-mention-chip chat-mention-chip--workspace"
+          data-node-type="workspace"
+        >
+          <span className="chat-mention-chip-icon">
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+              <rect x="1.5" y="1.5" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+              <rect x="3.5" y="3.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+              <rect x="7.5" y="3.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+              <rect x="3.5" y="7.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+            </svg>
+          </span>
+          <span className="chat-mention-chip-label">{wsLabel}</span>
+        </span>
+      );
+      lastIndex = re.lastIndex;
+      continue;
+    }
+    const label = rawLabel;
     // Try to resolve to a canvas node for type icon
     const node = nodes?.find(n => n.title === label);
     parts.push(
@@ -202,7 +255,12 @@ function renderUserContent(content: string, nodes?: CanvasNode[]): React.ReactNo
  */
 function renderMdWithMentions(content: string, nodes?: CanvasNode[]): string {
   const html = md.render(content);
-  return html.replace(MENTION_RE, (_match, label: string) => {
+  return html.replace(MENTION_RE, (_match, rawLabel: string) => {
+    if (rawLabel.startsWith(CANVAS_MENTION_PREFIX)) {
+      const wsLabel = rawLabel.slice(CANVAS_MENTION_PREFIX.length);
+      return `<span class="chat-mention-chip chat-mention-chip--workspace" data-node-type="workspace"><span class="chat-mention-chip-icon"><svg width="12" height="12" viewBox="0 0 14 14" fill="none">${mentionIconSvg('workspace')}</svg></span><span class="chat-mention-chip-label">${wsLabel}</span></span>`;
+    }
+    const label = rawLabel;
     const node = nodes?.find(n => n.title === label);
     const nodeType = node?.type ?? 'file';
     const nodeId = node?.id ?? '';
@@ -336,9 +394,16 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingTools]);
 
-  // Build mention items from nodes + files
+  // Build mention items from nodes + files + other workspaces
   const buildMentionItems = useCallback(async (query: string) => {
     const items: MentionItem[] = [];
+    // Other canvases (workspaces) — shown first so they're easy to reach
+    if (allWorkspaces) {
+      for (const ws of allWorkspaces) {
+        if (ws.id === workspaceId) continue;
+        items.push({ type: 'workspace', label: ws.name, workspaceId: ws.id });
+      }
+    }
     // Canvas nodes
     if (nodes) {
       for (const n of nodes) {
@@ -375,7 +440,7 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
     const q = query.toLowerCase();
     const filtered = q ? items.filter(it => it.label.toLowerCase().includes(q)) : items;
     return filtered.slice(0, 12);
-  }, [nodes, rootFolder]);
+  }, [allWorkspaces, workspaceId, nodes, rootFolder]);
 
   // Handle input in contentEditable + detect @ mention
   const handleInput = useCallback(() => {
@@ -422,7 +487,16 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
     }
 
     try {
-      const result = await window.canvasWorkspace.agent.chat(workspaceId, text);
+      const mentionedWorkspaceIds = extractMentionedWorkspaceIds(
+        text,
+        allWorkspaces,
+        workspaceId,
+      );
+      const result = await window.canvasWorkspace.agent.chat(
+        workspaceId,
+        text,
+        mentionedWorkspaceIds.length > 0 ? mentionedWorkspaceIds : undefined,
+      );
       if (!result.ok || !result.sessionId) {
         const errorMsg: AgentChatMessage = {
           role: 'assistant',
@@ -544,7 +618,7 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
       setMessages(prev => [...prev, errorMsg]);
       setLoading(false);
     }
-  }, [input, loading, workspaceId]);
+  }, [input, loading, workspaceId, allWorkspaces]);
 
   const selectMention = useCallback((item: MentionItem) => {
     const el = editableRef.current;
@@ -564,13 +638,23 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
     const afterCursor = text.slice(anchorOffset);
 
     // Build chip element with icon + label
-    const nodeMatch = nodes?.find(n => n.title === item.label);
-    const nodeType = nodeMatch?.type ?? (item.nodeType ?? 'file');
+    const isWorkspace = item.type === 'workspace';
+    const nodeMatch = !isWorkspace ? nodes?.find(n => n.title === item.label) : undefined;
+    const nodeType = isWorkspace ? 'workspace' : (nodeMatch?.type ?? (item.nodeType ?? 'file'));
     const chip = document.createElement('span');
-    chip.className = 'chat-mention-chip chat-mention-chip--input';
+    chip.className = isWorkspace
+      ? 'chat-mention-chip chat-mention-chip--input chat-mention-chip--workspace'
+      : 'chat-mention-chip chat-mention-chip--input';
     chip.contentEditable = 'false';
-    chip.dataset.mention = item.label;
+    // Serialize workspace mentions with a "canvas:" prefix so backend (and
+    // future parsers) can tell them apart from node-title mentions.
+    chip.dataset.mention = isWorkspace
+      ? `${CANVAS_MENTION_PREFIX}${item.label}`
+      : item.label;
     chip.dataset.nodeType = nodeType;
+    if (isWorkspace && item.workspaceId) {
+      chip.dataset.workspaceId = item.workspaceId;
+    }
     const iconSpan = document.createElement('span');
     iconSpan.className = 'chat-mention-chip-icon';
     iconSpan.innerHTML = `<svg width="12" height="12" viewBox="0 0 14 14" fill="none">${mentionIconSvg(nodeType)}</svg>`;
@@ -942,7 +1026,14 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
                 onMouseEnter={() => setMentionIndex(i)}
               >
                 <span className="chat-mention-item-icon">
-                  {item.type === 'node' ? (
+                  {item.type === 'workspace' ? (
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      <rect x="1.5" y="1.5" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+                      <rect x="3.5" y="3.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+                      <rect x="7.5" y="3.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+                      <rect x="3.5" y="7.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+                    </svg>
+                  ) : item.type === 'node' ? (
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                       {item.nodeType === 'file' && <><rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" /><path d="M4.5 5h5M4.5 7.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" /></>}
                       {item.nodeType === 'terminal' && <><rect x="1.5" y="2" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" /><path d="M4 6l2 1.5L4 9" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" /></>}
@@ -956,9 +1047,11 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
                   )}
                 </span>
                 <span className="chat-mention-item-label">{item.label}</span>
-                {item.type === 'node' && item.nodeType && (
+                {item.type === 'workspace' ? (
+                  <span className="chat-mention-item-type">canvas</span>
+                ) : item.type === 'node' && item.nodeType ? (
                   <span className="chat-mention-item-type">{item.nodeType}</span>
-                )}
+                ) : null}
               </button>
             ))}
           </div>

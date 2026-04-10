@@ -119,19 +119,22 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
     canvas_read_context: {
       name: 'canvas_read_context',
       description:
-        'Read the current workspace context. Use detail="summary" (default) for a quick overview of all nodes, or detail="full" to include file contents and terminal scrollback.',
+        'Read a workspace context. Defaults to the current workspace; pass `workspaceId` to read a different canvas the user has `@`-mentioned. ' +
+        'Use detail="summary" (default) for a quick overview of all nodes, or detail="full" to include file contents and terminal scrollback.',
       inputSchema: z.object({
         detail: z.enum(['summary', 'full']).optional().describe('Level of detail. "summary" returns node list with metadata. "full" includes file contents and terminal scrollback.'),
+        workspaceId: z.string().optional().describe('Target workspace ID. Defaults to the current workspace. Use this to read another canvas the user @-mentioned.'),
       }),
       execute: async (input) => {
         const detail = input.detail ?? 'summary';
+        const targetWorkspaceId = (input.workspaceId as string) || workspaceId;
         if (detail === 'full') {
-          const ctx = await buildDetailedContext(workspaceId);
-          if (!ctx) return 'Error: workspace not found';
+          const ctx = await buildDetailedContext(targetWorkspaceId);
+          if (!ctx) return `Error: workspace not found: ${targetWorkspaceId}`;
           return JSON.stringify(ctx, null, 2);
         }
-        const summary = await buildWorkspaceSummary(workspaceId);
-        if (!summary) return 'Error: workspace not found';
+        const summary = await buildWorkspaceSummary(targetWorkspaceId);
+        if (!summary) return `Error: workspace not found: ${targetWorkspaceId}`;
         return formatSummaryForPrompt(summary);
       },
     },
@@ -139,14 +142,17 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
     canvas_read_node: {
       name: 'canvas_read_node',
       description:
-        'Read the full content of a specific canvas node. For file nodes, returns the file content. For terminal/agent nodes, returns scrollback output.',
+        'Read the full content of a specific canvas node. For file nodes, returns the file content. For terminal/agent nodes, returns scrollback output. ' +
+        'Defaults to the current workspace; pass `workspaceId` to read a node from another canvas the user `@`-mentioned.',
       inputSchema: z.object({
         nodeId: z.string().describe('The ID of the node to read.'),
+        workspaceId: z.string().optional().describe('Target workspace ID. Defaults to the current workspace.'),
       }),
       execute: async (input) => {
         const nodeId = input.nodeId as string;
-        const detail = await readNodeDetail(workspaceId, nodeId);
-        if (!detail) return `Error: node not found: ${nodeId}`;
+        const targetWorkspaceId = (input.workspaceId as string) || workspaceId;
+        const detail = await readNodeDetail(targetWorkspaceId, nodeId);
+        if (!detail) return `Error: node not found: ${nodeId} (workspace: ${targetWorkspaceId})`;
         return JSON.stringify(detail, null, 2);
       },
     },

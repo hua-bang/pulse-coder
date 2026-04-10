@@ -37,7 +37,10 @@ export function setupCanvasAgentIpc(): void {
 
   ipcMain.handle(
     'canvas-agent:chat',
-    async (event, payload: { workspaceId: string; message: string }) => {
+    async (
+      event,
+      payload: { workspaceId: string; message: string; mentionedWorkspaceIds?: string[] },
+    ) => {
       const sessionId = randomUUID();
       const sender = event.sender;
 
@@ -62,6 +65,7 @@ export function setupCanvasAgentIpc(): void {
                 sender.send(`canvas-agent:tool-result:${sessionId}`, toolResult);
               }
             },
+            payload.mentionedWorkspaceIds,
           );
           if (!sender.isDestroyed()) {
             sender.send(`canvas-agent:chat-complete:${sessionId}`, result);

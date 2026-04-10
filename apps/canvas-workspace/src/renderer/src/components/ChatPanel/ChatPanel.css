@@ -868,6 +868,21 @@
   border-color: rgba(233, 168, 0, 0.25);
 }
 
+.chat-mention-chip[data-node-type="workspace"],
+.chat-mention-chip--workspace {
+  background: rgba(88, 166, 255, 0.08);
+  border-color: rgba(88, 166, 255, 0.18);
+}
+.chat-mention-chip[data-node-type="workspace"] .chat-mention-chip-icon,
+.chat-mention-chip--workspace .chat-mention-chip-icon {
+  color: rgba(88, 166, 255, 0.85);
+}
+.chat-mention-chip--clickable[data-node-type="workspace"]:hover,
+.chat-mention-chip--clickable.chat-mention-chip--workspace:hover {
+  background: rgba(88, 166, 255, 0.16);
+  border-color: rgba(88, 166, 255, 0.28);
+}
+
 /* Input chip variant — inline non-editable mention in contentEditable */
 .chat-mention-chip--input {
   font-size: inherit;

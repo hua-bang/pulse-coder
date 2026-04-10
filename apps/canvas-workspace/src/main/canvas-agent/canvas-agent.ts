@@ -86,11 +86,32 @@ Use these alongside canvas_* tools for full workspace control.
 
 `;
 
-function buildSystemPrompt(summary: WorkspaceSummary | null): string {
-  if (!summary) {
-    return BASE_SYSTEM_PROMPT + '\n## Current Canvas\n(empty workspace — no nodes yet)\n';
+function buildSystemPrompt(
+  summary: WorkspaceSummary | null,
+  mentionedSummaries: WorkspaceSummary[] = [],
+): string {
+  const base = summary
+    ? BASE_SYSTEM_PROMPT + '\n## Current Canvas\n' + formatSummaryForPrompt(summary)
+    : BASE_SYSTEM_PROMPT + '\n## Current Canvas\n(empty workspace — no nodes yet)\n';
+
+  if (mentionedSummaries.length === 0) return base;
+
+  const lines: string[] = [
+    '',
+    '## Other Canvases Referenced by the User',
+    'The user has `@`-mentioned one or more other canvases (workspaces). ' +
+      'A lightweight summary of each is included below. To read the full content of ' +
+      'any referenced canvas (file contents, terminal scrollback, etc.), call ' +
+      '`canvas_read_context` with the `workspaceId` parameter set to the target ' +
+      'workspace. To read a single node from another canvas, call ' +
+      '`canvas_read_node` with both `workspaceId` and `nodeId`.',
+    '',
+  ];
+  for (const s of mentionedSummaries) {
+    lines.push(formatSummaryForPrompt(s));
+    lines.push('');
   }
-  return BASE_SYSTEM_PROMPT + '\n## Current Canvas\n' + formatSummaryForPrompt(summary);
+  return base + lines.join('\n');
 }
 
 // ─── Canvas Agent ──────────────────────────────────────────────────
@@ -143,10 +164,26 @@ export class CanvasAgent {
     onText?: (delta: string) => void,
     onToolCall?: (data: { name: string; args: any }) => void,
     onToolResult?: (data: { name: string; result: string }) => void,
+    mentionedWorkspaceIds?: string[],
   ): Promise<string> {
     // Refresh workspace summary for system prompt
     const summary = await buildWorkspaceSummary(this.config.workspaceId);
-    const systemPrompt = buildSystemPrompt(summary);
+
+    // Load summaries for any other canvases the user @-mentioned. Silently
+    // drop any that fail to load (deleted/renamed/etc.) so a stale mention
+    // never blocks a chat turn.
+    const mentionedSummaries: WorkspaceSummary[] = [];
+    if (mentionedWorkspaceIds && mentionedWorkspaceIds.length > 0) {
+      const unique = Array.from(new Set(mentionedWorkspaceIds)).filter(
+        id => id && id !== this.config.workspaceId,
+      );
+      for (const id of unique) {
+        const s = await buildWorkspaceSummary(id);
+        if (s) mentionedSummaries.push(s);
+      }
+    }
+
+    const systemPrompt = buildSystemPrompt(summary, mentionedSummaries);
 
     // Add user message
     this.messages.push({ role: 'user', content: message } as ModelMessage);
