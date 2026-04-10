@@ -46,11 +46,11 @@ const CANVAS_MENTION_PREFIX = 'canvas:';
  * header text the user sees.
  */
 const MENTION_GROUPS = [
-  { key: 'canvas',    label: 'Canvas' },
   { key: 'file',      label: 'File' },
   { key: 'agent',     label: 'Agent' },
   { key: 'terminal',  label: 'Terminal' },
   { key: 'frame',     label: 'Frame' },
+  { key: 'canvas',    label: 'Canvas' },
   { key: 'proj-file', label: 'Project Files' },
 ] as const;
 
@@ -449,7 +449,7 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
   // Build mention items from nodes + files + other workspaces
   const buildMentionItems = useCallback(async (query: string) => {
     const items: MentionItem[] = [];
-    // Other canvases (workspaces) — shown first so they're easy to reach
+    // Other canvases (workspaces) — ordering is handled by MENTION_GROUPS below
     if (allWorkspaces) {
       for (const ws of allWorkspaces) {
         if (ws.id === workspaceId) continue;

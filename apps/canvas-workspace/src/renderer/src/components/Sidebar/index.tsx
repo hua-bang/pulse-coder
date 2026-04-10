@@ -536,11 +536,14 @@ export const Sidebar = ({
                   {/* Folder children */}
                   <div
                     className={`sidebar-folder-children${!isOpen ? ' sidebar-folder-children--collapsed' : ''}${isWsDrop ? ' sidebar-drop-zone--active' : ''}`}
+                    aria-hidden={!isOpen}
                   >
-                    {isOpen && folderWorkspaces.map(renderWorkspaceItem)}
-                    {isOpen && folderWorkspaces.length === 0 && (
-                      <div className="sidebar-folder-empty">Drop workspaces here</div>
-                    )}
+                    <div className="sidebar-folder-children-inner">
+                      {folderWorkspaces.map(renderWorkspaceItem)}
+                      {folderWorkspaces.length === 0 && (
+                        <div className="sidebar-folder-empty">Drop workspaces here</div>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -654,22 +657,27 @@ export const Sidebar = ({
                     )}
                   </button>
                   {/* Children of frame */}
-                  {isFrame && isOpen && children.length > 0 && (
-                    <div className="sidebar-layer-children">
-                      {children.map((child) => (
-                        <button
-                          key={child.id}
-                          className="sidebar-layer-item"
-                          onClick={() => onNodeFocus?.(child.id)}
-                          onContextMenu={(e) => handleLayerContextMenu(e, child.id)}
-                          title={child.title}
-                        >
-                          <span className="sidebar-layer-icon">
-                            <NodeTypeIcon type={child.type} />
-                          </span>
-                          <span className="sidebar-layer-name">{child.title}</span>
-                        </button>
-                      ))}
+                  {isFrame && children.length > 0 && (
+                    <div
+                      className={`sidebar-layer-children${!isOpen ? ' sidebar-layer-children--collapsed' : ''}`}
+                      aria-hidden={!isOpen}
+                    >
+                      <div className="sidebar-layer-children-inner">
+                        {children.map((child) => (
+                          <button
+                            key={child.id}
+                            className="sidebar-layer-item"
+                            onClick={() => onNodeFocus?.(child.id)}
+                            onContextMenu={(e) => handleLayerContextMenu(e, child.id)}
+                            title={child.title}
+                          >
+                            <span className="sidebar-layer-icon">
+                              <NodeTypeIcon type={child.type} />
+                            </span>
+                            <span className="sidebar-layer-name">{child.title}</span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>

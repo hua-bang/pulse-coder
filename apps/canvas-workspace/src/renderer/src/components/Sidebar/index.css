@@ -560,9 +560,28 @@
 }
 
 .sidebar-layer-children {
+  display: grid;
+  grid-template-rows: 1fr;
   padding: 0 0 0 10px;
   margin: 0 6px 0 12px;
   border-left: 1.5px solid var(--border-light);
+  transition:
+    grid-template-rows 0.2s ease,
+    opacity 0.18s ease,
+    border-left-color 0.2s ease;
+  min-height: 0;
+}
+
+.sidebar-layer-children-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar-layer-children--collapsed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+  border-left-color: transparent;
 }
 
 .sidebar-folder-delete {
@@ -592,15 +611,28 @@
 }
 
 .sidebar-folder-children {
+  display: grid;
+  grid-template-rows: 1fr;
   padding: 0 0 0 10px;
   margin: 0 6px 0 12px;
   border-left: 1.5px solid var(--border-light);
-  transition: border-color 0.15s;
-  min-height: 2px;
+  transition:
+    grid-template-rows 0.2s ease,
+    opacity 0.18s ease,
+    border-left-color 0.2s ease;
+  min-height: 0;
+}
+
+.sidebar-folder-children-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar-folder-children--collapsed {
-  display: none;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+  border-left-color: transparent;
 }
 
 .sidebar-folder-empty {
