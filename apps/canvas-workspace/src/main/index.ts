@@ -18,6 +18,15 @@ const preloadFallbackPath = join(currentDir, "../preload/index.js");
 const resolvedPreloadPath = existsSync(preloadPath)
   ? preloadPath
   : preloadFallbackPath;
+
+// Resolve the app icon for window/taskbar display. Works in dev, preview,
+// and packaged builds (resources/ is shipped via electron-builder files).
+const iconCandidates = [
+  join(currentDir, "../../resources/icon.png"),
+  join(currentDir, "../../build/icon.png"),
+  join(process.resourcesPath ?? "", "resources/icon.png")
+];
+const resolvedIconPath = iconCandidates.find((p) => p && existsSync(p));
 const logDir = join(app.getPath("userData"), "logs");
 const logFile = join(logDir, "app.log");
 
@@ -43,6 +52,7 @@ const createWindow = () => {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: "#f6f6f4",
+    ...(resolvedIconPath ? { icon: resolvedIconPath } : {}),
     webPreferences: {
       preload: resolvedPreloadPath,
       contextIsolation: true
@@ -82,6 +92,16 @@ const createWindow = () => {
 };
 
 app.whenReady().then(() => {
+  // Set the macOS dock icon in dev/preview (packaged builds use the .icns
+  // from electron-builder, so this is a no-op there).
+  if (process.platform === "darwin" && resolvedIconPath && app.dock) {
+    try {
+      app.dock.setIcon(resolvedIconPath);
+    } catch (error) {
+      void writeLog("main", "dock.setIcon failed", String(error));
+    }
+  }
+
   ipcMain.on("app:log", (_event, payload) => {
     const level = payload?.level ?? "renderer";
     const message = payload?.message ?? "log";

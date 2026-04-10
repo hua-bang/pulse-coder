@@ -28,6 +28,7 @@
     },
     "files": [
       "dist/**/*",
+      "resources/**/*",
       "package.json"
     ],
     "extraMetadata": {
@@ -46,7 +47,8 @@
           ]
         }
       ],
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.png"
     },
     "win": {
       "target": [
@@ -56,7 +58,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "icon": "build/icon.ico"
     },
     "linux": {
       "target": [
@@ -73,7 +76,8 @@
           ]
         }
       ],
-      "category": "Development"
+      "category": "Development",
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,
