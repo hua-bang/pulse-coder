@@ -53,6 +53,58 @@ const buildLayerTree = (nodes: CanvasNode[]): LayerTreeNode[] => {
   return tree;
 };
 
+/* ---- Per-type icon for the Layers panel ---- */
+const LayerIcon = ({ type }: { type: CanvasNode['type'] }) => {
+  switch (type) {
+    case 'file':
+      return (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <path d="M4 2h5l3 3v9H4V2z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+          <path d="M9 2v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      );
+    case 'terminal':
+      return (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+          <path d="M5 7l2 1.5L5 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M9 10h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        </svg>
+      );
+    case 'frame':
+      // Four corner brackets — conveys "container / crop frame"
+      return (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <path
+            d="M3 6V4a1 1 0 011-1h2M10 3h2a1 1 0 011 1v2M13 10v2a1 1 0 01-1 1h-2M6 13H4a1 1 0 01-1-1v-2"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+          />
+        </svg>
+      );
+    case 'agent':
+      // Pulse waveform matching the Pulse Canvas brand mark
+      return (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <path
+            d="M2 8H6L7 5L8 12L9 4L10 8H14"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    default:
+      return (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2 2" />
+        </svg>
+      );
+  }
+};
+
 interface Props {
   collapsed: boolean;
   onToggle: () => void;
@@ -602,7 +654,7 @@ export const Sidebar = ({
                     onContextMenu={(e) => handleLayerContextMenu(e, node.id)}
                     title={node.title}
                   >
-                    {isFrame && (
+                    {isFrame ? (
                       <span
                         className={`sidebar-layer-chevron${isOpen ? ' sidebar-layer-chevron--open' : ''}`}
                         onClick={(e) => { e.stopPropagation(); toggleLayerCollapse(node.id); }}
@@ -611,24 +663,11 @@ export const Sidebar = ({
                           <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                       </span>
+                    ) : (
+                      <span className="sidebar-layer-spacer" aria-hidden="true" />
                     )}
                     <span className="sidebar-layer-icon">
-                      {node.type === 'file' ? (
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                          <path d="M4 2h5l3 3v9H4V2z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-                          <path d="M9 2v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      ) : node.type === 'terminal' ? (
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                          <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-                          <path d="M5 7l2 1.5L5 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                          <path d="M9 10h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                        </svg>
-                      ) : (
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                          <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2 2" />
-                        </svg>
-                      )}
+                      <LayerIcon type={node.type} />
                     </span>
                     <span className="sidebar-layer-name">
                       {node.type === 'frame' ? (node.title || (node.data as { label?: string }).label || 'Frame') : node.title}
@@ -649,18 +688,7 @@ export const Sidebar = ({
                           title={child.title}
                         >
                           <span className="sidebar-layer-icon">
-                            {child.type === 'file' ? (
-                              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                <path d="M4 2h5l3 3v9H4V2z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-                                <path d="M9 2v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            ) : (
-                              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-                                <path d="M5 7l2 1.5L5 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                                <path d="M9 10h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                              </svg>
-                            )}
+                            <LayerIcon type={child.type} />
                           </span>
                           <span className="sidebar-layer-name">{child.title}</span>
                         </button>
