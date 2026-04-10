@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, Fragment } from 'react';
 import MarkdownIt from 'markdown-it';
 import type { AgentChatMessage, AgentSessionInfo, CanvasNode } from '../../types';
+import { AvatarIcon, CloseIcon, PlusIcon, ListLinesIcon } from '../icons';
 
 interface OtherWorkspaceSession extends AgentSessionInfo {
   sourceWorkspaceId: string;
@@ -153,7 +154,13 @@ const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 // ─── @ Mention rendering ─────────────────────────────────────────
 const MENTION_RE = /@\[([^\]]+)\]/g;
 
-/** SVG icon markup for a given node type (HTML attributes use kebab-case). */
+/**
+ * Inner SVG markup for a given node type, shared between two rendering paths:
+ *  - `mentionIconSvg` (HTML string concatenation, used inside `renderMdWithMentions`)
+ *  - `MentionNodeIcon` (JSX component, used inside `renderUserContent` and the mention picker)
+ * Path data is tuned for a 14×14 viewBox that's specific to chat mention chips;
+ * the broader 16×16 `NodeTypeIcon` family in `components/icons` is used elsewhere.
+ */
 function mentionIconSvg(nodeType: string): string {
   switch (nodeType) {
     case 'terminal':
@@ -168,6 +175,17 @@ function mentionIconSvg(nodeType: string): string {
       return '<rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 5h5M4.5 7.5h3" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>';
   }
 }
+
+/** JSX wrapper over `mentionIconSvg` — one source of truth for mention icon paths. */
+const MentionNodeIcon = ({ nodeType, size = 12 }: { nodeType: string; size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 14 14"
+    fill="none"
+    dangerouslySetInnerHTML={{ __html: mentionIconSvg(nodeType) }}
+  />
+);
 
 /**
  * Extract `@[canvas:Name]` tokens from a serialized message and resolve each
@@ -235,12 +253,7 @@ function renderUserContent(content: string, nodes?: CanvasNode[]): React.ReactNo
           data-node-type="workspace"
         >
           <span className="chat-mention-chip-icon">
-            <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-              <rect x="1.5" y="1.5" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-              <rect x="3.5" y="3.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
-              <rect x="7.5" y="3.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
-              <rect x="3.5" y="7.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
-            </svg>
+            <MentionNodeIcon nodeType="workspace" />
           </span>
           <span className="chat-mention-chip-label">{wsLabel}</span>
         </span>
@@ -254,26 +267,7 @@ function renderUserContent(content: string, nodes?: CanvasNode[]): React.ReactNo
     parts.push(
       <span key={match.index} className="chat-mention-chip chat-mention-chip--clickable" data-node-type={node?.type} data-node-id={node?.id}>
         <span className="chat-mention-chip-icon">
-          {node?.type === 'terminal' ? (
-            <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-              <rect x="1.5" y="2" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M4 6l2 1.5L4 9" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          ) : node?.type === 'agent' ? (
-            <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-              <circle cx="7" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M3.5 12c0-1.9 1.6-3.5 3.5-3.5s3.5 1.6 3.5 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-            </svg>
-          ) : node?.type === 'frame' ? (
-            <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-              <rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.2" />
-            </svg>
-          ) : (
-            <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-              <rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M4.5 5h5M4.5 7.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-            </svg>
-          )}
+          <MentionNodeIcon nodeType={node?.type ?? 'file'} />
         </span>
         <span className="chat-mention-chip-label">{label}</span>
       </span>
@@ -883,10 +877,7 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
       <div className="chat-panel-header">
         <div className="chat-panel-title-wrapper" ref={sessionMenuRef}>
           <button className="chat-panel-title-btn" onClick={() => void openSessionMenu()}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="6" r="3" stroke="currentColor" strokeWidth="1.3" />
-              <path d="M4 14c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-            </svg>
+            <AvatarIcon size={16} />
             <span>Pulse Agent</span>
             <svg className="chat-panel-title-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none">
               <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
@@ -895,9 +886,7 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
           {sessionMenuOpen && (
             <div className="chat-session-menu">
               <button className="chat-session-menu-new" onClick={() => void handleNewSession()}>
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M7 3v8M3 7h8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                </svg>
+                <PlusIcon size={14} strokeWidth={1.3} />
                 <span>New chat</span>
               </button>
               {sessions.length > 0 && (
@@ -914,9 +903,7 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
                           else setSessionMenuOpen(false);
                         }}
                       >
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                          <path d="M4 3.5h6M4 7h4M4 10.5h5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                        </svg>
+                        <ListLinesIcon size={14} />
                         <span className="chat-session-menu-item-text">
                           {s.isCurrent ? 'Current chat' : (s.preview || s.date)}
                         </span>
@@ -937,9 +924,7 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
                         className="chat-session-menu-item chat-session-menu-item--other-ws"
                         onClick={() => void handleLoadSession(s.sessionId, s.sourceWorkspaceId)}
                       >
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                          <path d="M4 3.5h6M4 7h4M4 10.5h5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                        </svg>
+                        <ListLinesIcon size={14} />
                         <span className="chat-session-menu-item-text">
                           {s.preview || s.date}
                         </span>
@@ -959,14 +944,10 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
             onClick={() => void handleNewSession()}
             title="New chat"
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-            </svg>
+            <PlusIcon size={16} strokeWidth={1.3} />
           </button>
           <button className="chat-panel-action-btn" onClick={onClose} title="Close panel">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-            </svg>
+            <CloseIcon size={16} strokeWidth={1.3} />
           </button>
         </div>
       </div>
@@ -1006,10 +987,7 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
               <div key={i} className={`chat-message chat-message-${msg.role}`}>
                 {msg.role === 'assistant' && (
                   <div className="chat-message-avatar">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                      <circle cx="8" cy="6" r="3" stroke="currentColor" strokeWidth="1.3" />
-                      <path d="M4 14c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                    </svg>
+                    <AvatarIcon size={14} />
                   </div>
                 )}
                 <div className="chat-message-body">
@@ -1044,10 +1022,7 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
           {loading && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant') && (
             <div className="chat-message chat-message-assistant">
               <div className="chat-message-avatar">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                  <circle cx="8" cy="6" r="3" stroke="currentColor" strokeWidth="1.3" />
-                  <path d="M4 14c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                </svg>
+                <AvatarIcon size={14} />
               </div>
               <div className="chat-message-body">
                 <div className="chat-loading">
@@ -1080,26 +1055,16 @@ export const ChatPanel = ({ workspaceId, allWorkspaces, nodes, rootFolder, onClo
                     onMouseEnter={() => setMentionIndex(i)}
                   >
                     <span className="chat-mention-item-icon">
-                      {item.type === 'workspace' ? (
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                          <rect x="1.5" y="1.5" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-                          <rect x="3.5" y="3.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
-                          <rect x="7.5" y="3.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
-                          <rect x="3.5" y="7.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
-                        </svg>
-                      ) : item.type === 'node' ? (
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                          {item.nodeType === 'file' && <><rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" /><path d="M4.5 5h5M4.5 7.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" /></>}
-                          {item.nodeType === 'terminal' && <><rect x="1.5" y="2" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" /><path d="M4 6l2 1.5L4 9" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" /></>}
-                          {item.nodeType === 'agent' && <><circle cx="7" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.2" /><path d="M3.5 12c0-1.9 1.6-3.5 3.5-3.5s3.5 1.6 3.5 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></>}
-                          {item.nodeType === 'frame' && <rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.2" />}
-                        </svg>
-                      ) : (
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                          <rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-                          <path d="M4.5 5h5M4.5 7.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-                        </svg>
-                      )}
+                      <MentionNodeIcon
+                        size={14}
+                        nodeType={
+                          item.type === 'workspace'
+                            ? 'workspace'
+                            : item.type === 'node'
+                              ? item.nodeType ?? 'file'
+                              : 'file'
+                        }
+                      />
                     </span>
                     <span className="chat-mention-item-label">{item.label}</span>
                   </button>
