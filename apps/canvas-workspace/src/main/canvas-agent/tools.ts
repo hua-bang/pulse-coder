@@ -20,6 +20,7 @@ import {
   readNodeDetail,
   formatSummaryForPrompt,
 } from './context-builder';
+import { hasSession, writeToSession } from '../pty-manager';
 
 const STORE_DIR = join(homedir(), '.pulse-coder', 'canvas');
 
@@ -530,6 +531,91 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
         broadcastUpdate(workspaceId, [nodeId]);
 
         return JSON.stringify({ ok: true, nodeId, agentType, title, autoLaunch });
+      },
+    },
+
+    // ─── Follow-up input to an existing agent node ──────────────────
+
+    canvas_send_to_agent: {
+      name: 'canvas_send_to_agent',
+      description:
+        'Send a follow-up prompt to an existing, RUNNING agent node (Claude Code / Codex / Pulse Coder). ' +
+        'Writes the text directly to the agent\'s PTY as if the user typed it, and auto-appends Enter ' +
+        '(a carriage return) so the agent receives and executes it immediately — you do NOT need to ' +
+        'call this twice or send a separate newline. ' +
+        'Use this for any interaction AFTER the initial launch: follow-up questions, corrections, ' +
+        'redirections, approvals, etc. ' +
+        'For the FIRST launch of a brand-new agent, use `canvas_create_agent_node` instead. ' +
+        'Requirements: the target node must be `type="agent"`, `status="running"`, and its backing PTY ' +
+        'session must still be alive (the agent node must be open in the canvas UI — closing the node ' +
+        'tears down the PTY).',
+      inputSchema: z.object({
+        nodeId: z.string().describe('The agent node ID to send the prompt to.'),
+        input: z.string().describe(
+          'The text to send. Enter is appended automatically, so provide exactly what you want the ' +
+          'agent to receive as one submission — no trailing newline needed.',
+        ),
+      }),
+      execute: async (input) => {
+        const nodeId = input.nodeId as string;
+        const text = (input.input as string) ?? '';
+
+        const canvas = await loadCanvas(workspaceId);
+        if (!canvas) return 'Error: workspace not found';
+
+        const node = canvas.nodes.find(n => n.id === nodeId);
+        if (!node) return `Error: node not found: ${nodeId}`;
+        if (node.type !== 'agent') {
+          return `Error: canvas_send_to_agent only works on agent nodes (got "${node.type}"). ` +
+            'For terminal nodes use the MCP `canvas_exec` tool; for file/frame nodes use `canvas_update_node`.';
+        }
+
+        const status = (node.data.status as string) ?? 'idle';
+        if (status !== 'running') {
+          return `Error: agent node "${node.title}" is not running (status="${status}"). ` +
+            'The agent must have been launched (status="running") before you can send follow-up input. ' +
+            'Create a new agent node with a prompt, or ask the user to launch this one.';
+        }
+
+        const sessionId = (node.data.sessionId as string) ?? '';
+        if (!sessionId || !hasSession(sessionId)) {
+          return `Error: agent node "${node.title}" has no active PTY session. ` +
+            'The agent node must be open in the canvas UI — closing or collapsing the node tears ' +
+            'down its PTY. Ask the user to reopen the node, or relaunch the agent.';
+        }
+
+        // Strip any trailing CR/LF the caller might have included so we
+        // control the submit signal ourselves.
+        const body = text.replace(/[\r\n]+$/, '');
+
+        // Write body and Enter as TWO separate writes with a small gap.
+        //
+        // Why: some TUI agents (notably Codex, which uses a ratatui-style
+        // input editor with paste protection) distinguish "paste" from
+        // "keystroke" by timing. If the text body and the \r arrive in the
+        // same read, the \r gets absorbed into the editor buffer as a
+        // literal newline and the prompt is never submitted — you end up
+        // with the text sitting in the input box waiting for a real Enter.
+        // Writing the body, yielding the event loop for ~120ms, then
+        // writing \r as a second call makes the Enter arrive as an
+        // independent keystroke, which Codex's editor treats as submit.
+        // Claude Code is happy either way, so this is safe for all
+        // agent types.
+        if (body) {
+          if (!writeToSession(sessionId, body)) {
+            return `Error: failed to write to PTY session ${sessionId} (session disappeared).`;
+          }
+          await new Promise<void>((resolve) => setTimeout(resolve, 120));
+        }
+        if (!writeToSession(sessionId, '\r')) {
+          return `Error: failed to write Enter to PTY session ${sessionId} (session disappeared).`;
+        }
+
+        return JSON.stringify({
+          ok: true,
+          nodeId,
+          bytesSent: body.length + 1,
+        });
       },
     },
 

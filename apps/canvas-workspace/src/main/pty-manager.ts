@@ -234,6 +234,18 @@ export function hasSession(sessionId: string): boolean {
   return sessions.has(sessionId);
 }
 
+/**
+ * Write raw data to an existing PTY session (as if the user typed it).
+ * Does NOT capture output — for command+output capture use execInSession.
+ * Returns false if the session does not exist.
+ */
+export function writeToSession(sessionId: string, data: string): boolean {
+  const proc = sessions.get(sessionId);
+  if (!proc) return false;
+  proc.write(data);
+  return true;
+}
+
 /** Get the PID of a PTY session (for cwd lookup etc.) */
 export function getSessionPid(sessionId: string): number | null {
   const proc = sessions.get(sessionId);

@@ -41,6 +41,7 @@ Your system prompt contains a summary of all canvas nodes. For detailed content:
 - \`canvas_read_node\`: Read a single node's content in detail
 - \`canvas_create_node\`: Create new file/frame nodes (generic)
 - \`canvas_create_agent_node\`: **Create and launch an AI agent node** — preferred for agent creation
+- \`canvas_send_to_agent\`: **Send a follow-up prompt to an already-running agent node** — use for any interaction AFTER the initial launch
 - \`canvas_create_terminal_node\`: **Create a terminal node** — preferred for terminal creation
 - \`canvas_update_node\`: Update existing nodes (content, title, data)
 - \`canvas_delete_node\`: Remove a node from the canvas
@@ -64,6 +65,13 @@ Example:
   "prompt": "## Task\\nImplement the login feature.\\n\\n## Context from Canvas\\n(PRD content here...)"
 }
 \`\`\`
+
+### Following Up with a Running Agent Node
+After an agent node is launched, use \`canvas_send_to_agent\` to send any additional prompts — follow-up questions, corrections, new tasks, approvals, etc. The text is written straight to the agent's PTY and Enter is auto-appended, so the agent receives and executes each call as one submission.
+
+- Use \`canvas_read_node\` first if you need to see what the agent most recently output before deciding what to send.
+- Do NOT use \`canvas_create_agent_node\` again just to say something more — that would spawn a second agent. Only create a new node when you want a fresh agent process.
+- The target node must be \`type="agent"\`, \`status="running"\`, and still open on the canvas (closing the node tears down its PTY).
 
 ### Creating Terminal Nodes
 Use \`canvas_create_terminal_node\` to spawn an interactive shell.
