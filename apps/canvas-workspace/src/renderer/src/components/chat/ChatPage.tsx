@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import type { CanvasNode } from '../../types';
 import { CloseIcon } from '../icons';
 import './ChatPage.css';
@@ -9,6 +9,13 @@ import { useChatSessions } from './hooks/useChatSessions';
 import { useChatStream } from './hooks/useChatStream';
 import { useMentions } from './hooks/useMentions';
 import type { WorkspaceOption } from './types';
+
+const RailToggleIcon = ({ size = 16 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <rect x="1.5" y="2.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M6 2.5v11" stroke="currentColor" strokeWidth="1.3" />
+  </svg>
+);
 
 interface ChatPageProps {
   workspaceId: string;
@@ -34,6 +41,8 @@ export const ChatPage = ({
   onExit,
   onNodeFocus,
 }: ChatPageProps) => {
+  const [railCollapsed, setRailCollapsed] = useState(false);
+
   const {
     abort,
     answerClarification,
@@ -106,15 +115,26 @@ export const ChatPage = ({
 
   return (
     <div className="chat-page">
-      <ChatSessionsRail
-        sessions={sessions}
-        otherSessions={otherSessions}
-        onNewSession={handleNewSession}
-        onLoadSession={handleLoadSession}
-      />
+      <div className={`chat-page-rail-wrapper${railCollapsed ? ' chat-page-rail-wrapper--collapsed' : ''}`}>
+        <ChatSessionsRail
+          sessions={sessions}
+          otherSessions={otherSessions}
+          onNewSession={handleNewSession}
+          onLoadSession={handleLoadSession}
+        />
+      </div>
 
       <div className="chat-page-main">
         <div className="chat-page-topbar">
+          <button
+            className="chat-panel-action-btn"
+            onClick={() => setRailCollapsed((v) => !v)}
+            title={railCollapsed ? 'Show session list' : 'Hide session list'}
+            aria-label={railCollapsed ? 'Show session list' : 'Hide session list'}
+          >
+            <RailToggleIcon size={16} />
+          </button>
+          <div className="chat-page-topbar-spacer" />
           <button
             className="chat-panel-action-btn"
             onClick={onExit}

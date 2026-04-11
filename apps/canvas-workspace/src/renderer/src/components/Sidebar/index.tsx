@@ -774,22 +774,6 @@ export const Sidebar = ({
           <button className="sidebar-toggle" onClick={onToggle} title="Expand sidebar">
             <SidebarToggleIcon size={16} />
           </button>
-          <button
-            className={`sidebar-toggle${activeView === 'canvas' ? ' sidebar-toggle--active' : ''}`}
-            onClick={onExitChat}
-            title="Canvas view"
-            aria-label="Canvas view"
-          >
-            <WorkspaceIcon size={16} />
-          </button>
-          <button
-            className={`sidebar-toggle${activeView === 'chat' ? ' sidebar-toggle--active' : ''}`}
-            onClick={onEnterChat}
-            title="AI Chat page"
-            aria-label="AI Chat page"
-          >
-            <AvatarIcon size={16} />
-          </button>
         </div>
       )}
     </aside>

@@ -10,40 +10,59 @@
   overflow: hidden;
 }
 
+/* ─── Sessions rail wrapper (handles collapse animation) ───── */
+
+.chat-page-rail-wrapper {
+  width: 260px;
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-right: 1px solid rgba(55, 53, 47, 0.08);
+}
+
+.chat-page-rail-wrapper--collapsed {
+  width: 0;
+  border-right-width: 0;
+}
+
 /* ─── Sessions rail (left) ─────────────────────────────────── */
 
 .chat-page-rail {
   width: 260px;
+  height: 100%;
   flex-shrink: 0;
-  border-right: 1px solid rgba(0, 0, 0, 0.06);
   display: flex;
   flex-direction: column;
   padding: 12px 8px 8px;
   gap: 10px;
   overflow: hidden;
-  background: #fafaf9;
+  background: #fff;
+  box-sizing: border-box;
 }
 
 .chat-page-rail-new {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid rgba(55, 53, 47, 0.12);
-  background: #fff;
+  padding: 7px 10px;
+  border: none;
+  background: rgba(55, 53, 47, 0.05);
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
   color: #37352f;
   font-weight: 500;
-  transition: background 0.1s, border-color 0.1s;
+  transition: background 0.1s;
   width: 100%;
   flex-shrink: 0;
 }
 
 .chat-page-rail-new:hover {
-  background: rgba(55, 53, 47, 0.04);
-  border-color: rgba(55, 53, 47, 0.18);
+  background: rgba(55, 53, 47, 0.09);
+}
+
+.chat-page-rail-new svg {
+  color: #6b6b68;
 }
 
 .chat-page-rail-scroll {
@@ -122,9 +141,6 @@
 .chat-page-rail-item-ws {
   font-size: 10px;
   color: #9b9a97;
-  background: rgba(55, 53, 47, 0.06);
-  border-radius: 3px;
-  padding: 1px 5px;
   flex-shrink: 0;
   white-space: nowrap;
   max-width: 90px;
@@ -133,7 +149,7 @@
 }
 
 .chat-page-rail-item--other .chat-page-rail-item-text {
-  opacity: 0.85;
+  color: #6b6b68;
 }
 
 .chat-page-rail-empty {
@@ -156,11 +172,14 @@
 .chat-page-topbar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   padding: 10px 16px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.04);
   flex-shrink: 0;
-  gap: 12px;
+  gap: 8px;
+}
+
+.chat-page-topbar-spacer {
+  flex: 1;
 }
 
 /* ─── Body (chat view inside the page) ────────────────────── */
