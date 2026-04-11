@@ -383,7 +383,7 @@ export const Sidebar = ({
           />
         ) : (
           <button
-            className={`sidebar-item${activeId === ws.id ? ' sidebar-item--active' : ''}`}
+            className={`sidebar-item${activeId === ws.id && activeView !== 'chat' ? ' sidebar-item--active' : ''}`}
             onClick={() => onSelect(ws.id)}
             onDoubleClick={() => startRename(ws)}
             title="Double-click to rename"
@@ -432,18 +432,9 @@ export const Sidebar = ({
             <span className="sidebar-brand">Pulse Canvas</span>
           </div>
 
-          {/* Top-level view nav (Canvas vs AI Chat) */}
+          {/* Top-level view nav — AI Chat only. Canvas is reached by selecting
+              a workspace below, which implicitly routes back to canvas view. */}
           <div className="sidebar-nav">
-            <button
-              className={`sidebar-nav-item${activeView === 'canvas' ? ' sidebar-nav-item--active' : ''}`}
-              onClick={onExitChat}
-              title="Canvas view"
-            >
-              <span className="sidebar-nav-icon">
-                <WorkspaceIcon size={14} />
-              </span>
-              <span className="sidebar-nav-label">Canvas</span>
-            </button>
             <button
               className={`sidebar-nav-item${activeView === 'chat' ? ' sidebar-nav-item--active' : ''}`}
               onClick={onEnterChat}
@@ -782,22 +773,6 @@ export const Sidebar = ({
         <div className="sidebar-collapsed-toggle">
           <button className="sidebar-toggle" onClick={onToggle} title="Expand sidebar">
             <SidebarToggleIcon size={16} />
-          </button>
-          <button
-            className={`sidebar-toggle${activeView === 'canvas' ? ' sidebar-toggle--active' : ''}`}
-            onClick={onExitChat}
-            title="Canvas view"
-            aria-label="Canvas view"
-          >
-            <WorkspaceIcon size={16} />
-          </button>
-          <button
-            className={`sidebar-toggle${activeView === 'chat' ? ' sidebar-toggle--active' : ''}`}
-            onClick={onEnterChat}
-            title="AI Chat page"
-            aria-label="AI Chat page"
-          >
-            <AvatarIcon size={16} />
           </button>
         </div>
       )}

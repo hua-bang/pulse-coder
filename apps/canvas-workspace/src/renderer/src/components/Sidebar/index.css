@@ -35,18 +35,7 @@
 .sidebar-collapsed-toggle {
   padding: 10px 8px;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-.sidebar-toggle--active {
-  background: var(--accent-light);
-  color: var(--accent);
-}
-
-.sidebar-toggle--active:hover {
-  background: var(--accent-light);
+  justify-content: center;
 }
 
 /* ---- Top-level view nav (Canvas / AI Chat) ---- */

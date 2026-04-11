@@ -8,6 +8,12 @@ interface UseChatSessionsOptions {
   onMessagesLoaded: (messages: AgentChatMessage[]) => void;
   /** When true, load the session list on mount and whenever workspaceId changes. */
   eagerLoad?: boolean;
+  /**
+   * When true, don't call getHistory on mount. Use this when the caller is
+   * about to load a specific session manually — avoids a race between the
+   * initial getHistory and the pending loadSession.
+   */
+  skipInitialHistory?: boolean;
 }
 
 export function useChatSessions({
@@ -15,6 +21,7 @@ export function useChatSessions({
   allWorkspaces,
   onMessagesLoaded,
   eagerLoad = false,
+  skipInitialHistory = false,
 }: UseChatSessionsOptions) {
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [sessions, setSessions] = useState<AgentSessionInfo[]>([]);
@@ -22,13 +29,14 @@ export function useChatSessions({
   const sessionMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (skipInitialHistory) return;
     void (async () => {
       const result = await window.canvasWorkspace.agent.getHistory(workspaceId);
       if (result.ok && result.messages) {
         onMessagesLoaded(result.messages);
       }
     })();
-  }, [workspaceId, onMessagesLoaded]);
+  }, [workspaceId, onMessagesLoaded, skipInitialHistory]);
 
   useEffect(() => {
     if (!sessionMenuOpen) return;

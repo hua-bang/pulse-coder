@@ -1,23 +1,32 @@
-import type { AgentSessionInfo } from '../../types';
 import { ListLinesIcon, PlusIcon } from '../icons';
-import type { OtherWorkspaceSession } from './types';
+
+export interface UnifiedSession {
+  sessionId: string;
+  workspaceId: string;
+  workspaceName: string;
+  date: string;
+  messageCount: number;
+  preview?: string;
+  isCurrent?: boolean;
+}
 
 interface ChatSessionsRailProps {
-  sessions: AgentSessionInfo[];
-  otherSessions: OtherWorkspaceSession[];
-  onNewSession: () => Promise<void>;
-  onLoadSession: (sessionId: string, sourceWorkspaceId?: string) => Promise<void>;
+  allSessions: UnifiedSession[];
+  onNewSession: () => void | Promise<void>;
+  onSelectSession: (session: UnifiedSession) => void;
 }
 
 /**
- * Always-visible sessions rail shown in ChatPage. This is the full-screen
- * equivalent of the dropdown menu in ChatHeader (panel).
+ * Always-visible sessions rail for ChatPage. Shows a single unified list of
+ * sessions from all workspaces — the chat page does not have a "selected
+ * workspace" concept, each session carries its own workspace as metadata.
+ *
+ * Layout: "New chat" stays pinned at the top while the session list scrolls.
  */
 export const ChatSessionsRail = ({
-  sessions,
-  otherSessions,
+  allSessions,
   onNewSession,
-  onLoadSession,
+  onSelectSession,
 }: ChatSessionsRailProps) => (
   <aside className="chat-page-rail">
     <button
@@ -28,40 +37,16 @@ export const ChatSessionsRail = ({
       <span>New chat</span>
     </button>
 
-    {sessions.length > 0 && (
-      <div className="chat-page-rail-group">
-        <div className="chat-page-rail-label">Recent</div>
+    <div className="chat-page-rail-scroll">
+      {allSessions.length === 0 ? (
+        <div className="chat-page-rail-empty">No previous chats yet.</div>
+      ) : (
         <div className="chat-page-rail-list">
-          {sessions.map((session) => (
+          {allSessions.map((session) => (
             <button
-              key={session.sessionId}
+              key={`${session.workspaceId}:${session.sessionId}`}
               className={`chat-page-rail-item${session.isCurrent ? ' chat-page-rail-item--active' : ''}`}
-              onClick={() => {
-                if (session.isCurrent) return;
-                void onLoadSession(session.sessionId);
-              }}
-              title={session.preview || session.date}
-            >
-              <ListLinesIcon size={14} />
-              <span className="chat-page-rail-item-text">
-                {session.isCurrent ? 'Current chat' : (session.preview || session.date)}
-              </span>
-              <span className="chat-page-rail-item-count">{session.messageCount}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    )}
-
-    {otherSessions.length > 0 && (
-      <div className="chat-page-rail-group">
-        <div className="chat-page-rail-label">Other Workspaces</div>
-        <div className="chat-page-rail-list">
-          {otherSessions.map((session) => (
-            <button
-              key={`${session.sourceWorkspaceId}:${session.sessionId}`}
-              className="chat-page-rail-item chat-page-rail-item--other"
-              onClick={() => void onLoadSession(session.sessionId, session.sourceWorkspaceId)}
+              onClick={() => onSelectSession(session)}
               title={`${session.workspaceName} · ${session.preview || session.date}`}
             >
               <ListLinesIcon size={14} />
@@ -72,11 +57,7 @@ export const ChatSessionsRail = ({
             </button>
           ))}
         </div>
-      </div>
-    )}
-
-    {sessions.length === 0 && otherSessions.length === 0 && (
-      <div className="chat-page-rail-empty">No previous chats yet.</div>
-    )}
+      )}
+    </div>
   </aside>
 );
