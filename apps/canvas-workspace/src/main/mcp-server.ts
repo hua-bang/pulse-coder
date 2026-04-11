@@ -28,6 +28,10 @@ interface CanvasNode {
   id: string;
   type: NodeType;
   title: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
   data: CanvasNodeData;
 }
 

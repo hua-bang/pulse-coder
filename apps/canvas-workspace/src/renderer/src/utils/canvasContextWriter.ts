@@ -130,7 +130,7 @@ export const writeCanvasContext = async (
   const wsId = workspaceId ?? 'default';
 
   const dirRes = await storeApi.getDir(wsId);
-  if (!dirRes.ok) return;
+  if (!dirRes.ok || !dirRes.dir) return;
   const canvasDir: string = dirRes.dir;
 
   const context = buildCanvasContext(nodes, cwd, workspaceId, workspaceName, canvasDir);

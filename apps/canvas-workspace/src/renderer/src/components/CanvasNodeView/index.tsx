@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import "./index.css";
-import type { CanvasNode, FrameNodeData } from "../types";
-import type { ResizeEdge } from "../hooks/useNodeResize";
+import type { CanvasNode, FrameNodeData } from "../../types";
+import type { ResizeEdge } from "../../hooks/useNodeResize";
 import { FileNodeBody } from "../FileNodeBody";
 import { TerminalNodeBody } from "../TerminalNodeBody";
 import { FrameNodeBody, FrameColorPicker } from "../FrameNodeBody";

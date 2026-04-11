@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./index.css";
-import type { CanvasNode } from "../types";
+import type { CanvasNode, FileNodeData } from "../../types";
 
 interface SearchResult {
   node: CanvasNode;
@@ -61,7 +61,7 @@ export const SearchPalette = ({ nodes, onSelect, onClose }: Props) => {
       }
 
       if (node.type === "file") {
-        const fileData = node.data as import("../types").FileNodeData;
+        const fileData = node.data as FileNodeData;
         const filePath = fileData.filePath || "";
         const fileName = filePath.split("/").pop() || "";
         const fileNameLower = fileName.toLowerCase();

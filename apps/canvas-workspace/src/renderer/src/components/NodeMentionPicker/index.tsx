@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './index.css';
-import type { CanvasNode, FileNodeData } from '../types';
+import type { CanvasNode, FileNodeData } from '../../types';
 
 interface Props {
   nodes: CanvasNode[];

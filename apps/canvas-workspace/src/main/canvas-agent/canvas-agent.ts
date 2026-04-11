@@ -6,7 +6,8 @@
  * grep, ls, bash). Runs in the Electron main process.
  */
 
-import { Engine, builtInSkillsPlugin } from 'pulse-coder-engine';
+import { Engine } from 'pulse-coder-engine';
+import { builtInSkillsPlugin } from 'pulse-coder-engine/built-in';
 import { createOpenAI } from '@ai-sdk/openai';
 import type { ModelMessage } from 'ai';
 import {
