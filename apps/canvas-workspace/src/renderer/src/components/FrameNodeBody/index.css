@@ -36,6 +36,10 @@
   top: -26px;
   left: -1.5px;
   height: 24px;
+  /* Override the generic .node-header min-height: 32px so the tab actually
+   * renders at its intended 24px height instead of dipping into the frame
+   * body by 6px. */
+  min-height: 0;
   min-width: 120px;
   max-width: 100%;
   /* Soft tint background: frame color mixed with white produces a label-like
