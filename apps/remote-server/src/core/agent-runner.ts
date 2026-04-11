@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
-import type { CompactionEvent, ModelMessage } from 'pulse-coder-engine';
+import { buildProvider, type CompactionEvent, type LLMProviderFactory } from 'pulse-coder-engine';
+import type { ModelMessage } from 'ai';
 import type { ClarificationRequest, IncomingAttachment } from './types.js';
 import { engine } from './engine-singleton.js';
 import { getAcpState, runAcp } from 'pulse-coder-acp';
@@ -230,6 +231,21 @@ function buildChannelSystemPrompt(platformKey: string): string | null {
   return lines.join('\n');
 }
 
+function resolveRunProvider(
+  modelType: 'openai' | 'claude' | undefined,
+  sessionId: string,
+): LLMProviderFactory | undefined {
+  if (modelType !== 'claude') {
+    return undefined;
+  }
+
+  return buildProvider('claude', {
+    headers: {
+      'x-session-id': sessionId,
+    },
+  });
+}
+
 export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<ExecuteAgentTurnResult> {
   const session = await sessionStore.getOrCreate(input.platformKey, input.forceNewSession, input.memoryKey);
   const sessionId = session.sessionId;
@@ -238,6 +254,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
   const callbacks = input.callbacks ?? {};
   const compactions: CompactionSnapshot[] = [];
   const { model: modelOverride, modelType } = await resolveModelForRun(input.platformKey);
+  const providerOverride = resolveRunProvider(modelType, sessionId);
 
   let latestAttachments = session.latestAttachments ?? [];
   if (input.attachments?.length) {
@@ -303,6 +320,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
       console.log('modelType', modelType);
 
       return engine.run(context, {
+        provider: providerOverride,
         model: modelOverride,
         modelType,
         runContext,

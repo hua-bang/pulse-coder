@@ -18,11 +18,13 @@ module.exports = {
         NODE_ENV: 'development',
         PORT: 3000,
         HOST: '0.0.0.0',
+        NODE_USE_ENV_PROXY: '1',
       },
       env_production: {
         NODE_ENV: 'production',
         PORT: 3000,
         HOST: '0.0.0.0',
+        NODE_USE_ENV_PROXY: '1',
         ACP_RETRY_MAX: '3',
         ACP_RETRY_BASE_DELAY_MS: '1000',
       },
