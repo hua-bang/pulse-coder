@@ -35,7 +35,75 @@
 .sidebar-collapsed-toggle {
   padding: 10px 8px;
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.sidebar-toggle--active {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.sidebar-toggle--active:hover {
+  background: var(--accent-light);
+}
+
+/* ---- Top-level view nav (Canvas / AI Chat) ---- */
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 6px 2px;
+  gap: 1px;
+}
+
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  transition: background 0.1s, color 0.1s;
+  width: 100%;
+}
+
+.sidebar-nav-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.sidebar-nav-item--active {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.sidebar-nav-item--active:hover {
+  background: var(--accent-light);
+}
+
+.sidebar-nav-icon {
+  display: flex;
+  align-items: center;
   justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.sidebar-nav-item--active .sidebar-nav-icon {
+  color: var(--accent);
+}
+
+.sidebar-nav-label {
+  flex: 1;
+  font-weight: 500;
 }
 
 .sidebar-brand-header {

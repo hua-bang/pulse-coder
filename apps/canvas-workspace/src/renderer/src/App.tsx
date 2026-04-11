@@ -1,7 +1,7 @@
 import { useCallback, useState, useEffect, useRef } from 'react';
 import './App.css';
 import { Canvas } from './components/Canvas';
-import { ChatPanel } from './components/chat';
+import { ChatPage, ChatPanel } from './components/chat';
 import { Sidebar } from './components/Sidebar';
 import { useWorkspaces } from './hooks/useWorkspaces';
 import type { CanvasNode } from './types';
@@ -10,10 +10,13 @@ const DEFAULT_CHAT_WIDTH = 420;
 const MIN_CHAT_WIDTH = 280;
 const MAX_CHAT_WIDTH = 600;
 
+type ActiveView = 'canvas' | 'chat';
+
 const App = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
   const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
+  const [activeView, setActiveView] = useState<ActiveView>('canvas');
   const [allNodes, setAllNodes] = useState<Record<string, CanvasNode[]>>({});
   const [focusNodeId, setFocusNodeId] = useState<string | undefined>();
   const [deleteNodeId, setDeleteNodeId] = useState<string | undefined>();
@@ -49,17 +52,46 @@ const App = () => {
     reorderFolder,
   } = useWorkspaces();
 
-  // Keyboard shortcut: Cmd/Ctrl+Shift+A to toggle chat panel
+  const enterChatView = useCallback(() => {
+    // When entering the full-screen page, also close the right-side panel so
+    // only one ChatView instance (and one set of IPC subscriptions) is live.
+    setChatPanelOpen(false);
+    setActiveView('chat');
+  }, []);
+
+  const exitChatView = useCallback(() => {
+    setActiveView('canvas');
+  }, []);
+
+  // Keyboard shortcuts:
+  //   Cmd/Ctrl+Shift+A → toggle right-side chat panel (canvas view only)
+  //   Cmd/Ctrl+Shift+L → toggle full-screen chat page
+  //   Esc (while on chat page) → return to canvas
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'a') {
+        if (activeView !== 'canvas') return;
         e.preventDefault();
         setChatPanelOpen(prev => !prev);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        setActiveView(prev => (prev === 'chat' ? 'canvas' : 'chat'));
+        if (activeView !== 'chat') setChatPanelOpen(false);
+        return;
+      }
+      if (e.key === 'Escape' && activeView === 'chat') {
+        // Don't swallow Esc if the user is typing in a text field (mention popup, etc.)
+        const target = e.target as HTMLElement | null;
+        const tag = target?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+        setActiveView('canvas');
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [activeView]);
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -87,6 +119,14 @@ const App = () => {
     document.addEventListener('mouseup', onMouseUp);
   }, [chatWidth]);
 
+  // Jumping to a node from the chat page: focus it AND return to canvas.
+  const handleNodeFocusFromChatPage = useCallback((nodeId: string) => {
+    setFocusNodeId(nodeId);
+    setActiveView('canvas');
+  }, []);
+
+  const activeWorkspace = workspaces.find((ws) => ws.id === activeId);
+
   return (
     <div className="app">
       <div className="app-body">
@@ -110,42 +150,61 @@ const App = () => {
           activeNodes={allNodes[activeId] || []}
           onNodeFocus={setFocusNodeId}
           onNodeDelete={setDeleteNodeId}
+          activeView={activeView}
+          onEnterChat={enterChatView}
+          onExitChat={exitChatView}
         />
-        <div className="canvas-viewport">
-          {workspaces.map((ws) => (
-            <Canvas
-              key={ws.id}
-              canvasId={ws.id}
-              canvasName={ws.name}
-              rootFolder={ws.rootFolder}
-              hidden={ws.id !== activeId}
-              onNodesChange={handleNodesChange}
-              focusNodeId={ws.id === activeId ? focusNodeId : undefined}
-              onFocusComplete={handleFocusComplete}
-              deleteNodeId={ws.id === activeId ? deleteNodeId : undefined}
-              onDeleteComplete={handleDeleteComplete}
-              chatPanelOpen={chatPanelOpen}
-              onChatToggle={() => setChatPanelOpen(prev => !prev)}
-            />
-          ))}
-        </div>
-        {workspaces.map((ws) => (
-          <div
-            key={ws.id}
-            className={`chat-panel-wrapper${chatPanelOpen && ws.id === activeId ? ' chat-panel-wrapper--open' : ''}`}
-            style={ws.id !== activeId ? { display: 'none' } : chatPanelOpen ? { width: chatWidth } : undefined}
-          >
-            <ChatPanel
-              workspaceId={ws.id}
-              allWorkspaces={workspaces}
-              nodes={allNodes[ws.id] || []}
-              rootFolder={ws.rootFolder}
-              onClose={() => setChatPanelOpen(false)}
-              onResizeStart={handleResizeStart}
-              onNodeFocus={setFocusNodeId}
-            />
-          </div>
-        ))}
+        {activeView === 'canvas' && (
+          <>
+            <div className="canvas-viewport">
+              {workspaces.map((ws) => (
+                <Canvas
+                  key={ws.id}
+                  canvasId={ws.id}
+                  canvasName={ws.name}
+                  rootFolder={ws.rootFolder}
+                  hidden={ws.id !== activeId}
+                  onNodesChange={handleNodesChange}
+                  focusNodeId={ws.id === activeId ? focusNodeId : undefined}
+                  onFocusComplete={handleFocusComplete}
+                  deleteNodeId={ws.id === activeId ? deleteNodeId : undefined}
+                  onDeleteComplete={handleDeleteComplete}
+                  chatPanelOpen={chatPanelOpen}
+                  onChatToggle={() => setChatPanelOpen(prev => !prev)}
+                />
+              ))}
+            </div>
+            {workspaces.map((ws) => (
+              <div
+                key={ws.id}
+                className={`chat-panel-wrapper${chatPanelOpen && ws.id === activeId ? ' chat-panel-wrapper--open' : ''}`}
+                style={ws.id !== activeId ? { display: 'none' } : chatPanelOpen ? { width: chatWidth } : undefined}
+              >
+                <ChatPanel
+                  workspaceId={ws.id}
+                  allWorkspaces={workspaces}
+                  nodes={allNodes[ws.id] || []}
+                  rootFolder={ws.rootFolder}
+                  onClose={() => setChatPanelOpen(false)}
+                  onResizeStart={handleResizeStart}
+                  onNodeFocus={setFocusNodeId}
+                  onExpand={enterChatView}
+                />
+              </div>
+            ))}
+          </>
+        )}
+        {activeView === 'chat' && (
+          <ChatPage
+            workspaceId={activeId}
+            allWorkspaces={workspaces}
+            nodes={allNodes[activeId] || []}
+            rootFolder={activeWorkspace?.rootFolder}
+            onExit={exitChatView}
+            onSelectWorkspace={selectWorkspace}
+            onNodeFocus={handleNodeFocusFromChatPage}
+          />
+        )}
       </div>
     </div>
   );

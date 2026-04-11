@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback, type DragEvent, type
 import type { WorkspaceEntry, FolderEntry } from '../../hooks/useWorkspaces';
 import type { CanvasNode } from '../../types';
 import {
+  AvatarIcon,
   CloseIcon,
   PlusIcon,
   ChevronRightIcon,
@@ -89,6 +90,9 @@ interface Props {
   activeNodes?: CanvasNode[];
   onNodeFocus?: (nodeId: string) => void;
   onNodeDelete?: (nodeId: string) => void;
+  activeView: 'canvas' | 'chat';
+  onEnterChat: () => void;
+  onExitChat: () => void;
 }
 
 /* ---- Drag data keys ---- */
@@ -115,6 +119,9 @@ export const Sidebar = ({
   activeNodes = [],
   onNodeFocus,
   onNodeDelete,
+  activeView,
+  onEnterChat,
+  onExitChat,
 }: Props) => {
   /* ---- Local state ---- */
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -423,6 +430,30 @@ export const Sidebar = ({
               </svg>
             </span>
             <span className="sidebar-brand">Pulse Canvas</span>
+          </div>
+
+          {/* Top-level view nav (Canvas vs AI Chat) */}
+          <div className="sidebar-nav">
+            <button
+              className={`sidebar-nav-item${activeView === 'canvas' ? ' sidebar-nav-item--active' : ''}`}
+              onClick={onExitChat}
+              title="Canvas view"
+            >
+              <span className="sidebar-nav-icon">
+                <WorkspaceIcon size={14} />
+              </span>
+              <span className="sidebar-nav-label">Canvas</span>
+            </button>
+            <button
+              className={`sidebar-nav-item${activeView === 'chat' ? ' sidebar-nav-item--active' : ''}`}
+              onClick={onEnterChat}
+              title="AI Chat page (⌘/Ctrl+Shift+L)"
+            >
+              <span className="sidebar-nav-icon">
+                <AvatarIcon size={14} />
+              </span>
+              <span className="sidebar-nav-label">AI Chat</span>
+            </button>
           </div>
 
           {/* Section header with add + collapse buttons */}
@@ -751,6 +782,22 @@ export const Sidebar = ({
         <div className="sidebar-collapsed-toggle">
           <button className="sidebar-toggle" onClick={onToggle} title="Expand sidebar">
             <SidebarToggleIcon size={16} />
+          </button>
+          <button
+            className={`sidebar-toggle${activeView === 'canvas' ? ' sidebar-toggle--active' : ''}`}
+            onClick={onExitChat}
+            title="Canvas view"
+            aria-label="Canvas view"
+          >
+            <WorkspaceIcon size={16} />
+          </button>
+          <button
+            className={`sidebar-toggle${activeView === 'chat' ? ' sidebar-toggle--active' : ''}`}
+            onClick={onEnterChat}
+            title="AI Chat page"
+            aria-label="AI Chat page"
+          >
+            <AvatarIcon size={16} />
           </button>
         </div>
       )}
