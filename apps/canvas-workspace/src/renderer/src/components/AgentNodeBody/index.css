@@ -4,110 +4,141 @@
   height: 100%;
 }
 
-/* ── Picker (idle state) ───────────────────────────────── */
+/* ── Picker (idle state) ──────────────────────────────── */
 
 .agent-picker {
   display: flex;
   flex-direction: column;
-  gap: 10px;
   padding: 12px;
+  height: 100%;
   box-sizing: border-box;
 }
 
-/* ── Segmented agent selector ── */
-
-.agent-segmented {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  background: var(--border-light);
-  border-radius: var(--radius);
-}
-
-.agent-seg {
+/* Single "launcher card" that fills the body: textarea hero on top,
+ * toolbar chrome at the bottom. Mirrors modern AI chat input patterns. */
+.agent-launcher-card {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  font-family: var(--font);
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s, border-color 0.12s,
-    box-shadow 0.12s;
-  min-width: 0;
-}
-
-.agent-seg:hover {
-  color: var(--text);
-}
-
-.agent-seg--active {
-  background: var(--surface);
-  border-color: var(--border);
-  color: var(--text);
-  box-shadow: var(--shadow-sm);
-}
-
-.agent-seg--active:hover {
-  color: var(--text);
-}
-
-.agent-seg-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ── Prompt textarea ── */
-
-.agent-prompt-input {
-  width: 100%;
-  min-height: 52px;
-  padding: 8px 10px;
+  flex-direction: column;
+  min-height: 0;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   background: var(--surface);
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.agent-launcher-card:focus-within {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+
+/* ── Hero prompt textarea ── */
+
+.agent-launcher-prompt {
+  flex: 1;
+  min-height: 72px;
+  padding: 14px 16px 12px;
+  border: none;
+  background: transparent;
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   font-family: var(--font);
-  line-height: 1.4;
-  resize: vertical;
+  line-height: 1.55;
+  resize: none;
   outline: none;
-  transition: border-color 0.12s, box-shadow 0.12s;
   box-sizing: border-box;
 }
 
-.agent-prompt-input::placeholder {
+.agent-launcher-prompt::placeholder {
   color: var(--text-muted);
 }
 
-.agent-prompt-input:focus {
-  border-color: var(--accent-border);
-  box-shadow: 0 0 0 2px var(--accent-light);
+/* ── Toolbar (bottom of the card) ── */
+
+.agent-launcher-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 10px 10px;
+  border-top: 1px solid var(--border-light);
+  background: var(--surface-hover);
 }
 
-/* ── Directory row ── */
+/* Agent pills row */
 
-.agent-dir-row {
+.agent-pills {
   display: flex;
-  align-items: stretch;
-  gap: 0;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.agent-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 999px;
   background: var(--surface);
-  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s,
+    box-shadow 0.12s;
+  white-space: nowrap;
+}
+
+.agent-pill svg {
+  flex-shrink: 0;
+}
+
+.agent-pill:hover {
+  color: var(--text);
+  background: var(--surface);
+  border-color: var(--text-muted);
+}
+
+.agent-pill--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(35, 131, 226, 0.22);
+}
+
+.agent-pill--active:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  filter: brightness(1.06);
+}
+
+/* Directory + Start row */
+
+.agent-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-dir-field {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 2px 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
   transition: border-color 0.12s, box-shadow 0.12s;
 }
 
-.agent-dir-row:focus-within {
+.agent-dir-field:focus-within {
   border-color: var(--accent-border);
   box-shadow: 0 0 0 2px var(--accent-light);
 }
@@ -116,12 +147,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
+  width: 22px;
+  height: 22px;
   border: none;
-  border-right: 1px solid var(--border);
-  background: var(--surface-hover);
-  color: var(--text-secondary);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
   cursor: pointer;
+  flex-shrink: 0;
   transition: background 0.12s, color 0.12s;
 }
 
@@ -133,11 +166,12 @@
 .agent-dir-input {
   flex: 1;
   min-width: 0;
-  padding: 7px 10px;
+  height: 100%;
+  padding: 0 6px;
   border: none;
   background: transparent;
   color: var(--text);
-  font-size: 12px;
+  font-size: 11px;
   font-family: var(--font-mono);
   outline: none;
 }
@@ -145,99 +179,19 @@
 .agent-dir-input::placeholder {
   color: var(--text-muted);
   font-family: var(--font);
-}
-
-/* ── Recent folder chips ── */
-
-.agent-recent-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: -4px;
-}
-
-.agent-recent-label {
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--text-muted);
-  letter-spacing: 0.3px;
-  text-transform: uppercase;
-  padding: 0 2px;
-}
-
-.agent-recent-chip {
-  padding: 3px 8px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  color: var(--text-secondary);
   font-size: 11px;
-  font-family: var(--font-mono);
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.agent-recent-chip:hover {
-  background: var(--accent-light);
-  border-color: var(--accent-border);
-  color: var(--accent);
-}
-
-/* ── Launch row (preview + primary button) ── */
-
-.agent-launch-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 2px;
-}
-
-.agent-preview {
-  flex: 1;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-  padding: 6px 10px;
-  border-radius: var(--radius);
-  background: var(--border-light);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-secondary);
-  overflow: hidden;
-}
-
-.agent-preview-sigil {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.agent-preview-cmd {
-  color: var(--text);
-  font-weight: 500;
-  flex-shrink: 0;
-}
-
-.agent-preview-cwd {
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
+/* Primary Start button */
 
 .agent-launch-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
+  gap: 5px;
+  height: 28px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 7px;
   background: var(--accent);
   color: #ffffff;
   font-size: 12px;
@@ -263,7 +217,49 @@
   color: #ffffff;
 }
 
-/* ── Terminal (running state) ──────────────────────────── */
+/* Recent folders chip strip */
+
+.agent-recent {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 2px;
+}
+
+.agent-recent-label {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding-right: 2px;
+}
+
+.agent-recent-chip {
+  padding: 2px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-recent-chip:hover {
+  background: var(--accent-light);
+  border-style: solid;
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+/* ── Terminal (running state) ─────────────────────────── */
 
 .agent-xterm-container {
   height: 100%;

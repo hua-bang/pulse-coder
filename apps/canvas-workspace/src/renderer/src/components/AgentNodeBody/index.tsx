@@ -359,114 +359,119 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
     const effectiveCwd = cwdInput || rootFolder || '';
     const previewCmd = agentDef?.command ?? 'agent';
     const visibleRecents = recentCwds.filter((p) => p !== cwdInput).slice(0, 3);
+    const startTitle = `Start ${agentDef?.label ?? 'agent'}  \u2014  ${previewCmd}${
+      effectiveCwd ? ` in ${effectiveCwd}` : ''
+    }`;
     return (
       <div className="agent-body-wrap">
         <div className="agent-picker">
-          {/* Segmented agent selector */}
-          <div className="agent-segmented" role="tablist" aria-label="Agent">
-            {AGENT_REGISTRY.map((a: AgentDef) => (
-              <button
-                key={a.id}
-                type="button"
-                role="tab"
-                aria-selected={selectedAgent === a.id}
-                className={`agent-seg${selectedAgent === a.id ? ' agent-seg--active' : ''}`}
-                onClick={() => setSelectedAgent(a.id)}
-                title={`${a.label} \u2014 ${a.description}`}
-              >
-                <AgentIcon id={a.id} />
-                <span className="agent-seg-label">{a.label}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Inline task prompt */}
-          <textarea
-            className="agent-prompt-input"
-            value={promptInput}
-            onChange={(e) => setPromptInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleLaunch();
-              }
-            }}
-            placeholder={'Describe your task\u2026  (optional, Enter to start)'}
-            rows={2}
-            spellCheck={false}
-          />
-
-          {/* Directory input with inline folder picker */}
-          <div className="agent-dir-row">
-            <button
-              type="button"
-              className="agent-dir-icon"
-              onClick={handlePickFolder}
-              title={'Browse\u2026'}
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path d="M2 4.5A1.5 1.5 0 013.5 3H6l1.5 1.5h5A1.5 1.5 0 0114 6v5.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5v-7z" stroke="currentColor" strokeWidth="1.2" />
-              </svg>
-            </button>
-            <input
-              type="text"
-              className="agent-dir-input"
-              value={cwdInput}
-              onChange={(e) => setCwdInput(e.target.value)}
-              placeholder={rootFolder ? truncatePath(rootFolder) : 'Working directory\u2026'}
-              spellCheck={false}
+          <div className="agent-launcher-card">
+            <textarea
+              className="agent-launcher-prompt"
+              value={promptInput}
+              onChange={(e) => setPromptInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
+                if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleLaunch();
                 }
               }}
+              placeholder={'What should the agent do?'}
+              spellCheck={false}
+              autoFocus
             />
-          </div>
 
-          {/* Recent folders chips */}
-          {visibleRecents.length > 0 && (
-            <div className="agent-recent-row">
-              <span className="agent-recent-label">Recent</span>
-              {visibleRecents.map((p) => (
+            <div className="agent-launcher-toolbar">
+              <div
+                className="agent-pills"
+                role="tablist"
+                aria-label="Agent"
+              >
+                {AGENT_REGISTRY.map((a: AgentDef) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={selectedAgent === a.id}
+                    className={`agent-pill${
+                      selectedAgent === a.id ? ' agent-pill--active' : ''
+                    }`}
+                    onClick={() => setSelectedAgent(a.id)}
+                    title={`${a.label} \u2014 ${a.description}`}
+                  >
+                    <AgentIcon id={a.id} />
+                    <span>{a.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="agent-toolbar-row">
+                <div className="agent-dir-field">
+                  <button
+                    type="button"
+                    className="agent-dir-icon"
+                    onClick={handlePickFolder}
+                    title={'Browse\u2026'}
+                    aria-label="Browse for folder"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M2 4.5A1.5 1.5 0 013.5 3H6l1.5 1.5h5A1.5 1.5 0 0114 6v5.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5v-7z"
+                        stroke="currentColor"
+                        strokeWidth="1.2"
+                      />
+                    </svg>
+                  </button>
+                  <input
+                    type="text"
+                    className="agent-dir-input"
+                    value={cwdInput}
+                    onChange={(e) => setCwdInput(e.target.value)}
+                    placeholder={
+                      rootFolder
+                        ? truncatePath(rootFolder, 32)
+                        : 'Working directory'
+                    }
+                    spellCheck={false}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleLaunch();
+                      }
+                    }}
+                  />
+                </div>
+
                 <button
-                  key={p}
                   type="button"
-                  className="agent-recent-chip"
-                  onClick={() => setCwdInput(p)}
-                  title={p}
+                  className="agent-launch-btn"
+                  onClick={handleLaunch}
+                  title={startTitle}
                 >
-                  {truncatePath(p, 22)}
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+                    <path d="M4 3l9 5-9 5V3z" fill="currentColor" />
+                  </svg>
+                  Start
                 </button>
-              ))}
-            </div>
-          )}
+              </div>
 
-          {/* Command preview + Launch */}
-          <div className="agent-launch-row">
-            <div
-              className="agent-preview"
-              title={`${previewCmd}${effectiveCwd ? `  (in ${effectiveCwd})` : ''}`}
-            >
-              <span className="agent-preview-sigil">$</span>
-              <span className="agent-preview-cmd">{previewCmd}</span>
-              {effectiveCwd && (
-                <span className="agent-preview-cwd">
-                  in {truncatePath(effectiveCwd, 26)}
-                </span>
+              {visibleRecents.length > 0 && (
+                <div className="agent-recent">
+                  <span className="agent-recent-label">Recent</span>
+                  {visibleRecents.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      className="agent-recent-chip"
+                      onClick={() => setCwdInput(p)}
+                      title={p}
+                    >
+                      {truncatePath(p, 22)}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
-            <button
-              type="button"
-              className="agent-launch-btn"
-              onClick={handleLaunch}
-              title={`Start ${agentDef?.label ?? 'agent'}`}
-            >
-              <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
-                <path d="M4 3l9 5-9 5V3z" fill="currentColor" />
-              </svg>
-              Start
-            </button>
           </div>
         </div>
       </div>
