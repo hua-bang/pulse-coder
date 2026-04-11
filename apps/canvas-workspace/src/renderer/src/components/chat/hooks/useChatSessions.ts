@@ -6,12 +6,15 @@ interface UseChatSessionsOptions {
   workspaceId: string;
   allWorkspaces?: WorkspaceOption[];
   onMessagesLoaded: (messages: AgentChatMessage[]) => void;
+  /** When true, load the session list on mount and whenever workspaceId changes. */
+  eagerLoad?: boolean;
 }
 
 export function useChatSessions({
   workspaceId,
   allWorkspaces,
   onMessagesLoaded,
+  eagerLoad = false,
 }: UseChatSessionsOptions) {
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [sessions, setSessions] = useState<AgentSessionInfo[]>([]);
@@ -40,12 +43,7 @@ export function useChatSessions({
     return () => document.removeEventListener('mousedown', handleMouseDown);
   }, [sessionMenuOpen]);
 
-  const openSessionMenu = useCallback(async () => {
-    if (sessionMenuOpen) {
-      setSessionMenuOpen(false);
-      return;
-    }
-
+  const loadSessions = useCallback(async () => {
     const result = await window.canvasWorkspace.agent.listSessions(workspaceId);
     if (result.ok && result.sessions) {
       setSessions(result.sessions);
@@ -77,9 +75,22 @@ export function useChatSessions({
     } else {
       setOtherSessions([]);
     }
+  }, [allWorkspaces, workspaceId]);
 
+  useEffect(() => {
+    if (!eagerLoad) return;
+    void loadSessions();
+  }, [eagerLoad, loadSessions]);
+
+  const openSessionMenu = useCallback(async () => {
+    if (sessionMenuOpen) {
+      setSessionMenuOpen(false);
+      return;
+    }
+
+    await loadSessions();
     setSessionMenuOpen(true);
-  }, [allWorkspaces, sessionMenuOpen, workspaceId]);
+  }, [loadSessions, sessionMenuOpen]);
 
   const handleNewSession = useCallback(async () => {
     setSessionMenuOpen(false);
@@ -103,6 +114,7 @@ export function useChatSessions({
     otherSessions,
     handleLoadSession,
     handleNewSession,
+    loadSessions,
     openSessionMenu,
     sessionMenuOpen,
     sessionMenuRef,

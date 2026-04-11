@@ -14,6 +14,7 @@ export interface ChatPanelProps {
   onClose: () => void;
   onResizeStart?: (e: MouseEvent) => void;
   onNodeFocus?: (nodeId: string) => void;
+  onExpand?: () => void;
 }
 
 export interface OtherWorkspaceSession extends AgentSessionInfo {

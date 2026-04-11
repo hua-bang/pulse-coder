@@ -16,7 +16,20 @@ interface ChatHeaderProps {
   onNewSession: () => Promise<void>;
   onLoadSession: (sessionId: string, sourceWorkspaceId?: string) => Promise<void>;
   onClose: () => void;
+  onExpand?: () => void;
 }
+
+const ExpandIcon = ({ size = 16 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <path
+      d="M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
 
 export const ChatHeader = ({
   sessionMenuOpen,
@@ -27,6 +40,7 @@ export const ChatHeader = ({
   onNewSession,
   onLoadSession,
   onClose,
+  onExpand,
 }: ChatHeaderProps) => (
   <div className="chat-panel-header">
     <div className="chat-panel-title-wrapper" ref={sessionMenuRef}>
@@ -103,6 +117,16 @@ export const ChatHeader = ({
       >
         <PlusIcon size={16} strokeWidth={1.3} />
       </button>
+      {onExpand && (
+        <button
+          className="chat-panel-action-btn"
+          onClick={onExpand}
+          title="Open full screen"
+          aria-label="Open full screen"
+        >
+          <ExpandIcon size={14} />
+        </button>
+      )}
       <button className="chat-panel-action-btn" onClick={onClose} title="Close panel">
         <CloseIcon size={16} strokeWidth={1.3} />
       </button>
