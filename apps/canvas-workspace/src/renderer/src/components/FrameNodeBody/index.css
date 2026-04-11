@@ -16,6 +16,7 @@
   border: 1.5px dashed color-mix(in srgb, var(--frame-color, #A8B0BD) 50%, transparent);
   box-shadow: none;
   overflow: visible;
+  border-top-left-radius: 0px;
 }
 
 .canvas-node--frame:hover {
@@ -33,9 +34,9 @@
 
 .canvas-node--frame .node-header {
   position: absolute;
-  top: -26px;
+  top: -30px;
   left: -1.5px;
-  height: 24px;
+  height: 28px;
   /* Override the generic .node-header min-height: 32px so the tab actually
    * renders at its intended 24px height instead of dipping into the frame
    * body by 6px. */
