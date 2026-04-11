@@ -9,6 +9,7 @@ export const COMMANDS_ALLOWED_WHILE_RUNNING = new Set([
   'memory',
   'mode',
   'fork',
+  'merge',
   'wt',
   'insight',
   'model',

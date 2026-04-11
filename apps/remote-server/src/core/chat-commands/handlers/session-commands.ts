@@ -136,6 +136,88 @@ export async function handleForkCommand(platformKey: string, memoryKey: string, 
   };
 }
 
+
+export async function handleMergeCommand(platformKey: string, memoryKey: string, args: string[]): Promise<CommandResult> {
+  const firstArg = args[0]?.toLowerCase();
+  const listRequested = args.length === 0 || firstArg === 'list' || firstArg === 'ls';
+
+  if (listRequested) {
+    const currentSessionId = sessionStore.getCurrentSessionId(platformKey);
+    if (!currentSessionId) {
+      return {
+        type: 'handled',
+        message: 'ℹ️ 当前没有已绑定会话。先发送一条普通消息，再执行 `/merge <session-id>`。',
+      };
+    }
+
+    const merged = await sessionStore.listMergedSessionSummaries(platformKey, memoryKey);
+    if (merged.sessions.length === 0) {
+      return {
+        type: 'handled',
+        message: [
+          'ℹ️ 当前会话尚未引用其他会话。',
+          `- Current Session ID: ${currentSessionId}`,
+          '用法：/merge <session-id>',
+        ].join('\n'),
+      };
+    }
+
+    const lines = merged.sessions.map((session, index) => {
+      const preview = session.preview.length > 80 ? `${session.preview.slice(0, 80)}...` : session.preview;
+      return `${index + 1}. ${session.id} | ${session.messageCount} 条消息 | ${formatTime(session.updatedAt)}\n   ${preview}`;
+    });
+
+    return {
+      type: 'handled',
+      message: [
+        `🧩 当前会话已引用 ${merged.sessions.length} 个会话：`,
+        `- Current Session ID: ${merged.currentSessionId ?? currentSessionId}`,
+        lines.join('\n'),
+        '用法：/merge <session-id>',
+      ].join('\n'),
+    };
+  }
+
+  const targetSessionId = args[0]?.trim();
+  if (!targetSessionId) {
+    return {
+      type: 'handled',
+      message: '❌ 缺少 session-id\n用法：/merge <session-id>',
+    };
+  }
+
+  const result = await sessionStore.mergeSessionReference(platformKey, targetSessionId, memoryKey);
+  if (!result.ok) {
+    return {
+      type: 'handled',
+      message: `❌ 无法合并会话：${result.reason ?? '未知错误'}\n用法：/merge <session-id>`,
+    };
+  }
+
+  if (result.alreadyMerged) {
+    return {
+      type: 'handled',
+      message: [
+        'ℹ️ 该会话已在当前引用列表中。',
+        `- Current Session ID: ${result.currentSessionId}`,
+        `- Merged Session ID: ${result.mergedSessionId ?? targetSessionId}`,
+        `- 引用会话数：${result.mergedCount ?? 0}`,
+      ].join('\n'),
+    };
+  }
+
+  return {
+    type: 'handled',
+    message: [
+      '✅ 已引用会话上下文',
+      `- Current Session ID: ${result.currentSessionId}`,
+      `- Merged Session ID: ${result.mergedSessionId ?? targetSessionId}`,
+      `- 引用会话数：${result.mergedCount ?? 0}`,
+      '提示：后续对话会自动带上被引用会话上下文。',
+    ].join('\n'),
+  };
+}
+
 export async function handleStatusCommand(platformKey: string): Promise<CommandResult> {
   const activeRun = getActiveRun(platformKey);
   const sessionStatus = await sessionStore.getCurrentStatus(platformKey);

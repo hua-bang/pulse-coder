@@ -27,6 +27,8 @@ export function buildHelpMessage(): string {
     '/sessions - /resume 的别名',
     '/resume <session-id> - 恢复指定会话',
     '/fork <session-id> - 基于指定会话创建新分叉会话并自动切换',
+    '/merge <session-id> - 引用指定会话上下文（软合并，不改写历史）',
+    '/merge [list] - 查看当前已引用的会话列表',
     '/status - 查看当前运行状态与会话信息',
     '/stop - 停止当前正在运行的任务',
     '/cancel - /stop 的别名',

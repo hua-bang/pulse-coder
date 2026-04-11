@@ -9,6 +9,7 @@ import {
   handleClearCommand,
   handleCompactCommand,
   handleCurrentSessionCommand,
+  handleMergeCommand,
   handleDetachCommand,
   handleForkCommand,
   handleNewCommand,
@@ -48,7 +49,7 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
   if (tokens.length === 0) {
     return {
       type: 'handled',
-      message: '⚠️ 请输入命令，例如 `/new`、`/clear`、`/compact`、`/resume`、`/fork`、`/memory`、`/status`、`/stop`、`/skills`、`/wt`。',
+      message: '⚠️ 请输入命令，例如 `/new`、`/clear`、`/compact`、`/resume`、`/fork`、`/merge`、`/memory`、`/status`、`/stop`、`/skills`、`/wt`。',
     };
   }
 
@@ -96,6 +97,9 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
 
     case 'fork':
       return await handleForkCommand(incoming.platformKey, memoryKey, args);
+
+    case 'merge':
+      return await handleMergeCommand(incoming.platformKey, memoryKey, args);
 
     case 'status':
       return await handleStatusCommand(incoming.platformKey);

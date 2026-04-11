@@ -9,6 +9,103 @@ import { memoryIntegration, recordDailyLogFromSuccessPath } from './memory-integ
 import { buildRemoteWorktreeRunContext, worktreeIntegration } from './worktree/integration.js';
 import { buildRemoteVaultRunContext, vaultIntegration } from './vault/integration.js';
 import { resolveModelForRun } from './model-config.js';
+
+const MERGED_CONTEXT_MAX_SESSIONS = 5;
+const MERGED_CONTEXT_MAX_MESSAGES_PER_SESSION = 24;
+const MERGED_CONTEXT_MAX_CHARS_PER_MESSAGE = 600;
+
+function messageContentToText(content: unknown): string {
+  if (typeof content === 'string') {
+    return content.trim();
+  }
+
+  if (Array.isArray(content)) {
+    const parts = content
+      .map((part) => {
+        if (typeof part === 'string') {
+          return part;
+        }
+
+        if (typeof part === 'object' && part !== null && 'text' in part) {
+          const text = (part as { text?: unknown }).text;
+          return typeof text === 'string' ? text : '';
+        }
+
+        return '';
+      })
+      .filter((part) => part.length > 0);
+
+    if (parts.length > 0) {
+      return parts.join(' ').trim();
+    }
+  }
+
+  try {
+    return JSON.stringify(content);
+  } catch {
+    return String(content);
+  }
+}
+
+function formatMergedMessage(message: unknown): string | null {
+  if (typeof message === 'string') {
+    const text = message.trim();
+    if (!text) {
+      return null;
+    }
+    return text.length > MERGED_CONTEXT_MAX_CHARS_PER_MESSAGE
+      ? `${text.slice(0, MERGED_CONTEXT_MAX_CHARS_PER_MESSAGE)}...`
+      : text;
+  }
+
+  if (typeof message !== 'object' || message === null) {
+    return null;
+  }
+
+  const role = typeof (message as { role?: unknown }).role === 'string'
+    ? (message as { role: string }).role
+    : 'unknown';
+  const content = messageContentToText((message as { content?: unknown }).content);
+  if (!content) {
+    return null;
+  }
+
+  const clipped = content.length > MERGED_CONTEXT_MAX_CHARS_PER_MESSAGE
+    ? `${content.slice(0, MERGED_CONTEXT_MAX_CHARS_PER_MESSAGE)}...`
+    : content;
+
+  return `${role}: ${clipped}`;
+}
+
+function buildMergedContextPrompt(mergedSessions: Array<{ id: string; messages: unknown[] }>): string | null {
+  if (mergedSessions.length === 0) {
+    return null;
+  }
+
+  const lines: string[] = [
+    'Merged session context (read-only references from /merge):',
+    'Use as supplemental background only. Current session and latest user input have highest priority.',
+  ];
+
+  for (const session of mergedSessions.slice(0, MERGED_CONTEXT_MAX_SESSIONS)) {
+    lines.push(`\n[Session ${session.id}]`);
+    const recentMessages = session.messages.slice(-MERGED_CONTEXT_MAX_MESSAGES_PER_SESSION);
+    for (const message of recentMessages) {
+      const formatted = formatMergedMessage(message);
+      if (!formatted) {
+        continue;
+      }
+      lines.push(`- ${formatted}`);
+    }
+
+    if (session.messages.length > recentMessages.length) {
+      lines.push('- ...(older messages omitted)');
+    }
+  }
+
+  return lines.join('\n');
+}
+
 const ACP_CLIENT_INFO = {
   name: 'pulse-remote-server',
   title: 'Pulse Remote Server',
@@ -103,6 +200,7 @@ function buildRunContext(input: {
   caller?: string;
   callerSelectors?: string[];
   latestAttachments?: unknown[];
+  mergedSessionIds?: string[];
 }): Record<string, any> {
   const channel = parseChannelInfo(input.platformKey);
   const callerContext = buildToolCallerContext({
@@ -121,6 +219,7 @@ function buildRunContext(input: {
     callerSelectors: callerContext.callerSelectors,
     latestAttachments: input.latestAttachments ?? [],
     attachments: input.latestAttachments ?? [],
+    mergedSessionIds: input.mergedSessionIds ?? [],
   };
 }
 
@@ -256,6 +355,12 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
   }
 
   const attachmentPrompt = buildAttachmentSystemPrompt(latestAttachments);
+  const mergedSessionDetails = await sessionStore.getMergedSessionDetails(
+    input.platformKey,
+    sessionId,
+    input.memoryKey,
+  );
+  const mergedSessionPrompt = buildMergedContextPrompt(mergedSessionDetails);
 
   context.messages.push({ role: 'user', content: input.userText });
 
@@ -268,6 +373,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
     caller: input.caller,
     callerSelectors: input.callerSelectors,
     latestAttachments,
+    mergedSessionIds: mergedSessionDetails.map((session) => session.id),
   });
 
   const acpState = await getAcpState(input.platformKey);
@@ -308,7 +414,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
         runContext,
         systemPrompt: (() => {
           const channelPrompt = buildChannelSystemPrompt(input.platformKey);
-          const parts = [channelPrompt, attachmentPrompt].filter(Boolean) as string[];
+          const parts = [channelPrompt, attachmentPrompt, mergedSessionPrompt].filter(Boolean) as string[];
           if (parts.length === 0) {
             return undefined;
           }

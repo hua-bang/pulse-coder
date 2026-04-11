@@ -16,6 +16,7 @@ interface RemoteSession {
   updatedAt: number;
   messages: unknown[]; // Stored as-is; cast to Context['messages'] on load
   latestAttachments?: StoredAttachment[];
+  mergedSessionIds?: string[];
 }
 
 export interface RemoteSessionSummary {
@@ -44,6 +45,22 @@ export interface ClearSessionResult {
   createdNew: boolean;
 }
 
+export interface MergeSessionResult {
+  ok: boolean;
+  currentSessionId?: string;
+  mergedSessionId?: string;
+  mergedCount?: number;
+  alreadyMerged?: boolean;
+  reason?: string;
+}
+
+export interface MergedSessionSummary {
+  id: string;
+  updatedAt: number;
+  messageCount: number;
+  preview: string;
+}
+
 export interface ForkSessionResult {
   ok: boolean;
   sessionId?: string;
@@ -60,6 +77,7 @@ export interface SessionDetail {
   updatedAt: number;
   messages: unknown[];
   latestAttachments?: StoredAttachment[];
+  mergedSessionIds?: string[];
 }
 
 /**
@@ -132,6 +150,7 @@ class RemoteSessionStore {
       updatedAt: session.updatedAt,
       messages: this.cloneMessages(session.messages),
       latestAttachments: this.cloneAttachments(session.latestAttachments),
+      mergedSessionIds: this.cloneMergedSessionIds(session.mergedSessionIds),
     };
   }
 
@@ -178,6 +197,7 @@ class RemoteSessionStore {
       updatedAt: Date.now(),
       messages: [],
       latestAttachments: [],
+      mergedSessionIds: [],
     };
 
     await this.writeSession(session);
@@ -343,6 +363,7 @@ class RemoteSessionStore {
 
     session.messages = [];
     session.latestAttachments = [];
+    session.mergedSessionIds = [];
     session.updatedAt = Date.now();
     await this.writeSession(session);
 
@@ -373,6 +394,7 @@ class RemoteSessionStore {
       updatedAt: now,
       messages: this.cloneMessages(session.messages),
       latestAttachments: this.cloneAttachments(session.latestAttachments),
+      mergedSessionIds: this.cloneMergedSessionIds(session.mergedSessionIds),
     };
 
     await this.writeSession(forkedSession);
@@ -385,6 +407,154 @@ class RemoteSessionStore {
       sourceSessionId,
       messageCount: forkedSession.messages.length,
     };
+  }
+
+
+  async mergeSessionReference(platformKey: string, targetSessionId: string, ownerKey?: string): Promise<MergeSessionResult> {
+    const normalizedTarget = targetSessionId.trim();
+    if (!normalizedTarget) {
+      return { ok: false, reason: 'Missing target session id' };
+    }
+
+    const currentBinding = await this.getOrCreate(platformKey, false, ownerKey);
+    const currentSessionId = currentBinding.sessionId;
+    const currentSession = await this.readSession(currentSessionId);
+    if (!currentSession || currentSession.platformKey !== platformKey) {
+      return { ok: false, reason: 'Current session not found', currentSessionId };
+    }
+
+    if (normalizedTarget === currentSessionId) {
+      return { ok: false, reason: 'Cannot merge the current session itself', currentSessionId };
+    }
+
+    const targetSession = await this.readSession(normalizedTarget);
+    if (!targetSession) {
+      return { ok: false, reason: `Session not found: ${normalizedTarget}`, currentSessionId };
+    }
+
+    if (!this.canAccessSession(targetSession, platformKey, ownerKey)) {
+      return { ok: false, reason: 'Session does not belong to current user', currentSessionId };
+    }
+
+    const mergedSessionIds = this.cloneMergedSessionIds(currentSession.mergedSessionIds);
+    if (mergedSessionIds.includes(normalizedTarget)) {
+      return {
+        ok: true,
+        currentSessionId,
+        mergedSessionId: normalizedTarget,
+        mergedCount: mergedSessionIds.length,
+        alreadyMerged: true,
+      };
+    }
+
+    mergedSessionIds.push(normalizedTarget);
+    currentSession.mergedSessionIds = mergedSessionIds;
+    currentSession.updatedAt = Date.now();
+    await this.writeSession(currentSession);
+
+    return {
+      ok: true,
+      currentSessionId,
+      mergedSessionId: normalizedTarget,
+      mergedCount: mergedSessionIds.length,
+      alreadyMerged: false,
+    };
+  }
+
+  async listMergedSessionSummaries(
+    platformKey: string,
+    ownerKey?: string,
+  ): Promise<{ currentSessionId?: string; sessions: MergedSessionSummary[] }> {
+    const currentSessionId = this.index[platformKey];
+    if (!currentSessionId) {
+      return { sessions: [] };
+    }
+
+    const currentSession = await this.readSession(currentSessionId);
+    if (!currentSession || currentSession.platformKey !== platformKey) {
+      return { sessions: [] };
+    }
+
+    const mergedSessionIds = this.cloneMergedSessionIds(currentSession.mergedSessionIds);
+    if (mergedSessionIds.length === 0) {
+      return { currentSessionId, sessions: [] };
+    }
+
+    const sessions: MergedSessionSummary[] = [];
+    const validIds: string[] = [];
+
+    for (const mergedSessionId of mergedSessionIds) {
+      const session = await this.readSession(mergedSessionId);
+      if (!session) {
+        continue;
+      }
+      if (!this.canAccessSession(session, platformKey, ownerKey)) {
+        continue;
+      }
+
+      validIds.push(mergedSessionId);
+      sessions.push({
+        id: session.id,
+        updatedAt: session.updatedAt,
+        messageCount: session.messages.length,
+        preview: this.buildPreview(session.messages),
+      });
+    }
+
+    if (validIds.length !== mergedSessionIds.length) {
+      currentSession.mergedSessionIds = validIds;
+      currentSession.updatedAt = Date.now();
+      await this.writeSession(currentSession);
+    }
+
+    return { currentSessionId, sessions };
+  }
+
+  async getMergedSessionDetails(
+    platformKey: string,
+    currentSessionId: string,
+    ownerKey?: string,
+  ): Promise<SessionDetail[]> {
+    const currentSession = await this.readSession(currentSessionId);
+    if (!currentSession || currentSession.platformKey !== platformKey) {
+      return [];
+    }
+
+    const mergedSessionIds = this.cloneMergedSessionIds(currentSession.mergedSessionIds);
+    if (mergedSessionIds.length === 0) {
+      return [];
+    }
+
+    const details: SessionDetail[] = [];
+    const seenSessionIds = new Set<string>();
+
+    for (const mergedSessionId of mergedSessionIds) {
+      if (seenSessionIds.has(mergedSessionId) || mergedSessionId === currentSessionId) {
+        continue;
+      }
+      seenSessionIds.add(mergedSessionId);
+
+      const mergedSession = await this.readSession(mergedSessionId);
+      if (!mergedSession) {
+        continue;
+      }
+      if (!this.canAccessSession(mergedSession, platformKey, ownerKey)) {
+        continue;
+      }
+
+      details.push({
+        id: mergedSession.id,
+        platformKey: mergedSession.platformKey,
+        ownerKey: mergedSession.ownerKey,
+        createdAt: mergedSession.createdAt,
+        updatedAt: mergedSession.updatedAt,
+        messages: this.cloneMessages(mergedSession.messages),
+        latestAttachments: this.cloneAttachments(mergedSession.latestAttachments),
+        mergedSessionIds: this.cloneMergedSessionIds(mergedSession.mergedSessionIds),
+      });
+    }
+
+    return details;
   }
 
   /**
@@ -500,6 +670,20 @@ class RemoteSessionStore {
     } catch {
       return [...messages];
     }
+  }
+
+
+  private cloneMergedSessionIds(mergedSessionIds?: string[]): string[] {
+    if (!Array.isArray(mergedSessionIds) || mergedSessionIds.length === 0) {
+      return [];
+    }
+
+    const normalized = mergedSessionIds
+      .filter((sessionId): sessionId is string => typeof sessionId === 'string')
+      .map((sessionId) => sessionId.trim())
+      .filter((sessionId) => sessionId.length > 0);
+
+    return [...new Set(normalized)];
   }
 
   private canAccessSession(session: RemoteSession, platformKey: string, ownerKey?: string): boolean {
