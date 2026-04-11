@@ -584,20 +584,37 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
             'down its PTY. Ask the user to reopen the node, or relaunch the agent.';
         }
 
-        // Strip any trailing CR/LF the caller might have included, then append
-        // exactly one \r. \r is what xterm emits when the user presses Enter,
-        // and is what execInSession uses for its command writes.
-        const trimmed = text.replace(/[\r\n]+$/, '');
-        const payload = trimmed + '\r';
-        const ok = writeToSession(sessionId, payload);
-        if (!ok) {
-          return `Error: failed to write to PTY session ${sessionId} (session disappeared).`;
+        // Strip any trailing CR/LF the caller might have included so we
+        // control the submit signal ourselves.
+        const body = text.replace(/[\r\n]+$/, '');
+
+        // Write body and Enter as TWO separate writes with a small gap.
+        //
+        // Why: some TUI agents (notably Codex, which uses a ratatui-style
+        // input editor with paste protection) distinguish "paste" from
+        // "keystroke" by timing. If the text body and the \r arrive in the
+        // same read, the \r gets absorbed into the editor buffer as a
+        // literal newline and the prompt is never submitted — you end up
+        // with the text sitting in the input box waiting for a real Enter.
+        // Writing the body, yielding the event loop for ~120ms, then
+        // writing \r as a second call makes the Enter arrive as an
+        // independent keystroke, which Codex's editor treats as submit.
+        // Claude Code is happy either way, so this is safe for all
+        // agent types.
+        if (body) {
+          if (!writeToSession(sessionId, body)) {
+            return `Error: failed to write to PTY session ${sessionId} (session disappeared).`;
+          }
+          await new Promise<void>((resolve) => setTimeout(resolve, 120));
+        }
+        if (!writeToSession(sessionId, '\r')) {
+          return `Error: failed to write Enter to PTY session ${sessionId} (session disappeared).`;
         }
 
         return JSON.stringify({
           ok: true,
           nodeId,
-          bytesSent: payload.length,
+          bytesSent: body.length + 1,
         });
       },
     },
