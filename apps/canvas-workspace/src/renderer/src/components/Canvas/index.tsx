@@ -8,12 +8,8 @@ import { useCanvasContext } from '../../hooks/useCanvasContext';
 import { useCanvasFit } from '../../hooks/useCanvasFit';
 import { useCanvasKeyboard } from '../../hooks/useCanvasKeyboard';
 import type { CanvasNode } from '../../types';
-import { CanvasNodeView } from '../CanvasNodeView';
-import { NodeContextMenu } from '../NodeContextMenu';
-import { FloatingToolbar } from '../FloatingToolbar';
-import { ZoomIndicator } from '../ZoomIndicator';
-import { SearchPalette } from '../SearchPalette';
-import { CanvasEmptyHint } from '../CanvasEmptyHint';
+import { CanvasSurface } from './CanvasSurface';
+import { CanvasOverlays } from './CanvasOverlays';
 
 export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange, focusNodeId, onFocusComplete, deleteNodeId, onDeleteComplete, chatPanelOpen, onChatToggle }: { canvasId: string; canvasName?: string; rootFolder?: string; hidden?: boolean; onNodesChange?: (canvasId: string, nodes: CanvasNode[]) => void; focusNodeId?: string; onFocusComplete?: () => void; deleteNodeId?: string; onDeleteComplete?: () => void; chatPanelOpen?: boolean; onChatToggle?: () => void }) => {
   const [activeTool, setActiveTool] = useState('select');
@@ -258,67 +254,43 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
     >
       <div className="canvas-grid" />
 
-      <div
-        className="canvas-transform"
-        style={{
-          transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
-          '--canvas-scale': transform.scale,
-          transition: animating
-            ? 'transform 0.32s cubic-bezier(0.25, 0.46, 0.45, 0.94), --canvas-scale 0.32s cubic-bezier(0.25, 0.46, 0.45, 0.94)'
-            : undefined,
-        } as React.CSSProperties}
-      >
-        {sortedNodes.map((node) => (
-          <CanvasNodeView
-            key={node.id}
-            node={node}
-            allNodes={nodes}
-            rootFolder={rootFolder}
-            workspaceId={canvasId}
-            workspaceName={canvasName}
-            isDragging={draggingId === node.id}
-            isResizing={resizingId === node.id}
-            isSelected={selectedNodeIds.includes(node.id)}
-            isHighlighted={highlightedId === node.id}
-            isAgentEdited={externallyEditedIds.has(node.id)}
-            onDragStart={onDragStart}
-            onResizeStart={onResizeStart}
-            onUpdate={updateNode}
-            onRemove={removeNode}
-            onSelect={(id) => setSelectedNodeIds([id])}
-            onFocus={handleFocusNode}
-          />
-        ))}
-      </div>
-
-      {nodes.length === 0 && !contextMenu && <CanvasEmptyHint />}
-
-      {contextMenu && (
-        <NodeContextMenu
-          x={contextMenu.screenX}
-          y={contextMenu.screenY}
-          onCreate={handleCreateNode}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
-
-      <FloatingToolbar
-        activeTool={activeTool}
-        onToolChange={setActiveTool}
-        onAddNode={handleToolbarAddNode}
-        chatPanelOpen={chatPanelOpen}
-        onChatToggle={onChatToggle}
+      <CanvasSurface
+        transform={transform}
+        animating={animating}
+        sortedNodes={sortedNodes}
+        nodes={nodes}
+        rootFolder={rootFolder}
+        canvasId={canvasId}
+        canvasName={canvasName}
+        draggingId={draggingId}
+        resizingId={resizingId}
+        selectedNodeIds={selectedNodeIds}
+        highlightedId={highlightedId}
+        externallyEditedIds={externallyEditedIds}
+        onDragStart={onDragStart}
+        onResizeStart={onResizeStart}
+        onUpdate={updateNode}
+        onRemove={removeNode}
+        onSelect={(id) => setSelectedNodeIds([id])}
+        onFocus={handleFocusNode}
       />
 
-      <ZoomIndicator scale={transform.scale} onReset={resetTransform} />
-
-      {searchOpen && (
-        <SearchPalette
-          nodes={nodes}
-          onSelect={handleSearchSelect}
-          onClose={() => setSearchOpen(false)}
-        />
-      )}
+      <CanvasOverlays
+        nodes={nodes}
+        contextMenu={contextMenu}
+        searchOpen={searchOpen}
+        activeTool={activeTool}
+        scale={transform.scale}
+        chatPanelOpen={chatPanelOpen}
+        onChatToggle={onChatToggle}
+        onCreateNode={handleCreateNode}
+        onCloseContextMenu={() => setContextMenu(null)}
+        onToolChange={setActiveTool}
+        onAddNode={handleToolbarAddNode}
+        onResetTransform={resetTransform}
+        onSearchSelect={handleSearchSelect}
+        onCloseSearch={() => setSearchOpen(false)}
+      />
     </div>
   );
 };

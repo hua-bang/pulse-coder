@@ -4,35 +4,15 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import type { CanvasNode, AgentNodeData } from '../../types';
 import { TERMINAL_OPTIONS } from '../../config/terminalTheme';
-import { AGENT_REGISTRY, getAgentCommand, type AgentDef } from '../../config/agentRegistry';
-
-/** Monoline SVG icon per agent, matching the app's stroke-icon style. */
-const AgentIcon = ({ id }: { id: string }) => {
-  switch (id) {
-    case 'claude-code':
-      return (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-          <path d="M5.5 6.5L7.5 8.5 5.5 10.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M9 10.5h2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-          <rect x="1.5" y="2.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.3" />
-        </svg>
-      );
-    case 'codex':
-      return (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-          <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.3" />
-          <path d="M8 5v3l2 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      );
-    default:
-      return (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-          <path d="M4 13V8l4-5 4 5v5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M7 13v-3h2v3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      );
-  }
-};
+import { getAgentCommand } from '../../config/agentRegistry';
+import {
+  SCROLLBACK_SAVE_INTERVAL,
+  loadRecentCwds,
+  pushRecentCwd,
+  serializeBuffer,
+} from './utils/terminal';
+import { AgentPicker } from './AgentPicker';
+import { AgentTerminal } from './AgentTerminal';
 
 interface Props {
   node: CanvasNode;
@@ -42,62 +22,6 @@ interface Props {
   workspaceName?: string;
   onUpdate: (id: string, patch: Partial<CanvasNode>) => void;
 }
-
-const SCROLLBACK_SAVE_INTERVAL = 2000;
-const MAX_SCROLLBACK_CHARS = 50000;
-
-/** localStorage key for recently-used working directories across all agent nodes. */
-const RECENT_CWDS_KEY = 'canvas-workspace:recent-cwds';
-const MAX_RECENT_CWDS = 5;
-
-const loadRecentCwds = (): string[] => {
-  try {
-    const raw = localStorage.getItem(RECENT_CWDS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : [];
-  } catch {
-    return [];
-  }
-};
-
-const pushRecentCwd = (cwd: string): string[] => {
-  const current = loadRecentCwds().filter((c) => c !== cwd);
-  const next = [cwd, ...current].slice(0, MAX_RECENT_CWDS);
-  try {
-    localStorage.setItem(RECENT_CWDS_KEY, JSON.stringify(next));
-  } catch {
-    /* ignore */
-  }
-  return next;
-};
-
-const serializeBuffer = (term: Terminal): string => {
-  const buf = term.buffer.active;
-  const lines: string[] = [];
-  const count = buf.length;
-  for (let i = 0; i < count; i++) {
-    const line = buf.getLine(i);
-    if (line) lines.push(line.translateToString(true));
-  }
-  let text = lines.join('\n');
-  text = text.replace(/\n+$/, '');
-  if (text.length > MAX_SCROLLBACK_CHARS) text = text.slice(-MAX_SCROLLBACK_CHARS);
-  return text;
-};
-
-/** Truncate a path for display, keeping the last N segments. */
-const truncatePath = (p: string, maxLen = 36): string => {
-  if (p.length <= maxLen) return p;
-  const parts = p.replace(/\/$/, '').split('/');
-  let result = parts[parts.length - 1];
-  for (let i = parts.length - 2; i >= 0; i--) {
-    const next = parts[i] + '/' + result;
-    if (next.length > maxLen) return '\u2026/' + result;
-    result = next;
-  }
-  return result;
-};
 
 export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props) => {
   const data = node.data as AgentNodeData;
@@ -183,13 +107,9 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
         const { inlinePrompt, promptFile, agentArgs } = dataRef.current;
         const effectivePrompt = inlinePromptOverride || inlinePrompt;
         if (effectivePrompt) {
-          // Short prompt: pass directly as single-quoted CLI arg.
-          // Single-quoted strings have zero shell interpretation.
           const escaped = effectivePrompt.replace(/'/g, "'\\''");
           api.write(sessionId, `${command} '${escaped}'\n`);
         } else if (promptFile) {
-          // Long prompt: read file into shell var, pass as single arg.
-          // Shell variables in double quotes are NOT re-expanded.
           api.write(sessionId, `__prompt=$(cat ${promptFile}) && ${command} "$__prompt"\n`);
         } else if (agentArgs) {
           api.write(sessionId, `${command} ${agentArgs}\n`);
@@ -197,11 +117,6 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
           api.write(sessionId, `${command}\n`);
         }
 
-        // The initial prompt is a one-shot task: once it has been written to
-        // the PTY it has been consumed and must not be replayed. Clear the
-        // persisted fields so that reopening the canvas re-attaches without
-        // re-executing the same command. (We intentionally leave agentArgs
-        // alone — that's a stable CLI arg the user may want on restart.)
         if (effectivePrompt || promptFile) {
           onUpdateRef.current(nodeIdRef.current, {
             data: { ...dataRef.current, inlinePrompt: '', promptFile: '' },
@@ -209,14 +124,6 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
         }
       };
 
-      // Wait for the shell to emit its first output (prompt) before writing
-      // the agent command. Writing immediately after spawn() would send the
-      // command while the shell is still sourcing init scripts, causing it to
-      // be lost or garbled.
-      //
-      // We start with a temporary onData listener that detects the first
-      // output, then swap to the permanent listener that simply forwards all
-      // data to xterm.
       let prompted = false;
       let removeData: (() => void) | null = null;
 
@@ -270,10 +177,6 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
     [sessionId, rootFolder, workspaceId],
   );
 
-  // Spawn the agent after React renders the terminal container.
-  // pendingAgentRef / pendingCwdRef / pendingPromptRef hold the user's
-  // picker selection (or the restored values when resuming a previous
-  // session).
   useEffect(() => {
     if (launched && !spawnedRef.current) {
       void spawnAgent(
@@ -314,10 +217,6 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
   }, [launched]);
 
   const handleLaunch = useCallback(() => {
-    // Store the user's selection in refs so the useEffect (which fires
-    // after React re-renders the terminal container) can read them.
-    // We must NOT call spawnAgent here because containerRef is still null
-    // (the picker UI is rendered, not the terminal div).
     const effectiveCwd = cwdInput || rootFolder || '';
     pendingAgentRef.current = selectedAgent;
     pendingCwdRef.current = effectiveCwd;
@@ -355,155 +254,27 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
   }, []);
 
   if (!launched) {
-    const agentDef = AGENT_REGISTRY.find((a: AgentDef) => a.id === selectedAgent);
-    const effectiveCwd = cwdInput || rootFolder || '';
-    const previewCmd = agentDef?.command ?? 'agent';
-    const visibleRecents = recentCwds.filter((p) => p !== cwdInput).slice(0, 3);
-    const startTitle = `Start ${agentDef?.label ?? 'agent'}  \u2014  ${previewCmd}${
-      effectiveCwd ? ` in ${effectiveCwd}` : ''
-    }`;
     return (
-      <div className="agent-body-wrap">
-        <div className="agent-picker">
-          <div className="agent-launcher-card">
-            <textarea
-              className="agent-launcher-prompt"
-              value={promptInput}
-              onChange={(e) => setPromptInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleLaunch();
-                }
-              }}
-              placeholder={'What should the agent do?'}
-              spellCheck={false}
-              autoFocus
-            />
-
-            <div className="agent-launcher-toolbar">
-              <div
-                className="agent-pills"
-                role="tablist"
-                aria-label="Agent"
-              >
-                {AGENT_REGISTRY.map((a: AgentDef) => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={selectedAgent === a.id}
-                    className={`agent-pill${
-                      selectedAgent === a.id ? ' agent-pill--active' : ''
-                    }`}
-                    onClick={() => setSelectedAgent(a.id)}
-                    title={`${a.label} \u2014 ${a.description}`}
-                  >
-                    <AgentIcon id={a.id} />
-                    <span>{a.label}</span>
-                  </button>
-                ))}
-              </div>
-
-              <div className="agent-toolbar-row">
-                <div className="agent-dir-field">
-                  <button
-                    type="button"
-                    className="agent-dir-icon"
-                    onClick={handlePickFolder}
-                    title={'Browse\u2026'}
-                    aria-label="Browse for folder"
-                  >
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                      <path
-                        d="M2 4.5A1.5 1.5 0 013.5 3H6l1.5 1.5h5A1.5 1.5 0 0114 6v5.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5v-7z"
-                        stroke="currentColor"
-                        strokeWidth="1.2"
-                      />
-                    </svg>
-                  </button>
-                  <input
-                    type="text"
-                    className="agent-dir-input"
-                    value={cwdInput}
-                    onChange={(e) => setCwdInput(e.target.value)}
-                    placeholder={
-                      rootFolder
-                        ? truncatePath(rootFolder, 32)
-                        : 'Working directory'
-                    }
-                    spellCheck={false}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleLaunch();
-                      }
-                    }}
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  className="agent-launch-btn"
-                  onClick={handleLaunch}
-                  title={startTitle}
-                >
-                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
-                    <path d="M4 3l9 5-9 5V3z" fill="currentColor" />
-                  </svg>
-                  Start
-                </button>
-              </div>
-
-              {visibleRecents.length > 0 && (
-                <div className="agent-recent">
-                  <span className="agent-recent-label">Recent</span>
-                  {visibleRecents.map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      className="agent-recent-chip"
-                      onClick={() => setCwdInput(p)}
-                      title={p}
-                    >
-                      {truncatePath(p, 22)}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+      <AgentPicker
+        selectedAgent={selectedAgent}
+        cwdInput={cwdInput}
+        promptInput={promptInput}
+        rootFolder={rootFolder}
+        recentCwds={recentCwds}
+        onAgentChange={setSelectedAgent}
+        onCwdChange={setCwdInput}
+        onPromptChange={setPromptInput}
+        onPickFolder={handlePickFolder}
+        onLaunch={handleLaunch}
+      />
     );
   }
 
   return (
-    <div className="agent-body-wrap">
-      <div
-        ref={containerRef}
-        className="agent-xterm-container"
-        onMouseDown={(e) => e.stopPropagation()}
-      />
-      {(status === 'done' || status === 'error') && (
-        <button
-          type="button"
-          className="agent-restart-btn"
-          onClick={handleRestart}
-          title="Restart agent"
-        >
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M13 8a5 5 0 1 1-1.5-3.6M13 3v2.5H10.5"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          Restart
-        </button>
-      )}
-    </div>
+    <AgentTerminal
+      containerRef={containerRef}
+      status={status}
+      onRestart={handleRestart}
+    />
   );
 };

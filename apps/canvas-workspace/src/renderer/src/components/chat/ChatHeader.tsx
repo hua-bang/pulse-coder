@@ -117,7 +117,7 @@ export const ChatHeader = ({
       >
         <PlusIcon size={16} strokeWidth={1.3} />
       </button>
-      {onExpand && (
+      {/* {onExpand && (
         <button
           className="chat-panel-action-btn"
           onClick={onExpand}
@@ -126,7 +126,7 @@ export const ChatHeader = ({
         >
           <ExpandIcon size={14} />
         </button>
-      )}
+      )} */}
       <button className="chat-panel-action-btn" onClick={onClose} title="Close panel">
         <CloseIcon size={16} strokeWidth={1.3} />
       </button>

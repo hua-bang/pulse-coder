@@ -402,6 +402,7 @@
   overflow-x: hidden;
   min-height: 30px;
   max-height: 50%;
+  padding-bottom: 6px;
 }
 
 /* ---- Inline create row ---- */
