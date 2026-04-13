@@ -6,14 +6,42 @@ import type { ModelType, LLMProviderFactory } from '../shared/types.js';
 
 dotenv.config();
 
-export const CoderAI = (process.env.USE_ANTHROPIC
+/**
+ * Resolve an environment variable with fallback priority:
+ *   project-specific key > global `PULSE_`-prefixed key > fallback
+ *
+ * This lets users set `PULSE_OPENAI_API_KEY` etc. globally in their shell
+ * profile while still allowing any individual project to override via its
+ * own `.env` file.
+ */
+function readEnv(names: string[], fallback = ''): string {
+  for (const name of names) {
+    const raw = process.env[name];
+    if (raw !== undefined && raw !== '') return raw;
+  }
+  return fallback;
+}
+
+const OPENAI_API_KEY = readEnv(['OPENAI_API_KEY', 'PULSE_OPENAI_API_KEY']);
+const OPENAI_API_URL = readEnv(
+  ['OPENAI_API_URL', 'PULSE_OPENAI_API_URL'],
+  'https://api.openai.com/v1',
+);
+const ANTHROPIC_API_KEY = readEnv(['ANTHROPIC_API_KEY', 'PULSE_ANTHROPIC_API_KEY']);
+const ANTHROPIC_API_URL = readEnv(
+  ['ANTHROPIC_API_URL', 'PULSE_ANTHROPIC_API_URL'],
+  'https://api.anthropic.com/v1',
+);
+const USE_ANTHROPIC = readEnv(['USE_ANTHROPIC', 'PULSE_USE_ANTHROPIC']);
+
+export const CoderAI = (USE_ANTHROPIC
   ? createAnthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY || '',
-    baseURL: process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com/v1'
+    apiKey: ANTHROPIC_API_KEY,
+    baseURL: ANTHROPIC_API_URL,
   })
   : createOpenAI({
-    apiKey: process.env.OPENAI_API_KEY || '',
-    baseURL: process.env.OPENAI_API_URL || 'https://api.openai.com/v1'
+    apiKey: OPENAI_API_KEY,
+    baseURL: OPENAI_API_URL,
   }).responses) as (model: string) => LanguageModel;
 
 export interface BuildProviderOptions {
@@ -25,16 +53,19 @@ export interface BuildProviderOptions {
  * Both types use the OpenAI-compatible SDK since most proxies expose models via
  * the OpenAI-compatible endpoint (/v1/chat/completions).
  *
- * - 'openai' → OPENAI_API_KEY / OPENAI_API_URL
- * - 'claude' → ANTHROPIC_API_KEY / ANTHROPIC_API_URL (falls back to OPENAI_* if unset)
+ * Priority: project env (e.g. `OPENAI_API_KEY`) > global `PULSE_`-prefixed env
+ * (e.g. `PULSE_OPENAI_API_KEY`) > default.
+ *
+ * - 'openai' → OPENAI_API_KEY / OPENAI_API_URL (or PULSE_* fallback)
+ * - 'claude' → ANTHROPIC_API_KEY / ANTHROPIC_API_URL (or PULSE_* fallback)
  *
  * The modelType is still meaningful for pre-processing (e.g. system message consolidation).
  */
 export function buildProvider(type: ModelType, options?: BuildProviderOptions): LLMProviderFactory {
   if (type === 'claude') {
     return createAnthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY || '',
-      baseURL: process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com/v1',
+      apiKey: ANTHROPIC_API_KEY,
+      baseURL: ANTHROPIC_API_URL,
       headers: {
         'user-agent': 'claude-code/2.1.63',
         ...(options?.headers ?? {}),
@@ -42,13 +73,21 @@ export function buildProvider(type: ModelType, options?: BuildProviderOptions): 
     }) as LLMProviderFactory;
   }
   return createOpenAI({
-    apiKey: process.env.OPENAI_API_KEY || '',
-    baseURL: process.env.OPENAI_API_URL || 'https://api.openai.com/v1',
+    apiKey: OPENAI_API_KEY,
+    baseURL: OPENAI_API_URL,
     headers: options?.headers,
   }).responses as LLMProviderFactory;
 }
 
-export const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || process.env.OPENAI_MODEL || 'novita/deepseek/deepseek_v3';
+export const DEFAULT_MODEL = readEnv(
+  [
+    'ANTHROPIC_MODEL',
+    'OPENAI_MODEL',
+    'PULSE_ANTHROPIC_MODEL',
+    'PULSE_OPENAI_MODEL',
+  ],
+  'novita/deepseek/deepseek_v3',
+);
 
 export const MAX_TURNS = 100;
 export const MAX_ERROR_COUNT = 3;
