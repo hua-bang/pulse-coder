@@ -83,6 +83,9 @@ out
 .nuxt
 dist
 
+# electron-builder output (e.g. apps/canvas-workspace)
+release/
+
 # Gatsby files
 .cache/
 # Comment in the public line in if your project uses Gatsby and not Next.js
