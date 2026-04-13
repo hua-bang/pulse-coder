@@ -6,9 +6,10 @@ import type { BubbleState } from '../../hooks/useFileNodeEditor';
 interface Props {
   editor: Editor;
   bubble: BubbleState;
+  onOpenLinkPrompt: () => void;
 }
 
-export const FileNodeBubbleMenu = ({ editor, bubble }: Props) => createPortal(
+export const FileNodeBubbleMenu = ({ editor, bubble, onOpenLinkPrompt }: Props) => createPortal(
   <div
     className="note-bubble-menu"
     style={{ left: bubble.x, top: bubble.y }}
@@ -29,11 +30,55 @@ export const FileNodeBubbleMenu = ({ editor, bubble }: Props) => createPortal(
       <em>I</em>
     </button>
     <button
+      className={`note-bubble-btn ${editor.isActive('underline') ? 'note-bubble-btn--active' : ''}`}
+      onClick={() => editor.chain().focus().toggleUnderline().run()}
+      title="Underline"
+    >
+      <span style={{ textDecoration: 'underline' }}>U</span>
+    </button>
+    <button
+      className={`note-bubble-btn ${editor.isActive('strike') ? 'note-bubble-btn--active' : ''}`}
+      onClick={() => editor.chain().focus().toggleStrike().run()}
+      title="Strikethrough"
+    >
+      <span style={{ textDecoration: 'line-through' }}>S</span>
+    </button>
+    <button
+      className={`note-bubble-btn ${editor.isActive('highlight') ? 'note-bubble-btn--active' : ''}`}
+      onClick={() => editor.chain().focus().toggleHighlight().run()}
+      title="Highlight"
+    >
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+        <path
+          d="M3 11l6-6 3 3-6 6H3v-3z"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+          fill="rgba(253, 224, 71, 0.6)"
+        />
+        <path d="M9 5l2-2 3 3-2 2" stroke="currentColor" strokeWidth="1.2" />
+      </svg>
+    </button>
+    <button
       className={`note-bubble-btn ${editor.isActive('code') ? 'note-bubble-btn--active' : ''}`}
       onClick={() => editor.chain().focus().toggleCode().run()}
       title="Inline code"
     >
       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10 }}>`·`</span>
+    </button>
+    <button
+      className={`note-bubble-btn ${editor.isActive('link') ? 'note-bubble-btn--active' : ''}`}
+      onClick={onOpenLinkPrompt}
+      title="Link"
+    >
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+        <path
+          d="M7 9l2-2M6.5 5.5L8 4a2.5 2.5 0 113.5 3.5L10 9M9.5 10.5L8 12a2.5 2.5 0 11-3.5-3.5L6 7"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+        />
+      </svg>
     </button>
     <div className="note-bubble-divider" />
     <button
