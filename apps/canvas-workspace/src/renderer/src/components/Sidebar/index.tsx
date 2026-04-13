@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback, type DragEvent, type
 import type { WorkspaceEntry, FolderEntry } from '../../hooks/useWorkspaces';
 import type { CanvasNode } from '../../types';
 import './index.css';
-import { buildLayerTree } from './utils/layers';
+import { buildLayerTree, collectFrameIds } from './utils/layers';
 import { SidebarHeader, SidebarToggleIcon } from './SidebarHeader';
 import { WorkspaceItem } from './WorkspaceItem';
 import { WorkspaceList } from './WorkspaceList';
@@ -55,7 +55,7 @@ export const Sidebar = ({
   const [layerContextMenu, setLayerContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
 
   const layerTree = useMemo(() => buildLayerTree(activeNodes), [activeNodes]);
-  const frameIds = useMemo(() => layerTree.filter((n) => n.node.type === 'frame').map((n) => n.node.id), [layerTree]);
+  const frameIds = useMemo(() => collectFrameIds(layerTree), [layerTree]);
   const anyFrameExpanded = useMemo(() => frameIds.some((id) => !collapsedLayers.has(id)), [frameIds, collapsedLayers]);
 
   const toggleAllLayers = useCallback(() => {

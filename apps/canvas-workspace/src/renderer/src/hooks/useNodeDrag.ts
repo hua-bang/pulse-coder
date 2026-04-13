@@ -1,17 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { CanvasNode } from "../types";
-
-/** Check if a node's center is inside a frame's bounding box */
-const isInsideFrame = (node: CanvasNode, frame: CanvasNode): boolean => {
-  const cx = node.x + node.width / 2;
-  const cy = node.y + node.height / 2;
-  return (
-    cx >= frame.x &&
-    cx <= frame.x + frame.width &&
-    cy >= frame.y &&
-    cy <= frame.y + frame.height
-  );
-};
+import { collectFrameDescendants } from "../utils/frameHierarchy";
 
 export const useNodeDrag = (
   moveNode: (id: string, x: number, y: number) => void,
@@ -28,18 +17,26 @@ export const useNodeDrag = (
     children: Array<{ id: string; nodeX: number; nodeY: number }>;
   } | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  // Every node that moves with the drag (the primary node plus, for frames,
+  // every descendant frame / node). Used so the whole group can share the
+  // lifted `.canvas-node--dragging` stacking context — otherwise a dragged
+  // parent frame's opaque body would paint over its nested children.
+  const [draggingIds, setDraggingIds] = useState<Set<string>>(() => new Set());
 
   const onDragStart = useCallback(
     (e: React.MouseEvent, node: CanvasNode) => {
       if (e.button !== 0 || e.altKey) return;
       e.stopPropagation();
 
-      // If dragging a frame, find contained child nodes
+      // If dragging a frame, also drag every transitive descendant — both
+      // regular nodes and nested child frames.
       let children: Array<{ id: string; nodeX: number; nodeY: number }> = [];
       if (node.type === "frame") {
-        children = nodes
-          .filter((n) => n.id !== node.id && n.type !== "frame" && isInsideFrame(n, node))
-          .map((n) => ({ id: n.id, nodeX: n.x, nodeY: n.y }));
+        children = collectFrameDescendants(node.id, nodes).map((n) => ({
+          id: n.id,
+          nodeX: n.x,
+          nodeY: n.y,
+        }));
       }
 
       dragging.current = {
@@ -51,6 +48,7 @@ export const useNodeDrag = (
         children
       };
       setDraggingId(node.id);
+      setDraggingIds(new Set([node.id, ...children.map((c) => c.id)]));
     },
     [nodes]
   );
@@ -83,7 +81,8 @@ export const useNodeDrag = (
   const onDragEnd = useCallback(() => {
     dragging.current = null;
     setDraggingId(null);
+    setDraggingIds(new Set());
   }, []);
 
-  return { draggingId, onDragStart, onDragMove, onDragEnd };
+  return { draggingId, draggingIds, onDragStart, onDragMove, onDragEnd };
 };

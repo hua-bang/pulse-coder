@@ -1,26 +1,25 @@
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import type { CanvasNode } from '../../types';
+import type { LayerTreeNode } from './utils/layers';
 import { ChevronRightIcon, NodeTypeIcon } from '../icons';
 
 interface LayerItemProps {
-  node: CanvasNode;
-  children: CanvasNode[];
-  isCollapsed: boolean;
+  tree: LayerTreeNode;
+  collapsedLayers: Set<string>;
   onFocus: (nodeId: string) => void;
   onContextMenu: (e: ReactMouseEvent, nodeId: string) => void;
   onToggleCollapse: (id: string) => void;
 }
 
 export const LayerItem = ({
-  node,
-  children,
-  isCollapsed,
+  tree,
+  collapsedLayers,
   onFocus,
   onContextMenu,
   onToggleCollapse,
 }: LayerItemProps) => {
+  const { node, children } = tree;
   const isFrame = node.type === 'frame';
-  const isOpen = isFrame && !isCollapsed;
+  const isOpen = isFrame && !collapsedLayers.has(node.id);
 
   return (
     <div className="sidebar-layer-group">
@@ -60,18 +59,14 @@ export const LayerItem = ({
         >
           <div className="sidebar-layer-children-inner">
             {children.map((child) => (
-              <button
-                key={child.id}
-                className="sidebar-layer-item"
-                onClick={() => onFocus(child.id)}
-                onContextMenu={(e) => onContextMenu(e, child.id)}
-                title={child.title}
-              >
-                <span className="sidebar-layer-icon">
-                  <NodeTypeIcon type={child.type} />
-                </span>
-                <span className="sidebar-layer-name">{child.title}</span>
-              </button>
+              <LayerItem
+                key={child.node.id}
+                tree={child}
+                collapsedLayers={collapsedLayers}
+                onFocus={onFocus}
+                onContextMenu={onContextMenu}
+                onToggleCollapse={onToggleCollapse}
+              />
             ))}
           </div>
         </div>

@@ -8,6 +8,7 @@ import { useCanvasContext } from '../../hooks/useCanvasContext';
 import { useCanvasFit } from '../../hooks/useCanvasFit';
 import { useCanvasKeyboard } from '../../hooks/useCanvasKeyboard';
 import type { CanvasNode } from '../../types';
+import { computeFrameDepths } from '../../utils/frameHierarchy';
 import { CanvasSurface } from './CanvasSurface';
 import { CanvasOverlays } from './CanvasOverlays';
 
@@ -136,7 +137,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
     handleFocusNode(node);
   }, [handleFocusNode]);
 
-  const { draggingId, onDragStart, onDragMove, onDragEnd } = useNodeDrag(
+  const { draggingId, draggingIds, onDragStart, onDragMove, onDragEnd } = useNodeDrag(
     moveNode, moveNodes, transform.scale, nodes
   );
   const { resizingId, onResizeStart, onResizeMove, onResizeEnd } =
@@ -216,11 +217,20 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
   }, [canvasMouseUp, onDragEnd, onResizeEnd, commitHistory]);
 
   const sortedNodes = useMemo(
-    () => [...nodes].sort((a, b) => {
-      if (a.type === 'frame' && b.type !== 'frame') return -1;
-      if (a.type !== 'frame' && b.type === 'frame') return 1;
-      return 0;
-    }),
+    () => {
+      const depths = computeFrameDepths(nodes);
+      return [...nodes].sort((a, b) => {
+        // Non-frames always render in front of frames.
+        if (a.type === 'frame' && b.type !== 'frame') return -1;
+        if (a.type !== 'frame' && b.type === 'frame') return 1;
+        // Among frames, shallower frames render first (i.e. behind deeper
+        // frames), so a nested child frame paints on top of its parent.
+        if (a.type === 'frame' && b.type === 'frame') {
+          return (depths.get(a.id) ?? 0) - (depths.get(b.id) ?? 0);
+        }
+        return 0;
+      });
+    },
     [nodes]
   );
 
@@ -263,6 +273,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
         canvasId={canvasId}
         canvasName={canvasName}
         draggingId={draggingId}
+        draggingIds={draggingIds}
         resizingId={resizingId}
         selectedNodeIds={selectedNodeIds}
         highlightedId={highlightedId}

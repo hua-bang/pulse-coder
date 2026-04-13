@@ -1,5 +1,4 @@
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import type { CanvasNode } from '../../types';
 import type { LayerTreeNode } from './utils/layers';
 import { LayerItem } from './LayerItem';
 
@@ -64,12 +63,11 @@ export const LayersPanel = ({
       </div>
     </div>
     <div className="sidebar-layers-scroll">
-      {layerTree.map(({ node, children }) => (
+      {layerTree.map((tree) => (
         <LayerItem
-          key={node.id}
-          node={node}
-          children={children}
-          isCollapsed={collapsedLayers.has(node.id)}
+          key={tree.node.id}
+          tree={tree}
+          collapsedLayers={collapsedLayers}
           onFocus={onNodeFocus}
           onContextMenu={onContextMenu}
           onToggleCollapse={onToggleCollapse}

@@ -12,6 +12,9 @@ interface CanvasSurfaceProps {
   canvasId: string;
   canvasName?: string;
   draggingId: string | null;
+  /** Every node participating in the current drag — includes descendants of a
+   *  dragged frame so the full group can share the lifted stacking context. */
+  draggingIds: Set<string>;
   resizingId: string | null;
   selectedNodeIds: string[];
   highlightedId: string | null;
@@ -33,6 +36,7 @@ export const CanvasSurface = ({
   canvasId,
   canvasName,
   draggingId,
+  draggingIds,
   resizingId,
   selectedNodeIds,
   highlightedId,
@@ -62,7 +66,7 @@ export const CanvasSurface = ({
         rootFolder={rootFolder}
         workspaceId={canvasId}
         workspaceName={canvasName}
-        isDragging={draggingId === node.id}
+        isDragging={draggingIds.has(node.id) || draggingId === node.id}
         isResizing={resizingId === node.id}
         isSelected={selectedNodeIds.includes(node.id)}
         isHighlighted={highlightedId === node.id}
