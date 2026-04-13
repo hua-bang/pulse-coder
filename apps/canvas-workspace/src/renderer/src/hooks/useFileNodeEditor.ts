@@ -5,10 +5,22 @@ import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
+import Link from '@tiptap/extension-link';
+import Underline from '@tiptap/extension-underline';
+import Highlight from '@tiptap/extension-highlight';
+import { Table } from '@tiptap/extension-table';
+import TableRow from '@tiptap/extension-table-row';
+import TableCell from '@tiptap/extension-table-cell';
+import TableHeader from '@tiptap/extension-table-header';
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
+import { common, createLowlight } from 'lowlight';
 import { Markdown } from 'tiptap-markdown';
 import type { CanvasNode, FileNodeData } from '../types';
 import type { SlashCommandDef } from '../components/SlashCommandMenu';
-import { ALL_SLASH_COMMANDS, filterCmds } from '../editor/slashCommands';
+import { ALL_SLASH_COMMANDS, filterCmds, type SlashCmdContext } from '../editor/slashCommands';
+import { NoteSearchExtension } from '../editor/noteSearchExtension';
+
+const lowlight = createLowlight(common);
 
 interface SlashMenuState {
   x: number;
@@ -55,14 +67,37 @@ export const useFileNodeEditor = ({
   const slashMenuRef = useRef<SlashMenuState | null>(null);
   slashMenuRef.current = slashMenu;
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [linkPrompt, setLinkPrompt] = useState<{ initial: string } | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const [findBarOpen, setFindBarOpen] = useState(false);
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      // StarterKit v3 bundles Link + Underline + CodeBlock — disable the
+      // built-ins since we register explicit configured versions below.
+      StarterKit.configure({
+        codeBlock: false,
+        link: false,
+        underline: false,
+      }),
       Image.configure({ inline: false }),
       Placeholder.configure({ placeholder: 'Start writing…' }),
       TaskList,
       TaskItem.configure({ nested: true }),
+      Underline,
+      Highlight.configure({ multicolor: false }),
+      Link.configure({
+        openOnClick: false,
+        autolink: true,
+        linkOnPaste: true,
+        HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' },
+      }),
+      CodeBlockLowlight.configure({ lowlight, defaultLanguage: null }),
+      Table.configure({ resizable: false, HTMLAttributes: { class: 'note-table' } }),
+      TableRow,
+      TableHeader,
+      TableCell,
+      NoteSearchExtension,
       Markdown.configure({ html: false, transformPastedText: true }),
     ],
     content: data.content || '',
@@ -194,7 +229,7 @@ export const useFileNodeEditor = ({
         if (item) {
           e.preventDefault();
           e.stopImmediatePropagation();
-          item.run(editor, menu.slashFrom, editor.state.selection.from);
+          item.run(editor, menu.slashFrom, editor.state.selection.from, slashCtxRef.current);
           setSlashMenu(null);
         }
       } else if (e.key === 'Escape') {
@@ -205,13 +240,109 @@ export const useFileNodeEditor = ({
     return () => window.removeEventListener('keydown', handler, true);
   }, [editor]);
 
+  const slashCtx: SlashCmdContext = {
+    requestLink: (initial: string) => setLinkPrompt({ initial }),
+    requestImage: () => imageInputRef.current?.click(),
+  };
+  const slashCtxRef = useRef<SlashCmdContext>(slashCtx);
+  slashCtxRef.current = slashCtx;
+
   const handleSlashSelect = useCallback((cmd: SlashCommandDef) => {
     if (!editor || !slashMenuRef.current) return;
     const { slashFrom } = slashMenuRef.current;
     const fullCmd = ALL_SLASH_COMMANDS.find((c) => c.id === cmd.id);
-    fullCmd?.run(editor, slashFrom, editor.state.selection.from);
+    fullCmd?.run(editor, slashFrom, editor.state.selection.from, slashCtxRef.current);
     setSlashMenu(null);
   }, [editor]);
 
-  return { editor, slashMenu, setSlashMenu, bubble, handleSlashSelect };
+  const openLinkPrompt = useCallback(() => {
+    if (!editor) return;
+    const initial = (editor.getAttributes('link')?.href as string | undefined) ?? '';
+    setLinkPrompt({ initial });
+  }, [editor]);
+
+  const applyLink = useCallback(
+    (url: string) => {
+      if (!editor) return;
+      const trimmed = url.trim();
+      if (trimmed === '') {
+        editor.chain().focus().extendMarkRange('link').unsetLink().run();
+      } else {
+        editor
+          .chain()
+          .focus()
+          .extendMarkRange('link')
+          .setLink({ href: trimmed })
+          .run();
+      }
+      setLinkPrompt(null);
+    },
+    [editor],
+  );
+
+  const cancelLink = useCallback(() => setLinkPrompt(null), []);
+
+  const insertImageFromFile = useCallback(
+    async (file: File) => {
+      if (!editor) return;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const dataUrl = reader.result as string;
+        const base64 = dataUrl.split(',')[1];
+        if (!base64) return;
+        const ext = file.type.replace('image/', '').split(';')[0] || 'png';
+        const api = window.canvasWorkspace?.file;
+        if (!api) return;
+        const wsId =
+          workspaceIdRef.current ??
+          dataRef.current.filePath.match(/canvas[/\\]([^/\\]+)[/\\]/)?.[1] ??
+          'default';
+        const res = await api.saveImage(wsId, base64, ext);
+        if (!res.ok || !res.filePath) return;
+        editor
+          .chain()
+          .focus()
+          .setImage({ src: `file://${res.filePath}` })
+          .run();
+      };
+      reader.readAsDataURL(file);
+    },
+    [editor, dataRef, workspaceIdRef],
+  );
+
+  const openImagePicker = useCallback(() => imageInputRef.current?.click(), []);
+
+  const openFindBar = useCallback(() => setFindBarOpen(true), []);
+  const closeFindBar = useCallback(() => setFindBarOpen(false), []);
+
+  // Cmd/Ctrl+F to open find bar — only when this editor is focused
+  useEffect(() => {
+    if (!editor) return;
+    const handler = (e: KeyboardEvent) => {
+      if (!((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f')) return;
+      if (!editor.isFocused) return;
+      e.preventDefault();
+      setFindBarOpen(true);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [editor]);
+
+  return {
+    editor,
+    slashMenu,
+    setSlashMenu,
+    bubble,
+    handleSlashSelect,
+    linkPrompt,
+    openLinkPrompt,
+    applyLink,
+    cancelLink,
+    imageInputRef,
+    openImagePicker,
+    insertImageFromFile,
+    findBarOpen,
+    openFindBar,
+    closeFindBar,
+  };
 };

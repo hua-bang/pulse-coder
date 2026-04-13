@@ -4,11 +4,21 @@ interface Props {
   onOpenFile: () => void;
   onSave: () => void;
   onSaveAs: () => void;
+  onInsertImage: () => void;
+  onOpenFind: () => void;
   statusText: string;
   modified: boolean;
 }
 
-export const FileNodeToolbar = ({ onOpenFile, onSave, onSaveAs, statusText, modified }: Props) => (
+export const FileNodeToolbar = ({
+  onOpenFile,
+  onSave,
+  onSaveAs,
+  onInsertImage,
+  onOpenFind,
+  statusText,
+  modified,
+}: Props) => (
   <div className="note-toolbar">
     <div className="note-toolbar-left">
       <button className="note-tool-btn" onClick={onOpenFile} title="Open file">
@@ -45,6 +55,20 @@ export const FileNodeToolbar = ({ onOpenFile, onSave, onSaveAs, statusText, modi
             strokeLinecap="round"
             strokeLinejoin="round"
           />
+        </svg>
+      </button>
+      <div className="note-toolbar-divider" />
+      <button className="note-tool-btn" onClick={onInsertImage} title="Insert image">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+          <circle cx="6" cy="7" r="1.2" stroke="currentColor" strokeWidth="1.2" />
+          <path d="M3 12l3.5-3.5L9 11l2-2 3 3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+        </svg>
+      </button>
+      <button className="note-tool-btn" onClick={onOpenFind} title="Find (Cmd+F)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <circle cx="7" cy="7" r="4" stroke="currentColor" strokeWidth="1.3" />
+          <path d="M10 10l3.5 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
         </svg>
       </button>
     </div>

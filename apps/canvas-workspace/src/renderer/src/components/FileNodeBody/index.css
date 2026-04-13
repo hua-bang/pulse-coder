@@ -192,3 +192,148 @@
   outline: 2px solid var(--accent-file);
   outline-offset: 2px;
 }
+
+/* Links */
+.note-tiptap-editor .ProseMirror a {
+  color: var(--accent, #2383e2);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.note-tiptap-editor .ProseMirror a:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* Underline mark */
+.note-tiptap-editor .ProseMirror u {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+/* Highlight mark */
+.note-tiptap-editor .ProseMirror mark {
+  background: rgba(253, 224, 71, 0.55);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+/* Tables */
+.note-tiptap-editor .ProseMirror table,
+.note-tiptap-editor .ProseMirror .note-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 0.6em 0;
+  overflow: hidden;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+}
+
+.note-tiptap-editor .ProseMirror th,
+.note-tiptap-editor .ProseMirror td {
+  border: 1px solid var(--border-light);
+  padding: 6px 8px;
+  vertical-align: top;
+  position: relative;
+  min-width: 40px;
+  font-size: 13px;
+}
+
+.note-tiptap-editor .ProseMirror th {
+  background: rgba(0, 0, 0, 0.03);
+  font-weight: 600;
+  text-align: left;
+}
+
+.note-tiptap-editor .ProseMirror td > p,
+.note-tiptap-editor .ProseMirror th > p {
+  margin: 0;
+}
+
+.note-tiptap-editor .ProseMirror .selectedCell {
+  background: rgba(35, 131, 226, 0.1);
+}
+
+/* Search match decoration */
+.note-tiptap-editor .ProseMirror .note-search-match {
+  background: rgba(253, 224, 71, 0.55);
+  border-radius: 2px;
+}
+
+.note-tiptap-editor .ProseMirror .note-search-match--active {
+  background: rgba(255, 149, 0, 0.65);
+  outline: 1px solid rgba(255, 149, 0, 0.9);
+}
+
+/* Code block syntax highlighting (minimal hljs theme) */
+.note-tiptap-editor .ProseMirror pre code.hljs,
+.note-tiptap-editor .ProseMirror pre code {
+  display: block;
+  overflow-x: auto;
+  color: var(--text);
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.55;
+}
+
+.note-tiptap-editor .ProseMirror .hljs-comment,
+.note-tiptap-editor .ProseMirror .hljs-quote {
+  color: #8a8f98;
+  font-style: italic;
+}
+
+.note-tiptap-editor .ProseMirror .hljs-keyword,
+.note-tiptap-editor .ProseMirror .hljs-selector-tag,
+.note-tiptap-editor .ProseMirror .hljs-literal,
+.note-tiptap-editor .ProseMirror .hljs-doctag,
+.note-tiptap-editor .ProseMirror .hljs-title,
+.note-tiptap-editor .ProseMirror .hljs-section,
+.note-tiptap-editor .ProseMirror .hljs-type,
+.note-tiptap-editor .ProseMirror .hljs-name,
+.note-tiptap-editor .ProseMirror .hljs-strong {
+  color: #a626a4;
+  font-weight: 600;
+}
+
+.note-tiptap-editor .ProseMirror .hljs-string,
+.note-tiptap-editor .ProseMirror .hljs-regexp,
+.note-tiptap-editor .ProseMirror .hljs-addition,
+.note-tiptap-editor .ProseMirror .hljs-attribute,
+.note-tiptap-editor .ProseMirror .hljs-symbol,
+.note-tiptap-editor .ProseMirror .hljs-bullet {
+  color: #50a14f;
+}
+
+.note-tiptap-editor .ProseMirror .hljs-number,
+.note-tiptap-editor .ProseMirror .hljs-meta,
+.note-tiptap-editor .ProseMirror .hljs-link,
+.note-tiptap-editor .ProseMirror .hljs-built_in,
+.note-tiptap-editor .ProseMirror .hljs-builtin-name {
+  color: #986801;
+}
+
+.note-tiptap-editor .ProseMirror .hljs-variable,
+.note-tiptap-editor .ProseMirror .hljs-template-variable,
+.note-tiptap-editor .ProseMirror .hljs-class .hljs-title,
+.note-tiptap-editor .ProseMirror .hljs-tag {
+  color: #e45649;
+}
+
+.note-tiptap-editor .ProseMirror .hljs-attr,
+.note-tiptap-editor .ProseMirror .hljs-selector-attr,
+.note-tiptap-editor .ProseMirror .hljs-selector-pseudo,
+.note-tiptap-editor .ProseMirror .hljs-params,
+.note-tiptap-editor .ProseMirror .hljs-function .hljs-title {
+  color: #4078f2;
+}
+
+.note-tiptap-editor .ProseMirror .hljs-emphasis {
+  font-style: italic;
+}

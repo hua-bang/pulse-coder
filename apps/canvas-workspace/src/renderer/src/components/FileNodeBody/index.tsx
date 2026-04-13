@@ -7,6 +7,8 @@ import { filterCmds } from '../../editor/slashCommands';
 import { FileNodeToolbar } from '../FileNodeToolbar';
 import { FileNodeBubbleMenu } from '../FileNodeBubbleMenu';
 import { SlashCommandMenu } from '../SlashCommandMenu';
+import { NoteFindBar } from '../NoteFindBar';
+import { NoteLinkPrompt } from '../NoteLinkPrompt';
 
 interface Props {
   node: CanvasNode;
@@ -47,7 +49,23 @@ export const FileNodeBody = ({ node, onUpdate, workspaceId }: Props) => {
     [onUpdate, showStatus]
   );
 
-  const { editor, slashMenu, setSlashMenu, bubble, handleSlashSelect } = useFileNodeEditor({
+  const {
+    editor,
+    slashMenu,
+    setSlashMenu,
+    bubble,
+    handleSlashSelect,
+    linkPrompt,
+    openLinkPrompt,
+    applyLink,
+    cancelLink,
+    imageInputRef,
+    openImagePicker,
+    insertImageFromFile,
+    findBarOpen,
+    openFindBar,
+    closeFindBar,
+  } = useFileNodeEditor({
     data,
     nodeIdRef,
     dataRef,
@@ -106,6 +124,15 @@ export const FileNodeBody = ({ node, onUpdate, workspaceId }: Props) => {
     }
   }, [editor, persistToFile, handleSaveAs]);
 
+  const handleImageInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) void insertImageFromFile(file);
+      e.target.value = '';
+    },
+    [insertImageFromFile],
+  );
+
   const filePath = data.filePath;
   const fileName = filePath ? filePath.split('/').pop() : null;
 
@@ -115,6 +142,8 @@ export const FileNodeBody = ({ node, onUpdate, workspaceId }: Props) => {
         onOpenFile={handleOpenFile}
         onSave={handleManualSave}
         onSaveAs={handleSaveAs}
+        onInsertImage={openImagePicker}
+        onOpenFind={openFindBar}
         statusText={statusText}
         modified={modified}
       />
@@ -125,11 +154,31 @@ export const FileNodeBody = ({ node, onUpdate, workspaceId }: Props) => {
         </div>
       )}
 
-      {bubble && editor && <FileNodeBubbleMenu editor={editor} bubble={bubble} />}
+      {findBarOpen && editor && <NoteFindBar editor={editor} onClose={closeFindBar} />}
+
+      {linkPrompt && (
+        <NoteLinkPrompt
+          initial={linkPrompt.initial}
+          onApply={applyLink}
+          onCancel={cancelLink}
+        />
+      )}
+
+      {bubble && editor && (
+        <FileNodeBubbleMenu editor={editor} bubble={bubble} onOpenLinkPrompt={openLinkPrompt} />
+      )}
 
       <div className="note-content" onWheel={(e) => e.stopPropagation()}>
         <EditorContent editor={editor} className="note-tiptap-editor" />
       </div>
+
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleImageInputChange}
+      />
 
       {slashMenu && (
         <SlashCommandMenu

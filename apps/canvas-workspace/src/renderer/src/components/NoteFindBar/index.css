@@ -1,0 +1,109 @@
+.note-find-bar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 50;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card-hover);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 260px;
+}
+
+.note-find-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.note-find-toggle {
+  width: 18px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.note-find-toggle--spacer {
+  cursor: default;
+}
+
+.note-find-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt, rgba(0, 0, 0, 0.02));
+  padding: 3px 6px;
+  font-size: 12px;
+  outline: none;
+  color: var(--text);
+}
+
+.note-find-input:focus {
+  border-color: var(--accent-border, var(--accent));
+}
+
+.note-find-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 30px;
+  text-align: center;
+}
+
+.note-find-nav,
+.note-find-close {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.note-find-nav:hover:not(:disabled),
+.note-find-close:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text);
+}
+
+.note-find-nav:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.note-find-action {
+  border: 1px solid var(--border-light);
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  height: 22px;
+  white-space: nowrap;
+}
+
+.note-find-action:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text);
+}
+
+.note-find-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
