@@ -11,6 +11,7 @@ import { setupFileManagerIpc } from "./file-manager";
 import { setupFileWatcherIpc, teardownFileWatcher } from "./file-watcher";
 import { setupSkillInstallerIpc } from "./skill-installer";
 import { setupCanvasAgentIpc, teardownCanvasAgent } from "./canvas-agent-ipc";
+import { setupWebviewRegistryIpc } from "./webview-registry";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const preloadPath = join(currentDir, "../preload/index.mjs");
@@ -55,7 +56,11 @@ const createWindow = () => {
     ...(resolvedIconPath ? { icon: resolvedIconPath } : {}),
     webPreferences: {
       preload: resolvedPreloadPath,
-      contextIsolation: true
+      contextIsolation: true,
+      // Enable <webview> so iframe/link canvas nodes can host a real
+      // webContents. Main-process code reaches into each webview via its
+      // webContents ID to pull rendered DOM text for the Canvas Agent.
+      webviewTag: true
     }
   });
 
@@ -135,6 +140,7 @@ app.whenReady().then(() => {
   setupFileWatcherIpc();
   setupSkillInstallerIpc();
   setupCanvasAgentIpc();
+  setupWebviewRegistryIpc();
   // MCP server disabled — canvas-cli is the preferred agent interface now.
   // startMCPServer();
   // void ensureMCPRegistered();

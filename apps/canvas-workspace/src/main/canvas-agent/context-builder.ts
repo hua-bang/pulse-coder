@@ -9,6 +9,7 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import type { NodeSummary, WorkspaceSummary } from './types';
+import { getNodeRenderedText } from '../webview-registry';
 
 const STORE_DIR = join(homedir(), '.pulse-coder', 'canvas');
 
@@ -107,6 +108,29 @@ async function fetchPageText(url: string): Promise<string> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Read the text content of an iframe/link node.
+ *
+ * Prefers the live webview DOM (what the user is actually seeing, with JS
+ * executed and login cookies applied) and falls back to a fresh server-side
+ * HTTP fetch when the webview isn't mounted — e.g. the workspace isn't open
+ * in the foreground window, or the page hasn't finished attaching yet.
+ */
+async function readIframeContent(
+  workspaceId: string,
+  nodeId: string,
+  url: string,
+): Promise<string> {
+  if (!url) return '[empty link node — no URL set]';
+  try {
+    const live = await getNodeRenderedText(workspaceId, nodeId);
+    if (live && live.trim()) return live;
+  } catch {
+    // fall through to network fetch
+  }
+  return fetchPageText(url);
 }
 
 // ─── Low-level readers ─────────────────────────────────────────────
@@ -260,11 +284,7 @@ export async function buildDetailedContext(workspaceId: string): Promise<Detaile
         break;
       case 'iframe': {
         const url = (node.data.url as string) || '';
-        if (url) {
-          detailed.content = await fetchPageText(url);
-        } else {
-          detailed.content = '[empty link node — no URL set]';
-        }
+        detailed.content = await readIframeContent(workspaceId, node.id, url);
         break;
       }
     }

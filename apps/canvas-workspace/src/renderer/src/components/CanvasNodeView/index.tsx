@@ -232,7 +232,7 @@ export const CanvasNodeView = ({
             onDragStart={onDragStart}
           />
         ) : node.type === "iframe" ? (
-          <IframeNodeBody node={node} onUpdate={onUpdate} />
+          <IframeNodeBody node={node} workspaceId={workspaceId} onUpdate={onUpdate} />
         ) : (
           <AgentNodeBody node={node} allNodes={allNodes} rootFolder={rootFolder} workspaceId={workspaceId} workspaceName={workspaceName} onUpdate={onUpdate} />
         )}

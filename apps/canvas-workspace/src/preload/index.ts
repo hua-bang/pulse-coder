@@ -133,6 +133,14 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
     install: () => ipcRenderer.invoke("skills:install")
   },
 
+  iframe: {
+    registerWebview: (workspaceId: string, nodeId: string, webContentsId: number) =>
+      ipcRenderer.invoke("iframe:register-webview", { workspaceId, nodeId, webContentsId }),
+
+    unregisterWebview: (workspaceId: string, nodeId: string) =>
+      ipcRenderer.invoke("iframe:unregister-webview", { workspaceId, nodeId })
+  },
+
   agent: {
     chat: (workspaceId: string, message: string, mentionedWorkspaceIds?: string[]) =>
       ipcRenderer.invoke("canvas-agent:chat", { workspaceId, message, mentionedWorkspaceIds }),

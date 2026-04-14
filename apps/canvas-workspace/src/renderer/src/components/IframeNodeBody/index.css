@@ -71,6 +71,10 @@
   width: 100%;
   border: none;
   background: #fff;
+  /* Electron's <webview> defaults to inline-block; force it to occupy the
+     remaining flex space so the page fills the node body. */
+  display: flex;
+  min-height: 0;
 }
 
 /* Empty state — URL input */
