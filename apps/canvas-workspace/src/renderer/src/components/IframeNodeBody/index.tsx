@@ -59,24 +59,38 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
 
     const api = window.canvasWorkspace.iframe;
 
-    const handleAttach = () => {
+    let registered = false;
+
+    const tryRegister = () => {
+      if (registered) return;
       try {
         const id = el.getWebContentsId();
-        void api.registerWebview(workspaceId, node.id, id);
+        if (typeof id === "number") {
+          registered = true;
+          void api.registerWebview(workspaceId, node.id, id);
+        }
       } catch {
-        // webview not yet ready — dom-ready handler below will retry
+        // not yet attached — the event listeners below will retry
       }
     };
 
-    // `did-attach` fires when the guest page is first attached; `dom-ready`
-    // gives us a second chance if did-attach already went by.
-    el.addEventListener("did-attach", handleAttach);
-    el.addEventListener("dom-ready", handleAttach);
+    // 1) Attempt synchronously. If the canvas was reloaded and the webview
+    //    had already attached by the time this effect runs, both `did-attach`
+    //    and `dom-ready` have fired and won't fire again — so this sync call
+    //    is the only chance we'd have to register.
+    tryRegister();
+
+    // 2) Subscribe anyway. On a fresh node insert, `did-attach` fires after
+    //    we mount; `dom-ready` catches us on manual reloads / src changes.
+    el.addEventListener("did-attach", tryRegister);
+    el.addEventListener("dom-ready", tryRegister);
 
     return () => {
-      el.removeEventListener("did-attach", handleAttach);
-      el.removeEventListener("dom-ready", handleAttach);
-      void api.unregisterWebview(workspaceId, node.id);
+      el.removeEventListener("did-attach", tryRegister);
+      el.removeEventListener("dom-ready", tryRegister);
+      if (registered) {
+        void api.unregisterWebview(workspaceId, node.id);
+      }
     };
   }, [workspaceId, node.id, editing, url, webviewKey]);
 
