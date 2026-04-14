@@ -1,0 +1,193 @@
+/* ---------------------------------------------------------------------------
+ * Text node styling
+ *
+ * Design goals:
+ *  - A TLDRAW-style label: minimal chrome by default, content-forward.
+ *  - The whole node wrapper (not just the body) takes the background color
+ *    so picking "Yellow" turns the entire card yellow, matching user intent.
+ *  - When bg is "transparent", the node has no visible card — just text on
+ *    the canvas, like tldraw.
+ * ------------------------------------------------------------------------- */
+
+/* Neutralize the shared .canvas-node chrome for text nodes. Background is
+ * driven by the inline style on .text-node-body, not by the wrapper, so that
+ * "transparent" actually reveals the canvas grid. The wrapper border is only
+ * shown on hover/selection to keep the node feeling like a bare label. */
+.canvas-node--text {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  /* .canvas-node has overflow: hidden by default — clear it so the header tab
+   * (positioned at top: -32px) isn't clipped. */
+  overflow: visible;
+}
+
+.canvas-node--text:hover {
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.canvas-node--text.canvas-node--selected {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 2px rgba(35, 131, 226, 0.18);
+}
+
+/* Hide the header until the node is hovered / selected so the node reads as
+ * pure text on the canvas (TLDRAW-style). */
+.canvas-node--text .node-header {
+  position: absolute;
+  top: -32px;
+  left: 0;
+  right: 0;
+  min-height: 28px;
+  height: 28px;
+  padding: 4px 6px 4px 8px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border-light, rgba(0, 0, 0, 0.08));
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  /* Keep header chrome in screen space so it doesn't balloon when the canvas
+   * is zoomed in. Matches the frame header behavior. */
+  transform: scale(calc(1 / var(--canvas-scale, 1)));
+  transform-origin: left bottom;
+  z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.canvas-node--text:hover .node-header,
+.canvas-node--text.canvas-node--selected .node-header,
+.canvas-node--text.canvas-node--dragging .node-header {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.canvas-node--text .node-body {
+  height: 100%;
+  overflow: hidden;
+}
+
+.text-node-body {
+  width: 100%;
+  height: 100%;
+  padding: 12px 14px;
+  border-radius: var(--radius-lg, 10px);
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  overflow: auto;
+  line-height: 1.4;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  cursor: text;
+  /* color + background-color + font-size are set via inline style so they
+   * persist in node.data. */
+}
+
+.text-node-body:focus {
+  outline: none;
+}
+
+.text-node-body[data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: currentColor;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* ---- Color trigger (in header) ----
+ * Always-visible dots in the hover header so the picker is reachable the
+ * moment the header appears. */
+.text-color-trigger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+}
+
+.text-color-dot {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.18);
+  transition: transform 0.1s ease, border-color 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.text-color-dot-glyph {
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.55);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  pointer-events: none;
+}
+
+.text-color-trigger:hover .text-color-dot {
+  transform: scale(1.12);
+  border-color: rgba(0, 0, 0, 0.35);
+}
+
+/* "None" background swatch + transparent dot — diagonal slash to read as
+ * "no color". */
+.text-color-dot--transparent,
+.text-color-swatch--none {
+  background-color: #ffffff;
+  background-image: linear-gradient(
+    to top right,
+    transparent calc(50% - 1px),
+    #e03131 calc(50% - 0.5px),
+    #e03131 calc(50% + 0.5px),
+    transparent calc(50% + 1px)
+  );
+}
+
+.text-color-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border-light, rgba(0, 0, 0, 0.08));
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+  z-index: 20;
+  white-space: nowrap;
+}
+
+.text-color-popover--open {
+  display: flex;
+}
+
+.text-color-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.1s ease, border-color 0.1s ease;
+}
+
+.text-color-swatch:hover {
+  transform: scale(1.25);
+  border-color: rgba(0, 0, 0, 0.3);
+}
+
+.text-color-swatch--active {
+  border-color: rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.12);
+}

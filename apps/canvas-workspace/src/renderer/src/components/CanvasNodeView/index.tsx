@@ -6,6 +6,7 @@ import { FileNodeBody } from "../FileNodeBody";
 import { TerminalNodeBody } from "../TerminalNodeBody";
 import { FrameNodeBody, FrameColorPicker } from "../FrameNodeBody";
 import { AgentNodeBody } from "../AgentNodeBody";
+import { TextNodeBody, TextColorPicker } from "../TextNodeBody";
 
 interface Props {
   node: CanvasNode;
@@ -145,6 +146,10 @@ export const CanvasNodeView = ({
               <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.3" />
               <rect x="4.5" y="4.5" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1" strokeDasharray="2 1.5" />
             </svg>
+          ) : node.type === "text" ? (
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+              <path d="M3 4h10M8 4v9M6 13h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            </svg>
           ) : (
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
               <circle cx="8" cy="5.5" r="3" stroke="currentColor" strokeWidth="1.3" />
@@ -172,6 +177,9 @@ export const CanvasNodeView = ({
         {node.type === "frame" && (
           <FrameColorPicker node={node} onUpdate={onUpdate} />
         )}
+        {node.type === "text" && (
+          <TextColorPicker node={node} onUpdate={onUpdate} />
+        )}
         <button className="node-focus" onClick={handleFocus} title="Focus">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <circle cx="6" cy="6" r="2" stroke="currentColor" strokeWidth="1.3" />
@@ -191,6 +199,8 @@ export const CanvasNodeView = ({
           <TerminalNodeBody node={node} allNodes={allNodes} rootFolder={rootFolder} workspaceId={workspaceId} workspaceName={workspaceName} onUpdate={onUpdate} />
         ) : node.type === "frame" ? (
           <FrameNodeBody node={node} onUpdate={onUpdate} />
+        ) : node.type === "text" ? (
+          <TextNodeBody node={node} onUpdate={onUpdate} />
         ) : (
           <AgentNodeBody node={node} allNodes={allNodes} rootFolder={rootFolder} workspaceId={workspaceId} workspaceName={workspaceName} onUpdate={onUpdate} />
         )}

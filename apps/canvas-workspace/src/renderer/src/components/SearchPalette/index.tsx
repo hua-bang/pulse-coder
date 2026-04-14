@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./index.css";
-import type { CanvasNode, FileNodeData } from "../../types";
+import type { CanvasNode, FileNodeData, TextNodeData } from "../../types";
 
 interface SearchResult {
   node: CanvasNode;
@@ -73,6 +73,16 @@ export const SearchPalette = ({ nodes, onSelect, onClose }: Props) => {
         }
 
         const content = fileData.content || "";
+        if (content.toLowerCase().includes(q)) {
+          const idx = content.toLowerCase().indexOf(q);
+          const start = Math.max(0, idx - 20);
+          const end = Math.min(content.length, idx + q.length + 20);
+          const snippet = (start > 0 ? "..." : "") + content.slice(start, end) + (end < content.length ? "..." : "");
+          results.push({ node, matchType: "content", matchText: snippet });
+          continue;
+        }
+      } else if (node.type === "text") {
+        const content = (node.data as TextNodeData).content || "";
         if (content.toLowerCase().includes(q)) {
           const idx = content.toLowerCase().indexOf(q);
           const start = Math.max(0, idx - 20);

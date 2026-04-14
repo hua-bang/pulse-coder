@@ -3,7 +3,7 @@ import './index.css';
 interface Props {
   activeTool: string;
   onToolChange: (tool: string) => void;
-  onAddNode: (type: "file" | "terminal" | "frame" | "agent") => void;
+  onAddNode: (type: "file" | "terminal" | "frame" | "agent" | "text") => void;
   chatPanelOpen?: boolean;
   onChatToggle?: () => void;
 }
@@ -138,6 +138,19 @@ export const FloatingToolbar = ({
             />
           </svg>
           <span className="toolbar-btn-label">Frame</span>
+        </button>
+        <button
+          className="toolbar-btn toolbar-btn--create"
+          onClick={() => onAddNode("text")}
+          title="Add Text"
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path
+              d="M4 5h10M9 5v9M7 14h4"
+              stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"
+            />
+          </svg>
+          <span className="toolbar-btn-label">Text</span>
         </button>
         <button
           className="toolbar-btn toolbar-btn--create"

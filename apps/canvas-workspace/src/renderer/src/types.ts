@@ -1,12 +1,17 @@
 export interface CanvasNode {
   id: string;
-  type: "file" | "terminal" | "frame" | "agent";
+  type: "file" | "terminal" | "frame" | "agent" | "text";
   title: string;
   x: number;
   y: number;
   width: number;
   height: number;
-  data: FileNodeData | TerminalNodeData | FrameNodeData | AgentNodeData;
+  data:
+    | FileNodeData
+    | TerminalNodeData
+    | FrameNodeData
+    | AgentNodeData
+    | TextNodeData;
   /** Epoch millis of last mutation; used for cross-process merge. */
   updatedAt?: number;
 }
@@ -42,6 +47,19 @@ export interface AgentNodeData {
   inlinePrompt?: string;
   /** Relative path to a prompt file in cwd for long prompts. */
   promptFile?: string;
+}
+
+/**
+ * TLDRAW-style free-form text label on the canvas.
+ * Content is plain text; colors are applied via inline styles so they persist
+ * across reloads. `backgroundColor: 'transparent'` renders a chrome-free label.
+ */
+export interface TextNodeData {
+  content: string;
+  textColor: string;
+  backgroundColor: string;
+  /** Optional font size in px; defaults to 18 when unset. */
+  fontSize?: number;
 }
 
 export interface CanvasTransform {

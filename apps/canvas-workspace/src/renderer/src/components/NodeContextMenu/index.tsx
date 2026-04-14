@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 interface Props {
   x: number;
   y: number;
-  onCreate: (type: "file" | "terminal" | "frame" | "agent") => void;
+  onCreate: (type: "file" | "terminal" | "frame" | "agent" | "text") => void;
   onClose: () => void;
 }
 
@@ -70,6 +70,16 @@ export const NodeContextMenu = ({ x, y, onCreate, onClose }: Props) => {
         <span className="context-menu-label">
           <strong>Frame</strong>
           <small>Visual container group</small>
+        </span>
+      </button>
+      <button
+        className="context-menu-item"
+        onClick={() => onCreate("text")}
+      >
+        <span className="context-menu-icon">{"\u0041"}</span>
+        <span className="context-menu-label">
+          <strong>Text</strong>
+          <small>Free-form text label</small>
         </span>
       </button>
       <button
