@@ -48,6 +48,8 @@ export interface NodeSummary {
   color?: string;
   /** Frame label for frame nodes. */
   label?: string;
+  /** Embedded URL for iframe nodes. */
+  url?: string;
 }
 
 export interface WorkspaceSummary {

@@ -34,14 +34,23 @@
   background: transparent;
   border-radius: var(--radius);
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
   padding: 0 8px;
   color: var(--text-secondary);
   font-size: 12px;
+  line-height: 1;
   transition: background 0.1s, color 0.1s;
+}
+
+/* Make the SVG a block so its baseline gap doesn't misalign against the
+   text label; without this, inline SVGs sit on the text baseline and the
+   glyph reads a pixel or two low next to the label. */
+.toolbar-btn svg {
+  display: block;
+  flex-shrink: 0;
 }
 
 .toolbar-btn:hover {
@@ -66,4 +75,9 @@
 .toolbar-btn-label {
   font-size: 12px;
   font-weight: 500;
+  line-height: 1;
+  /* Labels are set in the app's default sans stack, which on macOS sits
+     ~0.5px above the optical center of the 18px icons. A hairline nudge
+     brings the cap-height of the text in line with the icon midline. */
+  transform: translateY(0.5px);
 }

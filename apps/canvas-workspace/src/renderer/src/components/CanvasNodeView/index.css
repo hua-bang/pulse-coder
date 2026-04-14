@@ -113,6 +113,10 @@
   color: #7c5cff;
 }
 
+.node-type-badge--iframe {
+  color: var(--text-muted);
+}
+
 .node-title {
   flex: 1;
   font-size: 13px;

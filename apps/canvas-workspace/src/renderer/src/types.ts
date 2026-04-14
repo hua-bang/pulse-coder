@@ -1,6 +1,6 @@
 export interface CanvasNode {
   id: string;
-  type: "file" | "terminal" | "frame" | "agent" | "text";
+  type: "file" | "terminal" | "frame" | "agent" | "text" | "iframe";
   title: string;
   x: number;
   y: number;
@@ -11,7 +11,8 @@ export interface CanvasNode {
     | TerminalNodeData
     | FrameNodeData
     | AgentNodeData
-    | TextNodeData;
+    | TextNodeData
+    | IframeNodeData;
   /** Epoch millis of last mutation; used for cross-process merge. */
   updatedAt?: number;
 }
@@ -72,6 +73,16 @@ export interface TextNodeData {
   fontSize?: number;
   /** When false, the user has dragged a resize handle — respect width/height. */
   autoSize?: boolean;
+}
+
+/**
+ * Embeds an external web page via an <iframe>. Some sites block embedding
+ * via X-Frame-Options / CSP frame-ancestors — those will fail to render and
+ * the user can click "Open externally" to escape into the system browser.
+ */
+export interface IframeNodeData {
+  /** Full URL (including protocol) to load in the iframe. Empty = show URL input. */
+  url: string;
 }
 
 export interface CanvasTransform {

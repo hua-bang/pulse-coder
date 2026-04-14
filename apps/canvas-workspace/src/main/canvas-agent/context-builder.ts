@@ -96,6 +96,9 @@ function summarizeNode(node: CanvasNode): NodeSummary {
       summary.color = (node.data.color as string) || undefined;
       summary.label = (node.data.label as string) || undefined;
       break;
+    case 'iframe':
+      summary.url = (node.data.url as string) || undefined;
+      break;
   }
 
   return summary;
@@ -288,6 +291,15 @@ export function formatSummaryForPrompt(summary: WorkspaceSummary): string {
       const info = `${n.agentType ?? 'unknown'}, ${n.status ?? 'idle'}`;
       const cwdHint = n.path ? `, cwd: ${n.path}` : '';
       lines.push(`- [${n.id}] **${n.title}** (${info}${cwdHint})`);
+    }
+    lines.push('');
+  }
+
+  if (byType.iframe?.length) {
+    lines.push('## Link Nodes');
+    for (const n of byType.iframe) {
+      const urlHint = n.url ? ` — ${n.url}` : ' (empty)';
+      lines.push(`- [${n.id}] **${n.title}**${urlHint}`);
     }
     lines.push('');
   }

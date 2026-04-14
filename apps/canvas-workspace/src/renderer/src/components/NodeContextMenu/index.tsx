@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 interface Props {
   x: number;
   y: number;
-  onCreate: (type: "file" | "terminal" | "frame" | "agent" | "text") => void;
+  onCreate: (type: "file" | "terminal" | "frame" | "agent" | "text" | "iframe") => void;
   onClose: () => void;
 }
 
@@ -44,6 +44,16 @@ export const NodeContextMenu = ({ x, y, onCreate, onClose }: Props) => {
       <div className="context-menu-title">Create Node</div>
       <button
         className="context-menu-item"
+        onClick={() => onCreate("text")}
+      >
+        <span className="context-menu-icon">{"\u0041"}</span>
+        <span className="context-menu-label">
+          <strong>Text</strong>
+          <small>Free-form text label</small>
+        </span>
+      </button>
+      <button
+        className="context-menu-item"
         onClick={() => onCreate("file")}
       >
         <span className="context-menu-icon">{"\u2756"}</span>
@@ -74,12 +84,12 @@ export const NodeContextMenu = ({ x, y, onCreate, onClose }: Props) => {
       </button>
       <button
         className="context-menu-item"
-        onClick={() => onCreate("text")}
+        onClick={() => onCreate("iframe")}
       >
-        <span className="context-menu-icon">{"\u0041"}</span>
+        <span className="context-menu-icon">{"\u232C"}</span>
         <span className="context-menu-label">
-          <strong>Text</strong>
-          <small>Free-form text label</small>
+          <strong>Link</strong>
+          <small>Embed a web page</small>
         </span>
       </button>
       <button

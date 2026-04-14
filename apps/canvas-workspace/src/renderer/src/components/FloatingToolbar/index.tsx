@@ -3,7 +3,7 @@ import './index.css';
 interface Props {
   activeTool: string;
   onToolChange: (tool: string) => void;
-  onAddNode: (type: "file" | "terminal" | "frame" | "agent" | "text") => void;
+  onAddNode: (type: "file" | "terminal" | "frame" | "agent" | "text" | "iframe") => void;
   chatPanelOpen?: boolean;
   onChatToggle?: () => void;
 }
@@ -90,6 +90,19 @@ export const FloatingToolbar = ({
       <div className="toolbar-group">
         <button
           className="toolbar-btn toolbar-btn--create"
+          onClick={() => onAddNode("text")}
+          title="Add Text"
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path
+              d="M4 5h10M9 5v9M7 14h4"
+              stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"
+            />
+          </svg>
+          <span className="toolbar-btn-label">Text</span>
+        </button>
+        <button
+          className="toolbar-btn toolbar-btn--create"
           onClick={() => onAddNode("file")}
           title="Add Note Card"
         >
@@ -141,16 +154,17 @@ export const FloatingToolbar = ({
         </button>
         <button
           className="toolbar-btn toolbar-btn--create"
-          onClick={() => onAddNode("text")}
-          title="Add Text"
+          onClick={() => onAddNode("iframe")}
+          title="Add Link (embed a web page)"
         >
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.3" />
             <path
-              d="M4 5h10M9 5v9M7 14h4"
-              stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"
+              d="M2.5 9h13M9 2.5c2.2 2.2 2.2 10.8 0 13M9 2.5c-2.2 2.2-2.2 10.8 0 13"
+              stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"
             />
           </svg>
-          <span className="toolbar-btn-label">Text</span>
+          <span className="toolbar-btn-label">Link</span>
         </button>
         <button
           className="toolbar-btn toolbar-btn--create"

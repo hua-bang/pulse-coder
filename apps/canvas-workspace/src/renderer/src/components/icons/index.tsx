@@ -199,6 +199,19 @@ export const NodeTypeIcon = ({ type, size = 14, className }: NodeTypeIconProps) 
           />
         </svg>
       );
+    case 'iframe':
+      // Globe — evokes "web page"
+      return (
+        <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+          <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3" />
+          <path
+            d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12"
+            stroke="currentColor"
+            strokeWidth="1.1"
+            strokeLinecap="round"
+          />
+        </svg>
+      );
     default:
       return (
         <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
