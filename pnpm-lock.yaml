@@ -38,6 +38,9 @@ importers:
       '@tiptap/extension-link':
         specifier: ^3.20.4
         version: 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)
+      '@tiptap/extension-paragraph':
+        specifier: ^3.20.4
+        version: 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))
       '@tiptap/extension-placeholder':
         specifier: ^3.20.4
         version: 3.22.2(@tiptap/extensions@3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2))

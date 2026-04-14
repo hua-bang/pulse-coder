@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
+import Paragraph from '@tiptap/extension-paragraph';
 import Placeholder from '@tiptap/extension-placeholder';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
@@ -21,6 +22,33 @@ import { ALL_SLASH_COMMANDS, filterCmds, type SlashCmdContext } from '../editor/
 import { NoteSearchExtension } from '../editor/noteSearchExtension';
 
 const lowlight = createLowlight(common);
+
+// Markdown collapses consecutive blank lines into a single paragraph
+// separator, so empty paragraphs typed by the user (Enter → Enter) are
+// lost after save+reload. Preserve them by emitting a non-breaking space
+// during markdown serialization — that keeps one paragraph per blank line
+// through the markdown roundtrip, matching the pre-reload editor view.
+const EMPTY_PARAGRAPH_MARKER = '\u00A0';
+
+const EmptyLinePreservingParagraph = Paragraph.extend({
+  addStorage() {
+    return {
+      ...this.parent?.(),
+      markdown: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        serialize(state: any, node: any) {
+          if (node.childCount === 0) {
+            state.write(EMPTY_PARAGRAPH_MARKER);
+          } else {
+            state.renderInline(node);
+          }
+          state.closeBlock(node);
+        },
+        parse: {},
+      },
+    };
+  },
+});
 
 interface SlashMenuState {
   x: number;
@@ -75,11 +103,14 @@ export const useFileNodeEditor = ({
     extensions: [
       // StarterKit v3 bundles Link + Underline + CodeBlock — disable the
       // built-ins since we register explicit configured versions below.
+      // Also disable Paragraph so our empty-line-preserving version wins.
       StarterKit.configure({
         codeBlock: false,
         link: false,
         underline: false,
+        paragraph: false,
       }),
+      EmptyLinePreservingParagraph,
       Image.configure({ inline: false }),
       Placeholder.configure({ placeholder: 'Start writing…' }),
       TaskList,
