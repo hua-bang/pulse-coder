@@ -146,7 +146,10 @@ export async function createNode(
       transform: { x: 0, y: 0, scale: 1 },
       savedAt: new Date().toISOString(),
     } satisfies CanvasSaveData;
-    await saveCanvas(workspaceId, canvas, storeDir);
+    // Bootstrap an empty canvas for a brand-new workspace. `loadCanvas`
+    // just returned null, so nothing is at risk; opt in to the wipe guard
+    // for intent-clarity.
+    await saveCanvas(workspaceId, canvas, storeDir, { allowEmpty: true });
   }
 
   const nodeId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

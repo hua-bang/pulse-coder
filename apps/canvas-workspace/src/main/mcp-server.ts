@@ -73,12 +73,49 @@ async function loadCanvas(workspaceId: string): Promise<CanvasSaveData | null> {
   }
 }
 
-async function saveCanvas(workspaceId: string, data: CanvasSaveData): Promise<void> {
-  await fs.writeFile(
-    join(STORE_DIR, workspaceId, 'canvas.json'),
-    JSON.stringify(data, null, 2),
-    'utf-8'
-  );
+interface SaveCanvasOptions {
+  /**
+   * Allow writing an empty `nodes: []` even when the on-disk canvas
+   * currently has nodes. Default false: the write is refused to protect
+   * against accidental wipes. Opt in for flows that legitimately end up
+   * with zero nodes (none of the current MCP tool handlers do, but the
+   * option exists so the API matches the other two saveCanvas
+   * implementations).
+   */
+  allowEmpty?: boolean;
+}
+
+async function saveCanvas(
+  workspaceId: string,
+  data: CanvasSaveData,
+  opts: SaveCanvasOptions = {},
+): Promise<void> {
+  const filePath = join(STORE_DIR, workspaceId, 'canvas.json');
+
+  // Mirror the guard in canvas-store.ts / packages/canvas-cli so every
+  // write path into canvas.json refuses to silently clobber existing
+  // nodes with an empty list.
+  if (!opts.allowEmpty && Array.isArray(data.nodes) && data.nodes.length === 0) {
+    try {
+      const raw = await fs.readFile(filePath, 'utf-8');
+      const existing = JSON.parse(raw) as CanvasSaveData;
+      const existingNodes = Array.isArray(existing.nodes) ? existing.nodes : [];
+      if (existingNodes.length > 0) {
+        throw new Error(
+          `[canvas-mcp] refusing to overwrite ${existingNodes.length} on-disk nodes ` +
+          `with empty nodes for workspace "${workspaceId}". ` +
+          `Pass { allowEmpty: true } to saveCanvas if this wipe is intentional.`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('[canvas-mcp] refusing')) {
+        throw err;
+      }
+      // File missing or unparseable — nothing to protect.
+    }
+  }
+
+  await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
 async function loadWorkspaceManifest(): Promise<WorkspaceManifest> {

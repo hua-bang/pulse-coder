@@ -72,8 +72,47 @@ async function loadCanvas(workspaceId: string): Promise<CanvasSaveData | null> {
   }
 }
 
-async function saveCanvas(workspaceId: string, data: CanvasSaveData): Promise<void> {
+interface SaveCanvasOptions {
+  /**
+   * Allow writing an empty `nodes: []` even when the on-disk canvas
+   * currently has nodes. Default false: the write is refused to protect
+   * against accidental wipes (buggy caller, partially-loaded snapshot).
+   * Opt in for flows that legitimately end up with zero nodes, such as
+   * deleting the last remaining node.
+   */
+  allowEmpty?: boolean;
+}
+
+async function saveCanvas(
+  workspaceId: string,
+  data: CanvasSaveData,
+  opts: SaveCanvasOptions = {},
+): Promise<void> {
   data.savedAt = new Date().toISOString();
+
+  // Mirror the guard in canvas-store.ts / packages/canvas-cli so every
+  // write path into canvas.json refuses to silently clobber existing
+  // nodes with an empty list.
+  if (!opts.allowEmpty && Array.isArray(data.nodes) && data.nodes.length === 0) {
+    try {
+      const raw = await fs.readFile(canvasPath(workspaceId), 'utf-8');
+      const existing = JSON.parse(raw) as CanvasSaveData;
+      const existingNodes = Array.isArray(existing.nodes) ? existing.nodes : [];
+      if (existingNodes.length > 0) {
+        throw new Error(
+          `[canvas-agent] refusing to overwrite ${existingNodes.length} on-disk nodes ` +
+          `with empty nodes for workspace "${workspaceId}". ` +
+          `Pass { allowEmpty: true } to saveCanvas if this wipe is intentional.`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('[canvas-agent] refusing')) {
+        throw err;
+      }
+      // File missing or unparseable — nothing to protect.
+    }
+  }
+
   await fs.writeFile(canvasPath(workspaceId), JSON.stringify(data, null, 2), 'utf-8');
 }
 
@@ -441,7 +480,9 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
         const fresh = (await loadCanvas(workspaceId)) ?? canvas;
         const freshIdx = fresh.nodes.findIndex(n => n.id === nodeId);
         if (freshIdx >= 0) fresh.nodes.splice(freshIdx, 1);
-        await saveCanvas(workspaceId, fresh);
+        // Deleting the last remaining node legitimately leaves nodes=[];
+        // opt in so the wipe guard doesn't refuse that case.
+        await saveCanvas(workspaceId, fresh, { allowEmpty: true });
         broadcastUpdate(workspaceId, [nodeId]);
 
         return JSON.stringify({ ok: true, nodeId });

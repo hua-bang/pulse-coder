@@ -12,8 +12,10 @@ import {
   deleteWorkspace,
   getWorkspaceDir,
   ensureWorkspaceDir,
+  commitNodeMutation,
+  CanvasWipeRefusedError,
 } from '../store';
-import type { CanvasSaveData } from '../types';
+import type { CanvasNode, CanvasSaveData } from '../types';
 
 let testDir: string;
 
@@ -107,6 +109,83 @@ describe('store', () => {
 
       const manifest = await loadWorkspaceManifest(testDir);
       expect(manifest.workspaces.find(e => e.id === wsId)).toBeUndefined();
+    });
+  });
+
+  describe('wipe guard', () => {
+    const makeNode = (id: string): CanvasNode => ({
+      id,
+      type: 'file',
+      title: id,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      data: {},
+    });
+
+    it('refuses to overwrite a non-empty canvas with empty nodes by default', async () => {
+      const populated: CanvasSaveData = {
+        ...emptyCanvas,
+        nodes: [makeNode('node-a'), makeNode('node-b')],
+      };
+      await saveCanvas('ws-wipe', populated, testDir);
+
+      await expect(
+        saveCanvas('ws-wipe', emptyCanvas, testDir),
+      ).rejects.toBeInstanceOf(CanvasWipeRefusedError);
+
+      // Disk must be untouched.
+      const loaded = await loadCanvas('ws-wipe', testDir);
+      expect(loaded?.nodes).toHaveLength(2);
+    });
+
+    it('allows an empty write when { allowEmpty: true } is passed', async () => {
+      const populated: CanvasSaveData = {
+        ...emptyCanvas,
+        nodes: [makeNode('node-a')],
+      };
+      await saveCanvas('ws-wipe-ok', populated, testDir);
+
+      await saveCanvas('ws-wipe-ok', emptyCanvas, testDir, { allowEmpty: true });
+
+      const loaded = await loadCanvas('ws-wipe-ok', testDir);
+      expect(loaded?.nodes).toEqual([]);
+    });
+
+    it('allows empty writes when no canvas exists on disk', async () => {
+      // Fresh workspace: guard reads fail with ENOENT → fall through.
+      await expect(
+        saveCanvas('ws-fresh', emptyCanvas, testDir),
+      ).resolves.toBeUndefined();
+      const loaded = await loadCanvas('ws-fresh', testDir);
+      expect(loaded?.nodes).toEqual([]);
+    });
+
+    it('allows empty writes when disk canvas is also empty', async () => {
+      await saveCanvas('ws-empty', emptyCanvas, testDir, { allowEmpty: true });
+      await expect(
+        saveCanvas('ws-empty', emptyCanvas, testDir),
+      ).resolves.toBeUndefined();
+    });
+
+    it('lets commitNodeMutation delete the last remaining node', async () => {
+      const populated: CanvasSaveData = {
+        ...emptyCanvas,
+        nodes: [makeNode('node-only')],
+      };
+      await saveCanvas('ws-last', populated, testDir);
+
+      const result = await commitNodeMutation(
+        'ws-last',
+        { removeId: 'node-only' },
+        testDir,
+      );
+      expect(result).not.toBeNull();
+      expect(result?.nodes).toEqual([]);
+
+      const loaded = await loadCanvas('ws-last', testDir);
+      expect(loaded?.nodes).toEqual([]);
     });
   });
 

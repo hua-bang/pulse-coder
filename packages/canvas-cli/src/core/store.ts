@@ -72,8 +72,67 @@ export async function loadCanvas(workspaceId: string, storeDir?: string): Promis
   }
 }
 
-export async function saveCanvas(workspaceId: string, data: CanvasSaveData, storeDir?: string): Promise<void> {
+export interface SaveCanvasOptions {
+  /**
+   * Allow the save to proceed even when `data.nodes` is empty and the on-disk
+   * canvas currently has nodes. Default `false`: the save throws to protect
+   * against accidental wipes (buggy caller flushing uninitialized state,
+   * partially-loaded in-memory snapshot, etc).
+   *
+   * Set to `true` for flows that legitimately may end up with an empty
+   * canvas, e.g. initializing a brand-new workspace or an explicit per-node
+   * deletion that happens to remove the last node.
+   */
+  allowEmpty?: boolean;
+}
+
+/**
+ * Thrown by `saveCanvas` when the incoming data has an empty `nodes` array
+ * but the on-disk canvas currently has nodes, and the caller did not pass
+ * `{ allowEmpty: true }`.
+ */
+export class CanvasWipeRefusedError extends Error {
+  readonly workspaceId: string;
+  readonly existingNodeCount: number;
+  constructor(workspaceId: string, existingNodeCount: number) {
+    super(
+      `[canvas-cli] refusing to overwrite ${existingNodeCount} on-disk nodes ` +
+      `with empty nodes for workspace "${workspaceId}". ` +
+      `Pass { allowEmpty: true } to saveCanvas if this wipe is intentional.`,
+    );
+    this.name = 'CanvasWipeRefusedError';
+    this.workspaceId = workspaceId;
+    this.existingNodeCount = existingNodeCount;
+  }
+}
+
+export async function saveCanvas(
+  workspaceId: string,
+  data: CanvasSaveData,
+  storeDir?: string,
+  opts: SaveCanvasOptions = {},
+): Promise<void> {
   await ensureWorkspaceDir(workspaceId, storeDir);
+
+  // Safety: don't silently overwrite a non-empty canvas with empty nodes.
+  // This mirrors the Electron main-process guard in
+  // `apps/canvas-workspace/src/main/canvas-store.ts` so every write path
+  // into `canvas.json` has the same protection.
+  if (!opts.allowEmpty && Array.isArray(data.nodes) && data.nodes.length === 0) {
+    try {
+      const raw = await fs.readFile(canvasPath(workspaceId, storeDir), 'utf-8');
+      const existing = JSON.parse(raw) as CanvasSaveData;
+      const existingNodes = Array.isArray(existing.nodes) ? existing.nodes : [];
+      if (existingNodes.length > 0) {
+        throw new CanvasWipeRefusedError(workspaceId, existingNodes.length);
+      }
+    } catch (err) {
+      if (err instanceof CanvasWipeRefusedError) throw err;
+      // File missing, unreadable, or unparseable — nothing on disk to
+      // protect, fall through and write.
+    }
+  }
+
   await fs.writeFile(canvasPath(workspaceId, storeDir), JSON.stringify(data, null, 2), 'utf-8');
 }
 
@@ -122,7 +181,9 @@ export async function commitNodeMutation(
   }
 
   fresh.savedAt = new Date().toISOString();
-  await saveCanvas(workspaceId, fresh, storeDir);
+  // `removeId` can legitimately reduce the canvas to 0 nodes when the user
+  // deletes the last one; opt in so the wipe guard doesn't reject that.
+  await saveCanvas(workspaceId, fresh, storeDir, { allowEmpty: true });
   return fresh;
 }
 
@@ -140,7 +201,9 @@ export async function createWorkspace(
       transform: { x: 0, y: 0, scale: 1 },
       savedAt: new Date().toISOString(),
     };
-    await saveCanvas(id, emptyCanvas, storeDir);
+    // Brand-new workspace: the canvas file shouldn't exist yet, but opt in
+    // explicitly so the wipe guard is never tripped by this bootstrap step.
+    await saveCanvas(id, emptyCanvas, storeDir, { allowEmpty: true });
 
     // Update manifest
     const manifest = await loadWorkspaceManifest(storeDir);
