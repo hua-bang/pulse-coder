@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 
-const MIN_WIDTH = 200;
-const MIN_HEIGHT = 120;
+const DEFAULT_MIN_WIDTH = 200;
+const DEFAULT_MIN_HEIGHT = 120;
 
 export const useNodeResize = (
   resizeNode: (id: string, width: number, height: number) => void,
@@ -13,6 +13,8 @@ export const useNodeResize = (
     startY: number;
     startW: number;
     startH: number;
+    minW: number;
+    minH: number;
     edge: ResizeEdge;
   } | null>(null);
   const [resizingId, setResizingId] = useState<string | null>(null);
@@ -23,7 +25,9 @@ export const useNodeResize = (
       nodeId: string,
       width: number,
       height: number,
-      edge: ResizeEdge
+      edge: ResizeEdge,
+      minWidth?: number,
+      minHeight?: number
     ) => {
       if (e.button !== 0) return;
       e.stopPropagation();
@@ -34,6 +38,8 @@ export const useNodeResize = (
         startY: e.clientY,
         startW: width,
         startH: height,
+        minW: minWidth ?? DEFAULT_MIN_WIDTH,
+        minH: minHeight ?? DEFAULT_MIN_HEIGHT,
         edge
       };
       setResizingId(nodeId);
@@ -52,10 +58,10 @@ export const useNodeResize = (
       let newH = r.startH;
 
       if (r.edge === "right" || r.edge === "bottom-right") {
-        newW = Math.max(MIN_WIDTH, r.startW + dx);
+        newW = Math.max(r.minW, r.startW + dx);
       }
       if (r.edge === "bottom" || r.edge === "bottom-right") {
-        newH = Math.max(MIN_HEIGHT, r.startH + dy);
+        newH = Math.max(r.minH, r.startH + dy);
       }
 
       resizeNode(r.id, Math.round(newW), Math.round(newH));

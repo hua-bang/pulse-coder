@@ -1,11 +1,12 @@
 import { useCallback } from "react";
 import "./index.css";
-import type { CanvasNode, FrameNodeData, AgentNodeData } from "../../types";
+import type { CanvasNode, FrameNodeData, AgentNodeData, TextNodeData } from "../../types";
 import type { ResizeEdge } from "../../hooks/useNodeResize";
 import { FileNodeBody } from "../FileNodeBody";
 import { TerminalNodeBody } from "../TerminalNodeBody";
 import { FrameNodeBody, FrameColorPicker } from "../FrameNodeBody";
 import { AgentNodeBody } from "../AgentNodeBody";
+import { TextNodeBody, TextColorPicker } from "../TextNodeBody";
 
 interface Props {
   node: CanvasNode;
@@ -25,7 +26,9 @@ interface Props {
     nodeId: string,
     width: number,
     height: number,
-    edge: ResizeEdge
+    edge: ResizeEdge,
+    minWidth?: number,
+    minHeight?: number
   ) => void;
   onUpdate: (id: string, patch: Partial<CanvasNode>) => void;
   onRemove: (id: string) => void;
@@ -95,10 +98,25 @@ export const CanvasNodeView = ({
 
   const makeResizeHandler = useCallback(
     (edge: ResizeEdge) => (e: React.MouseEvent) => {
+      if (node.type === "text") {
+        // Dragging a resize handle on a text node switches it out of auto-size
+        // mode so the dragged width/height becomes the authoritative frame.
+        const data = node.data as TextNodeData;
+        if (data.autoSize !== false) {
+          onUpdate(node.id, { data: { ...data, autoSize: false } });
+        }
+        // Text labels should be shrinkable well below the standard 200×120
+        // floor — a tiny tag is a valid shape.
+        onResizeStart(e, node.id, node.width, node.height, edge, 40, 28);
+        return;
+      }
       onResizeStart(e, node.id, node.width, node.height, edge);
     },
-    [onResizeStart, node.id, node.width, node.height]
+    [onResizeStart, onUpdate, node.id, node.type, node.width, node.height, node.data]
   );
+
+  const textAutoSize =
+    node.type === "text" && (node.data as TextNodeData).autoSize !== false;
 
   const classes = [
     "canvas-node",
@@ -107,7 +125,8 @@ export const CanvasNodeView = ({
     isResizing && "canvas-node--resizing",
     isSelected && "canvas-node--selected",
     isHighlighted && "canvas-node--highlighted",
-    isAgentEdited && "canvas-node--agent-edited"
+    isAgentEdited && "canvas-node--agent-edited",
+    textAutoSize && "canvas-node--text-auto"
   ]
     .filter(Boolean)
     .join(" ");
@@ -145,6 +164,10 @@ export const CanvasNodeView = ({
               <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.3" />
               <rect x="4.5" y="4.5" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1" strokeDasharray="2 1.5" />
             </svg>
+          ) : node.type === "text" ? (
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+              <path d="M3 4h10M8 4v9M6 13h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            </svg>
           ) : (
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
               <circle cx="8" cy="5.5" r="3" stroke="currentColor" strokeWidth="1.3" />
@@ -172,6 +195,9 @@ export const CanvasNodeView = ({
         {node.type === "frame" && (
           <FrameColorPicker node={node} onUpdate={onUpdate} />
         )}
+        {node.type === "text" && (
+          <TextColorPicker node={node} onUpdate={onUpdate} />
+        )}
         <button className="node-focus" onClick={handleFocus} title="Focus">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <circle cx="6" cy="6" r="2" stroke="currentColor" strokeWidth="1.3" />
@@ -191,6 +217,14 @@ export const CanvasNodeView = ({
           <TerminalNodeBody node={node} allNodes={allNodes} rootFolder={rootFolder} workspaceId={workspaceId} workspaceName={workspaceName} onUpdate={onUpdate} />
         ) : node.type === "frame" ? (
           <FrameNodeBody node={node} onUpdate={onUpdate} />
+        ) : node.type === "text" ? (
+          <TextNodeBody
+            node={node}
+            onUpdate={onUpdate}
+            isSelected={isSelected}
+            onSelect={onSelect}
+            onDragStart={onDragStart}
+          />
         ) : (
           <AgentNodeBody node={node} allNodes={allNodes} rootFolder={rootFolder} workspaceId={workspaceId} workspaceName={workspaceName} onUpdate={onUpdate} />
         )}
@@ -200,14 +234,21 @@ export const CanvasNodeView = ({
         className="resize-handle resize-handle--right"
         onMouseDown={makeResizeHandler("right")}
       />
-      <div
-        className="resize-handle resize-handle--bottom"
-        onMouseDown={makeResizeHandler("bottom")}
-      />
-      <div
-        className="resize-handle resize-handle--corner"
-        onMouseDown={makeResizeHandler("bottom-right")}
-      />
+      {/* Text nodes grow vertically to fit content, so a bottom/corner
+          handle would either do nothing or fight the auto-height. Offer only
+          the right-edge handle as a wrap-width control. */}
+      {node.type !== "text" && (
+        <>
+          <div
+            className="resize-handle resize-handle--bottom"
+            onMouseDown={makeResizeHandler("bottom")}
+          />
+          <div
+            className="resize-handle resize-handle--corner"
+            onMouseDown={makeResizeHandler("bottom-right")}
+          />
+        </>
+      )}
     </div>
   );
 };

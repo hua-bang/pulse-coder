@@ -26,7 +26,7 @@ const STORE_DIR = join(homedir(), '.pulse-coder', 'canvas');
 
 // ─── Types mirrored from canvas-cli ────────────────────────────────
 
-type NodeType = 'file' | 'terminal' | 'frame' | 'agent';
+type NodeType = 'file' | 'terminal' | 'frame' | 'agent' | 'text';
 
 interface CanvasNode {
   id: string;
@@ -51,6 +51,7 @@ const DEFAULT_DIMENSIONS: Record<NodeType, { title: string; width: number; heigh
   terminal: { title: 'Terminal', width: 480, height: 300 },
   frame: { title: 'Frame', width: 600, height: 400 },
   agent: { title: 'Agent', width: 520, height: 380 },
+  text: { title: 'Text', width: 260, height: 120 },
 };
 
 // ─── Helpers ───────────────────────────────────────────────────────
@@ -231,18 +232,21 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
         'and `data.status` to "running" to auto-launch (default "idle" shows a picker). ' +
         'Use `data.prompt` to inject a task/context — it is written to a file in the cwd and piped directly ' +
         'to the agent as its initial prompt. Include relevant canvas content so the agent knows the context. ' +
-        'Optional `data.agentArgs` overrides the auto-generated CLI arguments.',
+        'Optional `data.agentArgs` overrides the auto-generated CLI arguments.\n' +
+        '- **text**: Creates a free-form text label (TLDRAW-style). Use `content` for the text body, ' +
+        'and `data.textColor` / `data.backgroundColor` (hex or "transparent") for styling. Optional `data.fontSize`.',
       inputSchema: z.object({
-        type: z.enum(['file', 'terminal', 'frame', 'agent']).describe('Node type.'),
+        type: z.enum(['file', 'terminal', 'frame', 'agent', 'text']).describe('Node type.'),
         title: z.string().optional().describe('Node title.'),
-        content: z.string().optional().describe('Initial content (for file nodes).'),
+        content: z.string().optional().describe('Initial content (for file and text nodes).'),
         x: z.number().optional().describe('X position (auto-placed if omitted).'),
         y: z.number().optional().describe('Y position (auto-placed if omitted).'),
         data: z.record(z.string(), z.unknown()).optional().describe(
           'Additional node data. Keys vary by type:\n' +
           '- terminal: { cwd?: string }\n' +
           '- agent: { agentType?: "claude-code"|"codex"|"pulse-coder", cwd?: string, status?: "idle"|"running", prompt?: string, agentArgs?: string }\n' +
-          '- frame: { color?: string, label?: string }',
+          '- frame: { color?: string, label?: string }\n' +
+          '- text: { textColor?: string, backgroundColor?: string, fontSize?: number }',
         ),
       }),
       execute: async (input) => {
@@ -308,6 +312,14 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
             };
             break;
           }
+          case 'text':
+            nodeData = {
+              content,
+              textColor: (extraData.textColor as string) ?? '#1f2328',
+              backgroundColor: (extraData.backgroundColor as string) ?? 'transparent',
+              fontSize: (extraData.fontSize as number) ?? 18,
+            };
+            break;
         }
 
         // For file nodes, create a backing notes file
@@ -352,12 +364,12 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
     canvas_update_node: {
       name: 'canvas_update_node',
       description:
-        'Update an existing canvas node. For file nodes, updates the file content. For frame nodes, updates label/color.',
+        'Update an existing canvas node. For file and text nodes, updates `content`. For frame nodes, updates label/color. For text nodes, `data.textColor`/`data.backgroundColor`/`data.fontSize` can also be patched.',
       inputSchema: z.object({
         nodeId: z.string().describe('The ID of the node to update.'),
         title: z.string().optional().describe('New title (optional).'),
-        content: z.string().optional().describe('New content for file nodes.'),
-        data: z.record(z.string(), z.unknown()).optional().describe('Partial data update (e.g. label, color for frames).'),
+        content: z.string().optional().describe('New content for file and text nodes.'),
+        data: z.record(z.string(), z.unknown()).optional().describe('Partial data update (e.g. label, color for frames; textColor, backgroundColor, fontSize for text).'),
       }),
       execute: async (input) => {
         const nodeId = input.nodeId as string;
@@ -375,6 +387,10 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
           if (node.data.filePath) {
             await fs.writeFile(node.data.filePath as string, content, 'utf-8');
           }
+        }
+
+        if (node.type === 'text' && input.content != null) {
+          node.data.content = input.content as string;
         }
 
         if (input.data) {

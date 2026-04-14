@@ -1,0 +1,397 @@
+/* ---------------------------------------------------------------------------
+ * Text node styling — TLDRAW-inspired
+ *
+ * Interaction model:
+ *  - Idle: no card chrome. Formatted markdown sits on the canvas.
+ *  - Hover / selected: a compact floating toolbar appears above the node with
+ *    the two color pickers and the delete button. The title is intentionally
+ *    hidden so the node reads as "a piece of text".
+ *  - Click-drag: moves the node.
+ *  - Double-click: enters editing mode (tiptap WYSIWYG).
+ *  - A single right-edge resize handle lets the user pin a wrap width.
+ *
+ * Size model:
+ *  - Height is ALWAYS driven by content — a text node never clips vertically
+ *    or scrolls. tldraw and Figma behave the same way.
+ *  - `.canvas-node--text-auto` → width also driven by content (max-content).
+ *  - Without `.canvas-node--text-auto` → user has dragged the right handle;
+ *    width is honored as a wrap-width, height still follows the text.
+ * ------------------------------------------------------------------------- */
+
+/* --- Wrapper: no card chrome --------------------------------------------- */
+.canvas-node--text {
+  min-width: 32px;
+  min-height: 28px;
+
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
+  /* .canvas-node defaults to overflow: hidden — clear it so the floating
+   * toolbar (positioned at top: -36px) and resize handles aren't clipped. */
+  overflow: visible;
+  /* Default `.canvas-node` is flex-column; we don't need that structure here
+   * because the body owns the full shape. */
+  display: block;
+}
+
+/* Height is always content-driven — override the inline height React writes
+ * from node.height so the frame grows with the text instead of clipping it. */
+.canvas-node--text {
+  height: max-content !important;
+}
+
+/* Auto-size mode: width is also driven by content. `!important` is needed to
+ * override the inline width React writes from node.width. */
+.canvas-node--text.canvas-node--text-auto {
+  width: max-content !important;
+  max-width: 600px;
+}
+
+.canvas-node--text:hover {
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.canvas-node--text.canvas-node--selected {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 1.5px rgba(35, 131, 226, 0.35);
+}
+
+.canvas-node--text.canvas-node--dragging {
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
+
+/* --- Header: hidden by default, compact toolbar on hover/selected -------- */
+.canvas-node--text .node-header {
+  position: absolute;
+  top: -36px;
+  left: 0;
+  /* Don't force right: 0 — let the toolbar shrink to its natural content
+   * width so it doesn't span the full text block. */
+  right: auto;
+  min-height: 28px;
+  height: 28px;
+  padding: 4px 6px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border-light, rgba(0, 0, 0, 0.08));
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  /* Keep toolbar size constant regardless of canvas zoom. */
+  transform: scale(calc(1 / var(--canvas-scale, 1)));
+  transform-origin: left bottom;
+  z-index: 2;
+  cursor: default;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.canvas-node--text:hover .node-header,
+.canvas-node--text.canvas-node--selected .node-header {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Hide the badge, title, and focus button — text nodes have no identity
+ * beyond their text. The toolbar shows only color pickers + delete. */
+.canvas-node--text .node-type-badge,
+.canvas-node--text .node-title,
+.canvas-node--text .node-focus {
+  display: none !important;
+}
+
+/* Always show the close button in the toolbar — no hover-to-reveal dance. */
+.canvas-node--text .node-close {
+  opacity: 1;
+}
+
+/* --- Body --------------------------------------------------------------- */
+.canvas-node--text .node-body {
+  width: 100%;
+  /* Never clip or scroll — prosemirror's auto-scroll-into-view would
+   * otherwise push the top of the text above the visible area when the
+   * editor grows past a fixed-height frame. Height follows content. */
+  height: auto;
+  overflow: visible;
+  border-radius: var(--radius-md, 6px);
+  flex: none;
+}
+
+.canvas-node--text.canvas-node--text-auto .node-body {
+  width: auto;
+}
+
+.text-node-body {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-width: 32px;
+  min-height: 28px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md, 6px);
+  outline: none;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  cursor: move;
+  box-sizing: border-box;
+  /* color + background-color + font-size are applied via inline style so
+   * they persist in node.data. */
+}
+
+.canvas-node--text.canvas-node--text-auto .text-node-body {
+  width: max-content;
+  max-width: 600px;
+}
+
+.text-node-body--editing {
+  cursor: text;
+  /* Subtle inset ring so the user can tell they're editing even when the
+   * background is transparent. */
+  box-shadow: 0 0 0 1px rgba(35, 131, 226, 0.35) inset;
+}
+
+/* Tiptap (prosemirror) root — it fills the wrapper, inherits color, and
+ * handles its own caret. Margin-collapse is disabled so a leading <p> sits
+ * flush against the padding edge. */
+.text-node-body .ProseMirror {
+  outline: none;
+  white-space: pre-wrap;
+  min-height: 1.4em;
+}
+
+/* Placeholder rendered by @tiptap/extension-placeholder on the empty
+ * document. Floated so it doesn't push the caret down. */
+.text-node-body .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: currentColor;
+  opacity: 0.35;
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* --- Markdown element styles -------------------------------------------- *
+ * tiptap emits clean HTML with no stray whitespace nodes between blocks, so
+ * margins here control spacing directly. */
+.text-node-body p {
+  margin: 0;
+}
+
+.text-node-body p + p,
+.text-node-body p + ul,
+.text-node-body p + ol,
+.text-node-body ul + p,
+.text-node-body ol + p,
+.text-node-body h1 + *,
+.text-node-body h2 + *,
+.text-node-body h3 + *,
+.text-node-body * + h1,
+.text-node-body * + h2,
+.text-node-body * + h3 {
+  margin-top: 0.35em;
+}
+
+.text-node-body ul,
+.text-node-body ol {
+  margin: 0;
+  padding-left: 1.4em;
+}
+
+.text-node-body li {
+  margin: 0;
+}
+
+.text-node-body li + li {
+  margin-top: 0.1em;
+}
+
+.text-node-body h1,
+.text-node-body h2,
+.text-node-body h3 {
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+
+.text-node-body h1 {
+  font-size: 1.5em;
+}
+
+.text-node-body h2 {
+  font-size: 1.28em;
+}
+
+.text-node-body h3 {
+  font-size: 1.12em;
+}
+
+.text-node-body strong {
+  font-weight: 700;
+}
+
+.text-node-body em {
+  font-style: italic;
+}
+
+.text-node-body u {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.text-node-body del,
+.text-node-body s {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.text-node-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 0.08em 0.35em;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.text-node-body pre {
+  margin: 0.35em 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.05);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+  overflow-x: auto;
+}
+
+.text-node-body pre code {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+}
+
+.text-node-body blockquote {
+  margin: 0.2em 0;
+  padding: 0.15em 0 0.15em 0.8em;
+  border-left: 3px solid rgba(0, 0, 0, 0.15);
+  opacity: 0.88;
+}
+
+.text-node-body hr {
+  border: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  margin: 0.5em 0;
+}
+
+/* --- Resize handles: visible on hover/selected -------------------------- *
+ * In auto-size mode the wrapper ignores inline width/height, so resize
+ * handles at the right/bottom/corner would sit in the wrong place. Show them
+ * only on hover or when selected, and fade them in so idle nodes stay clean.
+ * The first drag flips the wrapper out of auto-size mode (see CanvasNodeView)
+ * and subsequent drags feel natural. */
+.canvas-node--text .resize-handle {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.canvas-node--text:hover .resize-handle,
+.canvas-node--text.canvas-node--selected .resize-handle {
+  opacity: 1;
+}
+
+.canvas-node--text .resize-handle--right {
+  top: 4px;
+}
+
+/* --- Color pickers (rendered in the toolbar) ---------------------------- */
+.text-color-trigger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+}
+
+.text-color-dot {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.18);
+  transition: transform 0.1s ease, border-color 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.text-color-dot-glyph {
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.55);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  pointer-events: none;
+}
+
+.text-color-trigger:hover .text-color-dot {
+  transform: scale(1.12);
+  border-color: rgba(0, 0, 0, 0.35);
+}
+
+/* "None" bg + transparent dot — diagonal slash reads as "no color". */
+.text-color-dot--transparent,
+.text-color-swatch--none {
+  background-color: #ffffff;
+  background-image: linear-gradient(
+    to top right,
+    transparent calc(50% - 1px),
+    #e03131 calc(50% - 0.5px),
+    #e03131 calc(50% + 0.5px),
+    transparent calc(50% + 1px)
+  );
+}
+
+.text-color-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border-light, rgba(0, 0, 0, 0.08));
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+  z-index: 20;
+  white-space: nowrap;
+}
+
+.text-color-popover--open {
+  display: flex;
+}
+
+.text-color-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.1s ease, border-color 0.1s ease;
+}
+
+.text-color-swatch:hover {
+  transform: scale(1.25);
+  border-color: rgba(0, 0, 0, 0.3);
+}
+
+.text-color-swatch--active {
+  border-color: rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.12);
+}

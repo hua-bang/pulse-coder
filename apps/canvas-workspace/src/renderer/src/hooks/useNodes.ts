@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CanvasNode, CanvasTransform, CanvasSaveData, FrameNodeData, FileNodeData } from '../types';
+import type { CanvasNode, CanvasTransform, CanvasSaveData, FrameNodeData, FileNodeData, TextNodeData } from '../types';
 import { genId, createDefaultNode, createNodeData } from '../utils/nodeFactory';
 import { useNodeHistory } from './useNodeHistory';
 
@@ -380,7 +380,9 @@ export const useNodes = (
         y: source.y + 24,
         data: source.type === 'frame'
           ? { ...(source.data as FrameNodeData) }
-          : createNodeData(source.type),
+          : source.type === 'text'
+            ? { ...(source.data as TextNodeData) }
+            : createNodeData(source.type),
         updatedAt: Date.now(),
       };
       if (newNode.type === 'file') {
@@ -419,7 +421,9 @@ export const useNodes = (
         y: source.y + offsetY,
         data: source.type === 'frame'
           ? { ...(source.data as FrameNodeData) }
-          : createNodeData(source.type),
+          : source.type === 'text'
+            ? { ...(source.data as TextNodeData) }
+            : createNodeData(source.type),
         updatedAt: now,
       }));
       newNodes.forEach((newNode) => {

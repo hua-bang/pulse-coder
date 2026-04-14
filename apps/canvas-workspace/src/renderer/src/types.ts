@@ -1,12 +1,17 @@
 export interface CanvasNode {
   id: string;
-  type: "file" | "terminal" | "frame" | "agent";
+  type: "file" | "terminal" | "frame" | "agent" | "text";
   title: string;
   x: number;
   y: number;
   width: number;
   height: number;
-  data: FileNodeData | TerminalNodeData | FrameNodeData | AgentNodeData;
+  data:
+    | FileNodeData
+    | TerminalNodeData
+    | FrameNodeData
+    | AgentNodeData
+    | TextNodeData;
   /** Epoch millis of last mutation; used for cross-process merge. */
   updatedAt?: number;
 }
@@ -42,6 +47,31 @@ export interface AgentNodeData {
   inlinePrompt?: string;
   /** Relative path to a prompt file in cwd for long prompts. */
   promptFile?: string;
+}
+
+/**
+ * TLDRAW-style free-form text label on the canvas.
+ *
+ * Content is markdown (supports **bold**, *italic*, ++underline++, lists,
+ * headings, etc.). Colors are applied via inline styles so they persist
+ * across reloads. `backgroundColor: 'transparent'` renders a chrome-free
+ * label.
+ *
+ * `autoSize` controls how the wrapper dimensions are interpreted:
+ *  - `true` (default): width/height track the rendered content via CSS
+ *    `max-content`. Useful while typing so the node hugs its text.
+ *  - `false`: the user has manually resized the node; `width`/`height`
+ *    become a hard frame and long text wraps within. Set by the resize
+ *    drag handles.
+ */
+export interface TextNodeData {
+  content: string;
+  textColor: string;
+  backgroundColor: string;
+  /** Optional font size in px; defaults to 18 when unset. */
+  fontSize?: number;
+  /** When false, the user has dragged a resize handle — respect width/height. */
+  autoSize?: boolean;
 }
 
 export interface CanvasTransform {
