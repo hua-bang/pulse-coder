@@ -59,7 +59,13 @@ export const TextNodeBody = ({ node, onUpdate, isSelected, onSelect, onDragStart
       // same as the rest of the app.
       StarterKit.configure({ underline: false }),
       Underline,
-      Placeholder.configure({ placeholder: "Type something…" }),
+      // `showOnlyWhenEditable: false` — an empty text node is otherwise
+      // invisible on the canvas (transparent bg, no chrome). The placeholder
+      // doubles as a "there's a node here" marker at rest.
+      Placeholder.configure({
+        placeholder: "Double-click to edit",
+        showOnlyWhenEditable: false,
+      }),
       Markdown.configure({ html: false, transformPastedText: true }),
     ],
     content: data.content || "",
