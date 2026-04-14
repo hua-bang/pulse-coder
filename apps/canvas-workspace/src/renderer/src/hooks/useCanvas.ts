@@ -1,9 +1,13 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CanvasTransform } from "../types";
 
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 4;
 const ZOOM_SENSITIVITY = 0.005;
+/** Idle delay after the last wheel/pan event before we drop `will-change`
+ *  off `.canvas-transform`. Short enough to feel instant, long enough to
+ *  cover the gap between two wheel events from a trackpad. */
+const MOVING_IDLE_MS = 180;
 
 const clampScale = (s: number) =>
   Math.min(MAX_SCALE, Math.max(MIN_SCALE, s));
@@ -21,7 +25,32 @@ export const useCanvas = (isHandTool = false) => {
   const isPanning = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
 
+  // Tracks whether the canvas is currently being panned/zoomed. Drives
+  // the conditional `will-change: transform` on `.canvas-transform` so
+  // we only promote the big canvas subtree to its own compositor layer
+  // while it's actually moving — otherwise the permanent layer consumes
+  // enough tile memory to trigger Chromium's "tile memory limits
+  // exceeded" warning once nested frames multiply the painted area.
+  const [moving, setMoving] = useState(false);
+  const movingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const markMoving = useCallback(() => {
+    setMoving(true);
+    if (movingTimer.current) clearTimeout(movingTimer.current);
+    movingTimer.current = setTimeout(() => {
+      setMoving(false);
+      movingTimer.current = null;
+    }, MOVING_IDLE_MS);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (movingTimer.current) clearTimeout(movingTimer.current);
+    };
+  }, []);
+
   const handleWheel = useCallback((e: React.WheelEvent) => {
+    markMoving();
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
       e.stopPropagation();
@@ -48,7 +77,7 @@ export const useCanvas = (isHandTool = false) => {
         y: safeNum(prev.y - dy)
       }));
     }
-  }, []);
+  }, [markMoving]);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -59,10 +88,11 @@ export const useCanvas = (isHandTool = false) => {
       ) {
         isPanning.current = true;
         lastMouse.current = { x: e.clientX, y: e.clientY };
+        markMoving();
         e.preventDefault();
       }
     },
-    [isHandTool]
+    [isHandTool, markMoving]
   );
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
@@ -70,12 +100,13 @@ export const useCanvas = (isHandTool = false) => {
     const dx = e.clientX - lastMouse.current.x;
     const dy = e.clientY - lastMouse.current.y;
     lastMouse.current = { x: e.clientX, y: e.clientY };
+    markMoving();
     setTransform((prev) => ({
       ...prev,
       x: safeNum(prev.x + dx),
       y: safeNum(prev.y + dy)
     }));
-  }, []);
+  }, [markMoving]);
 
   const handleMouseUp = useCallback(() => {
     isPanning.current = false;
@@ -99,6 +130,7 @@ export const useCanvas = (isHandTool = false) => {
   return {
     transform,
     setTransform,
+    moving,
     handleWheel,
     handleMouseDown,
     handleMouseMove,

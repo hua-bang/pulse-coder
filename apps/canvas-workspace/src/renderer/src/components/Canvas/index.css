@@ -32,5 +32,14 @@
   top: 0;
   left: 0;
   transform-origin: 0 0;
+}
+
+/* Only promote the canvas subtree to its own compositor layer while the
+ * user is actively panning or zooming. Leaving `will-change: transform`
+ * on permanently keeps a huge, always-allocated tile backing store for the
+ * entire canvas content — which easily blows Chromium's tile memory budget
+ * once nested frames multiply the painted surface area (emits
+ * "tile memory limits exceeded, some content may not draw" warnings). */
+.canvas-transform--moving {
   will-change: transform;
 }

@@ -6,6 +6,13 @@ import type { ResizeEdge } from '../../hooks/useNodeResize';
 interface CanvasSurfaceProps {
   transform: { x: number; y: number; scale: number };
   animating: boolean;
+  /** True while the user is actively panning/zooming. Drives conditional
+   *  `will-change: transform` so the canvas subtree is only promoted to
+   *  its own compositor layer while it's actually moving — avoiding the
+   *  permanent tile-memory cost that otherwise trips Chromium's
+   *  "tile memory limits exceeded" warning on canvases with many
+   *  (especially nested) frames. */
+  moving: boolean;
   sortedNodes: CanvasNode[];
   nodes: CanvasNode[];
   rootFolder?: string;
@@ -38,6 +45,7 @@ interface CanvasSurfaceProps {
 export const CanvasSurface = ({
   transform,
   animating,
+  moving,
   sortedNodes,
   nodes,
   rootFolder,
@@ -57,7 +65,7 @@ export const CanvasSurface = ({
   onFocus,
 }: CanvasSurfaceProps) => (
   <div
-    className="canvas-transform"
+    className={`canvas-transform${moving || animating ? ' canvas-transform--moving' : ''}`}
     style={{
       transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
       '--canvas-scale': transform.scale,
