@@ -35,6 +35,80 @@ interface WorkspaceManifest {
   activeId?: string;
 }
 
+// ─── Web page fetching (for iframe / link nodes) ───────────────────
+
+const PAGE_FETCH_TIMEOUT_MS = 10_000;
+const PAGE_MAX_BYTES = 200_000;
+
+/**
+ * Fetch a web page and return its readable text content. Strips
+ * `<script>`, `<style>`, and `<noscript>` blocks, drops remaining HTML
+ * tags, and collapses whitespace so the LLM sees the prose.
+ *
+ * Fails gracefully: a network error or non-2xx response returns a short
+ * error string instead of throwing, so the agent can surface a useful
+ * message to the user.
+ */
+async function fetchPageText(url: string): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PAGE_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (PulseCoder Canvas Agent)',
+        'Accept': 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5',
+      },
+    });
+    if (!res.ok) {
+      return `[fetch failed: HTTP ${res.status} ${res.statusText}]`;
+    }
+    const contentType = res.headers.get('content-type') ?? '';
+    const raw = await res.text();
+
+    // Cap by bytes (approx) to avoid blowing up the context.
+    const truncated = raw.length > PAGE_MAX_BYTES;
+    const body = truncated ? raw.slice(0, PAGE_MAX_BYTES) : raw;
+
+    let text = body;
+    if (contentType.includes('html') || /<[a-z!/]/i.test(body)) {
+      // Try to grab <title> for a nicer summary header.
+      const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(body);
+      const title = titleMatch ? titleMatch[1].trim() : '';
+
+      text = body
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+        .replace(/<!--[\s\S]*?-->/g, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        // Decode a minimal set of HTML entities — enough for readability.
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (title) text = `Title: ${title}\n\n${text}`;
+    }
+
+    if (truncated) text += '\n\n[…content truncated]';
+    return text;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (controller.signal.aborted) {
+      return `[fetch timed out after ${PAGE_FETCH_TIMEOUT_MS / 1000}s]`;
+    }
+    return `[fetch failed: ${msg}]`;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ─── Low-level readers ─────────────────────────────────────────────
 
 async function loadCanvasJson(workspaceId: string): Promise<CanvasSaveData | null> {
@@ -184,6 +258,15 @@ export async function buildDetailedContext(workspaceId: string): Promise<Detaile
         detailed.scrollback = (node.data.scrollback as string) ?? '';
         detailed.cwd = (node.data.cwd as string) ?? '';
         break;
+      case 'iframe': {
+        const url = (node.data.url as string) || '';
+        if (url) {
+          detailed.content = await fetchPageText(url);
+        } else {
+          detailed.content = '[empty link node — no URL set]';
+        }
+        break;
+      }
     }
 
     nodes.push(detailed);
@@ -237,6 +320,15 @@ export async function readNodeDetail(workspaceId: string, nodeId: string): Promi
     case 'frame':
       // nothing extra beyond summary
       break;
+    case 'iframe': {
+      const url = (node.data.url as string) || '';
+      if (url) {
+        detailed.content = await fetchPageText(url);
+      } else {
+        detailed.content = '[empty link node — no URL set]';
+      }
+      break;
+    }
   }
 
   return detailed;

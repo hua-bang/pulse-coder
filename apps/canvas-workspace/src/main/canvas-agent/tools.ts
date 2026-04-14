@@ -207,6 +207,7 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
       name: 'canvas_read_node',
       description:
         'Read the full content of a specific canvas node. For file nodes, returns the file content. For terminal/agent nodes, returns scrollback output. ' +
+        'For iframe/link nodes, fetches the URL and returns the page text (HTML stripped, capped at ~200KB). ' +
         'Defaults to the current workspace; pass `workspaceId` to read a node from another canvas the user `@`-mentioned.',
       inputSchema: z.object({
         nodeId: z.string().describe('The ID of the node to read.'),
