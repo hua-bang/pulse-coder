@@ -1,37 +1,45 @@
 /* ---------------------------------------------------------------------------
  * Text node styling — TLDRAW-inspired
  *
- * Shape of the interaction:
- *  - Idle state: no card chrome. The text sits on the canvas as a label.
+ * Interaction model:
+ *  - Idle: no card chrome. Formatted markdown sits on the canvas.
  *  - Hover / selected: a compact floating toolbar appears above the node with
- *    color pickers + delete. The title badge is intentionally hidden so the
- *    node reads as "a piece of text", not "a card named Text".
- *  - Click-drag on the text moves the node.
- *  - Double-click on the text enters editing. Blur / Escape exits.
- *  - Size is driven by content: `width: max-content` lets the wrapper shrink
- *    to the text. We still persist the measured size back into node.width /
- *    node.height via useLayoutEffect so Canvas hit-testing & frame containment
- *    use the real rendered bounds.
+ *    the two color pickers and the delete button. The title is intentionally
+ *    hidden so the node reads as "a piece of text".
+ *  - Click-drag: moves the node.
+ *  - Double-click: enters editing mode (raw markdown source).
+ *  - Resize handles (right / bottom / corner) appear on hover or selected so
+ *    the user can pin the width and let text wrap inside the frame.
+ *
+ * Size model:
+ *  - `.canvas-node--text-auto` → width/height driven by content (max-content).
+ *    Applied by default and while editing.
+ *  - Without `.canvas-node--text-auto` → the user has manually resized and
+ *    node.width/height are honored as a hard frame (text wraps inside).
  * ------------------------------------------------------------------------- */
 
-/* --- Wrapper: no card chrome, content-driven size ----------------------- */
+/* --- Wrapper: no card chrome --------------------------------------------- */
 .canvas-node--text {
-  /* Ignore the stored width/height so the wrapper sizes to the text body. */
-  width: max-content !important;
-  height: max-content !important;
   min-width: 32px;
   min-height: 28px;
-  max-width: 600px;
 
   background: transparent;
   border: 1px solid transparent;
   box-shadow: none;
   /* .canvas-node defaults to overflow: hidden — clear it so the floating
-   * toolbar (positioned at top: -36px) isn't clipped. */
+   * toolbar (positioned at top: -36px) and resize handles aren't clipped. */
   overflow: visible;
-  /* Wrapper is a flex column in .canvas-node base styles. Clear it so the
-   * inline-sized body doesn't get stretched to the max-content max. */
+  /* Default `.canvas-node` is flex-column; we don't need that structure here
+   * because the body owns the full shape. */
   display: block;
+}
+
+/* Auto-size mode: content drives the wrapper. `!important` is needed to
+ * override the inline width/height React writes from node.width/height. */
+.canvas-node--text.canvas-node--text-auto {
+  width: max-content !important;
+  height: max-content !important;
+  max-width: 600px;
 }
 
 .canvas-node--text:hover {
@@ -47,12 +55,12 @@
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
 }
 
-/* --- Header: hidden by default, compact toolbar on hover/selected ------- */
+/* --- Header: hidden by default, compact toolbar on hover/selected -------- */
 .canvas-node--text .node-header {
   position: absolute;
   top: -36px;
   left: 0;
-  /* Don't force `right: 0` — let the toolbar shrink to its natural content
+  /* Don't force right: 0 — let the toolbar shrink to its natural content
    * width so it doesn't span the full text block. */
   right: auto;
   min-height: 28px;
@@ -62,8 +70,7 @@
   border: 1px solid var(--border-light, rgba(0, 0, 0, 0.08));
   border-radius: 6px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  /* Keep toolbar size constant regardless of canvas zoom, same trick as the
-   * frame header. */
+  /* Keep toolbar size constant regardless of canvas zoom. */
   transform: scale(calc(1 / var(--canvas-scale, 1)));
   transform-origin: left bottom;
   z-index: 2;
@@ -80,8 +87,7 @@
 }
 
 /* Hide the badge, title, and focus button — text nodes have no identity
- * other than their text. The only affordances in the toolbar are the two
- * color pickers and the delete button. */
+ * beyond their text. The toolbar shows only color pickers + delete. */
 .canvas-node--text .node-type-badge,
 .canvas-node--text .node-title,
 .canvas-node--text .node-focus {
@@ -93,16 +99,27 @@
   opacity: 1;
 }
 
-/* --- Body: fills wrapper; its own intrinsic size drives the wrapper ----- */
+/* --- Body --------------------------------------------------------------- */
 .canvas-node--text .node-body {
+  width: 100%;
+  height: 100%;
+  /* In manual (fixed-frame) mode, clip overflow so the user's dragged
+   * height acts like a real frame. */
+  overflow: hidden;
+  border-radius: var(--radius-md, 6px);
+  flex: none;
+}
+
+.canvas-node--text.canvas-node--text-auto .node-body {
   width: auto;
   height: auto;
   overflow: visible;
-  flex: none;
 }
 
 .text-node-body {
   display: block;
+  width: 100%;
+  height: 100%;
   min-width: 32px;
   min-height: 28px;
   padding: 6px 10px;
@@ -120,10 +137,16 @@
    * they persist in node.data. */
 }
 
+.canvas-node--text.canvas-node--text-auto .text-node-body {
+  width: max-content;
+  max-width: 600px;
+  height: auto;
+}
+
 .text-node-body--editing {
   cursor: text;
-  /* Subtle ring so the user can tell editing is active even if the bg is
-   * transparent. */
+  /* Subtle inset ring so the user can tell they're editing even when the
+   * background is transparent. */
   box-shadow: 0 0 0 1px rgba(35, 131, 226, 0.35) inset;
 }
 
@@ -138,9 +161,137 @@
   pointer-events: none;
 }
 
-/* Hide resize handles — text auto-sizes from content, no manual resize. */
+/* --- Markdown element styles -------------------------------------------- *
+ * markdown-it wraps paragraphs in <p>, so we strip the default margins and
+ * apply tight spacing that fits a label. Lists, headings, inline formatting
+ * use their native semantics. */
+.text-node-body p {
+  margin: 0;
+}
+
+.text-node-body p + p,
+.text-node-body p + ul,
+.text-node-body p + ol,
+.text-node-body ul + p,
+.text-node-body ol + p,
+.text-node-body h1 + *,
+.text-node-body h2 + *,
+.text-node-body h3 + *,
+.text-node-body * + h1,
+.text-node-body * + h2,
+.text-node-body * + h3 {
+  margin-top: 0.35em;
+}
+
+.text-node-body ul,
+.text-node-body ol {
+  margin: 0;
+  padding-left: 1.4em;
+}
+
+.text-node-body li {
+  margin: 0;
+}
+
+.text-node-body li + li {
+  margin-top: 0.1em;
+}
+
+.text-node-body h1,
+.text-node-body h2,
+.text-node-body h3 {
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+
+.text-node-body h1 {
+  font-size: 1.5em;
+}
+
+.text-node-body h2 {
+  font-size: 1.28em;
+}
+
+.text-node-body h3 {
+  font-size: 1.12em;
+}
+
+.text-node-body strong {
+  font-weight: 700;
+}
+
+.text-node-body em {
+  font-style: italic;
+}
+
+.text-node-body u {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.text-node-body del,
+.text-node-body s {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.text-node-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 0.08em 0.35em;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.text-node-body pre {
+  margin: 0.35em 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.05);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+  overflow-x: auto;
+}
+
+.text-node-body pre code {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+}
+
+.text-node-body blockquote {
+  margin: 0.2em 0;
+  padding: 0.15em 0 0.15em 0.8em;
+  border-left: 3px solid rgba(0, 0, 0, 0.15);
+  opacity: 0.88;
+}
+
+.text-node-body hr {
+  border: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  margin: 0.5em 0;
+}
+
+/* --- Resize handles: visible on hover/selected -------------------------- *
+ * In auto-size mode the wrapper ignores inline width/height, so resize
+ * handles at the right/bottom/corner would sit in the wrong place. Show them
+ * only on hover or when selected, and fade them in so idle nodes stay clean.
+ * The first drag flips the wrapper out of auto-size mode (see CanvasNodeView)
+ * and subsequent drags feel natural. */
 .canvas-node--text .resize-handle {
-  display: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.canvas-node--text:hover .resize-handle,
+.canvas-node--text.canvas-node--selected .resize-handle {
+  opacity: 1;
+}
+
+.canvas-node--text .resize-handle--right {
+  top: 4px;
 }
 
 /* --- Color pickers (rendered in the toolbar) ---------------------------- */

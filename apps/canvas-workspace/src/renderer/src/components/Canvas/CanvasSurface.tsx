@@ -20,7 +20,15 @@ interface CanvasSurfaceProps {
   highlightedId: string | null;
   externallyEditedIds: Set<string>;
   onDragStart: (e: React.MouseEvent, node: CanvasNode) => void;
-  onResizeStart: (e: React.MouseEvent, nodeId: string, width: number, height: number, edge: ResizeEdge) => void;
+  onResizeStart: (
+    e: React.MouseEvent,
+    nodeId: string,
+    width: number,
+    height: number,
+    edge: ResizeEdge,
+    minWidth?: number,
+    minHeight?: number
+  ) => void;
   onUpdate: (id: string, patch: Partial<CanvasNode>) => void;
   onRemove: (id: string) => void;
   onSelect: (id: string) => void;

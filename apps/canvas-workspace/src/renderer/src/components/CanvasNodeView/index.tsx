@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import "./index.css";
-import type { CanvasNode, FrameNodeData, AgentNodeData } from "../../types";
+import type { CanvasNode, FrameNodeData, AgentNodeData, TextNodeData } from "../../types";
 import type { ResizeEdge } from "../../hooks/useNodeResize";
 import { FileNodeBody } from "../FileNodeBody";
 import { TerminalNodeBody } from "../TerminalNodeBody";
@@ -26,7 +26,9 @@ interface Props {
     nodeId: string,
     width: number,
     height: number,
-    edge: ResizeEdge
+    edge: ResizeEdge,
+    minWidth?: number,
+    minHeight?: number
   ) => void;
   onUpdate: (id: string, patch: Partial<CanvasNode>) => void;
   onRemove: (id: string) => void;
@@ -96,10 +98,25 @@ export const CanvasNodeView = ({
 
   const makeResizeHandler = useCallback(
     (edge: ResizeEdge) => (e: React.MouseEvent) => {
+      if (node.type === "text") {
+        // Dragging a resize handle on a text node switches it out of auto-size
+        // mode so the dragged width/height becomes the authoritative frame.
+        const data = node.data as TextNodeData;
+        if (data.autoSize !== false) {
+          onUpdate(node.id, { data: { ...data, autoSize: false } });
+        }
+        // Text labels should be shrinkable well below the standard 200×120
+        // floor — a tiny tag is a valid shape.
+        onResizeStart(e, node.id, node.width, node.height, edge, 40, 28);
+        return;
+      }
       onResizeStart(e, node.id, node.width, node.height, edge);
     },
-    [onResizeStart, node.id, node.width, node.height]
+    [onResizeStart, onUpdate, node.id, node.type, node.width, node.height, node.data]
   );
+
+  const textAutoSize =
+    node.type === "text" && (node.data as TextNodeData).autoSize !== false;
 
   const classes = [
     "canvas-node",
@@ -108,7 +125,8 @@ export const CanvasNodeView = ({
     isResizing && "canvas-node--resizing",
     isSelected && "canvas-node--selected",
     isHighlighted && "canvas-node--highlighted",
-    isAgentEdited && "canvas-node--agent-edited"
+    isAgentEdited && "canvas-node--agent-edited",
+    textAutoSize && "canvas-node--text-auto"
   ]
     .filter(Boolean)
     .join(" ");
