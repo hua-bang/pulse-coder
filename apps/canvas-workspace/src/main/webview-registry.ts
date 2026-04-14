@@ -54,10 +54,18 @@ export async function getNodeRenderedText(
   nodeId: string,
 ): Promise<string | null> {
   const id = lookup({ workspaceId, nodeId });
-  if (id === undefined) return null;
+  if (id === undefined) {
+    console.log(
+      `[webview-registry] getNodeRenderedText: no entry for ${workspaceId}::${nodeId} (registry has ${registry.size})`,
+    );
+    return null;
+  }
 
   const wc = allWebContents.fromId(id);
   if (!wc || wc.isDestroyed()) {
+    console.log(
+      `[webview-registry] getNodeRenderedText: webContents#${id} gone for ${workspaceId}::${nodeId}`,
+    );
     unregister({ workspaceId, nodeId });
     return null;
   }
@@ -112,11 +120,15 @@ export function setupWebviewRegistryIpc(): void {
     'iframe:register-webview',
     (_event, payload: { workspaceId: string; nodeId: string; webContentsId: number }) => {
       if (!payload?.workspaceId || !payload?.nodeId || typeof payload.webContentsId !== 'number') {
+        console.warn('[webview-registry] rejected register:', payload);
         return { ok: false };
       }
       register(
         { workspaceId: payload.workspaceId, nodeId: payload.nodeId },
         payload.webContentsId,
+      );
+      console.log(
+        `[webview-registry] registered ${payload.workspaceId}::${payload.nodeId} → wc#${payload.webContentsId} (${registry.size} total)`,
       );
       return { ok: true };
     },
@@ -127,6 +139,9 @@ export function setupWebviewRegistryIpc(): void {
     (_event, payload: { workspaceId: string; nodeId: string }) => {
       if (!payload?.workspaceId || !payload?.nodeId) return { ok: false };
       unregister({ workspaceId: payload.workspaceId, nodeId: payload.nodeId });
+      console.log(
+        `[webview-registry] unregistered ${payload.workspaceId}::${payload.nodeId} (${registry.size} remaining)`,
+      );
       return { ok: true };
     },
   );

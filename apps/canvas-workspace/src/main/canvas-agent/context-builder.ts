@@ -117,6 +117,11 @@ async function fetchPageText(url: string): Promise<string> {
  * executed and login cookies applied) and falls back to a fresh server-side
  * HTTP fetch when the webview isn't mounted — e.g. the workspace isn't open
  * in the foreground window, or the page hasn't finished attaching yet.
+ *
+ * Never returns an empty string: each failure path returns a bracketed
+ * diagnostic so the agent can tell the user *why* it couldn't read the
+ * page (SPA with no static HTML, auth-gated, webview not attached, etc.)
+ * instead of silently producing empty content.
  */
 async function readIframeContent(
   workspaceId: string,
@@ -124,13 +129,36 @@ async function readIframeContent(
   url: string,
 ): Promise<string> {
   if (!url) return '[empty link node — no URL set]';
+
+  let liveError: string | null = null;
   try {
     const live = await getNodeRenderedText(workspaceId, nodeId);
     if (live && live.trim()) return live;
-  } catch {
-    // fall through to network fetch
+    if (live !== null) {
+      // getNodeRenderedText returned a diagnostic like a timeout — keep it
+      // so we can surface it if the server fetch also fails to help.
+      liveError = live.trim() ? live : null;
+    } else {
+      liveError = '[live webview not registered — node may not be mounted in the foreground window, or webviewTag is off (a full Electron restart is required for that flag to take effect)]';
+    }
+  } catch (err) {
+    liveError = `[live webview read failed: ${err instanceof Error ? err.message : String(err)}]`;
   }
-  return fetchPageText(url);
+
+  const fetched = await fetchPageText(url);
+  if (fetched.trim()) return fetched;
+
+  // Both paths produced nothing readable. Tell the agent precisely why so
+  // it can explain to the user instead of pretending the page is empty.
+  return [
+    '[canvas_read_node could not extract text from this link node]',
+    '- Tried the live webview first:',
+    `  ${liveError ?? '(succeeded but returned empty text — the page may still be loading)'}`,
+    '- Then tried a plain server fetch:',
+    '  Succeeded with no readable text — the page is almost certainly a JS-rendered SPA (React/Vue) whose content only exists after scripts run.',
+    '',
+    'To summarise this page, open it in a Link node on the canvas, wait for it to finish loading (log in if needed), then ask again. If it still fails, ask the user to paste the text directly.',
+  ].join('\n');
 }
 
 // ─── Low-level readers ─────────────────────────────────────────────

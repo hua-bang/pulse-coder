@@ -61,16 +61,30 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
 
     let registered = false;
 
-    const tryRegister = () => {
+    const tryRegister = (via: string) => {
       if (registered) return;
       try {
         const id = el.getWebContentsId();
         if (typeof id === "number") {
           registered = true;
           void api.registerWebview(workspaceId, node.id, id);
+          // eslint-disable-next-line no-console
+          console.log(
+            `[link-node] registered webContents ${id} for node ${node.id} (via ${via})`,
+          );
         }
-      } catch {
-        // not yet attached — the event listeners below will retry
+      } catch (err) {
+        // If `webviewTag` is off or the guest hasn't attached yet,
+        // `getWebContentsId` throws. The event listeners below will retry;
+        // only the final mount-time error is useful, so log it quietly.
+        if (via === "mount") {
+          // eslint-disable-next-line no-console
+          console.debug(
+            `[link-node] getWebContentsId not ready on mount: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
       }
     };
 
@@ -78,16 +92,18 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
     //    had already attached by the time this effect runs, both `did-attach`
     //    and `dom-ready` have fired and won't fire again — so this sync call
     //    is the only chance we'd have to register.
-    tryRegister();
+    tryRegister("mount");
 
     // 2) Subscribe anyway. On a fresh node insert, `did-attach` fires after
     //    we mount; `dom-ready` catches us on manual reloads / src changes.
-    el.addEventListener("did-attach", tryRegister);
-    el.addEventListener("dom-ready", tryRegister);
+    const onAttach = () => tryRegister("did-attach");
+    const onDomReady = () => tryRegister("dom-ready");
+    el.addEventListener("did-attach", onAttach);
+    el.addEventListener("dom-ready", onDomReady);
 
     return () => {
-      el.removeEventListener("did-attach", tryRegister);
-      el.removeEventListener("dom-ready", tryRegister);
+      el.removeEventListener("did-attach", onAttach);
+      el.removeEventListener("dom-ready", onDomReady);
       if (registered) {
         void api.unregisterWebview(workspaceId, node.id);
       }
