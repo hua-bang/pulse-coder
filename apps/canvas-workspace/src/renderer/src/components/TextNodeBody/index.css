@@ -125,7 +125,6 @@
   padding: 6px 10px;
   border-radius: var(--radius-md, 6px);
   outline: none;
-  white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
   line-height: 1.4;
@@ -150,21 +149,29 @@
   box-shadow: 0 0 0 1px rgba(35, 131, 226, 0.35) inset;
 }
 
-.text-node-body:focus {
+/* Tiptap (prosemirror) root — it fills the wrapper, inherits color, and
+ * handles its own caret. Margin-collapse is disabled so a leading <p> sits
+ * flush against the padding edge. */
+.text-node-body .ProseMirror {
   outline: none;
+  white-space: pre-wrap;
+  min-height: 1.4em;
 }
 
-.text-node-body[data-placeholder]:empty::before {
+/* Placeholder rendered by @tiptap/extension-placeholder on the empty
+ * document. Floated so it doesn't push the caret down. */
+.text-node-body .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   color: currentColor;
   opacity: 0.35;
   pointer-events: none;
+  float: left;
+  height: 0;
 }
 
 /* --- Markdown element styles -------------------------------------------- *
- * markdown-it wraps paragraphs in <p>, so we strip the default margins and
- * apply tight spacing that fits a label. Lists, headings, inline formatting
- * use their native semantics. */
+ * tiptap emits clean HTML with no stray whitespace nodes between blocks, so
+ * margins here control spacing directly. */
 .text-node-body p {
   margin: 0;
 }

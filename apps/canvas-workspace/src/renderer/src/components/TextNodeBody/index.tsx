@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import MarkdownIt from "markdown-it";
+import { EditorContent, useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Underline from "@tiptap/extension-underline";
+import Placeholder from "@tiptap/extension-placeholder";
+import { Markdown } from "tiptap-markdown";
 import "./index.css";
 import type { CanvasNode, TextNodeData } from "../../types";
 
@@ -12,82 +16,112 @@ interface Props {
 }
 
 /* ---------------------------------------------------------------------------
- * Markdown rendering
+ * TLDRAW-style text node body (tiptap-backed).
  *
- * `html: false` prevents users from injecting raw HTML through the contenteditable
- * surface. `breaks: true` turns a single newline into <br>, which matches what
- * users expect when typing into a plain text box.
- *
- * CommonMark doesn't cover underline, so `++text++` is a small extension handled
- * by a post-process substitution — narrow regex (no line-break, no nested `+`)
- * keeps it from catching `x += y` style text.
- * ------------------------------------------------------------------------- */
-const md = new MarkdownIt({
-  html: false,
-  breaks: true,
-  linkify: false,
-  typographer: false,
-});
-
-const UNDERLINE_RE = /\+\+([^+\n][^\n]*?)\+\+/g;
-
-function renderMarkdown(src: string): string {
-  if (!src) return "";
-  const html = md.render(src);
-  return html.replace(UNDERLINE_RE, "<u>$1</u>");
-}
-
-/* ---------------------------------------------------------------------------
- * TLDRAW-style text node body.
- *
- * UX model:
- *  - Idle: no card chrome. Content renders as formatted markdown on the canvas.
- *  - Click + drag: moves the node.
- *  - Double-click: enters editing. The body swaps to plain-text contenteditable
- *    (raw markdown source) so the user can edit the syntax directly.
- *  - Blur / Escape / deselect: exits editing, re-renders as HTML.
+ * Design:
+ *  - Tiptap gives true WYSIWYG, robust IME handling, and all the markdown
+ *    keyboard shortcuts for free. Content is stored as markdown in
+ *    node.data.content via the `tiptap-markdown` bridge.
+ *  - Idle state: editor is non-editable. Clicks hit our outer wrapper and
+ *    start a drag; the node feels like a label.
+ *  - Editing: double-click flips the editor to editable and focuses it.
+ *    Blur, Escape, or deselection commits the edit.
  *
  * Size:
- *  - When `data.autoSize !== false` (default), CSS `width: max-content` drives
- *    the wrapper's rendered size. useLayoutEffect persists the measured size
- *    back to node.width / node.height so Canvas hit-testing & frame containment
- *    stay accurate.
- *  - When the user drags a resize handle, CanvasNodeView flips `autoSize` to
- *    false. The wrapper honors node.width/height as a fixed frame, text wraps
- *    inside, and overflowing content is clipped by the .node-body. The measure
- *    effect is a no-op in this mode — the user's drag is authoritative.
+ *  - `data.autoSize !== false` (default) → wrapper tracks content via CSS
+ *    `max-content`. useLayoutEffect persists the measured size so Canvas
+ *    hit-testing / frame containment stay in sync.
+ *  - After a resize-handle drag (CanvasNodeView flips `autoSize` to false),
+ *    node.width/height becomes a fixed frame; text wraps inside and the
+ *    .node-body clips overflow.
  * ------------------------------------------------------------------------- */
 export const TextNodeBody = ({ node, onUpdate, isSelected, onSelect, onDragStart }: Props) => {
   const data = node.data as TextNodeData;
   const autoSize = data.autoSize !== false;
-  const ref = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
 
-  // Keep DOM content in sync with `data.content`. Editing shows raw markdown
-  // (innerText), display mode shows rendered HTML (innerHTML). We only write
-  // when the rendered form diverges from what's already there — otherwise every
-  // keystroke would clobber the caret position.
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (editing) {
-      if (el.innerText !== data.content) {
-        el.innerText = data.content;
-      }
-    } else {
-      const html = renderMarkdown(data.content);
-      if (el.innerHTML !== html) {
-        el.innerHTML = html;
-      }
-    }
-  }, [editing, data.content]);
+  // Refs that onUpdate / editor callbacks need without re-registering on every
+  // keystroke. This is the same pattern useFileNodeEditor uses for the note
+  // editor.
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const nodeIdRef = useRef(node.id);
+  nodeIdRef.current = node.id;
+  const prevContentRef = useRef(data.content);
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
 
-  // Auto-size the wrapper to fit content. In manual mode the user's dragged
-  // dimensions are authoritative, so we don't write anything back — the
-  // .node-body clips any overflow (CSS), matching tldraw's "fixed frame" feel.
+  const editor = useEditor({
+    extensions: [
+      // StarterKit bundles an inline Underline; we swap it for the explicit
+      // extension so keyboard shortcuts (Cmd+U) and serialization behave the
+      // same as the rest of the app.
+      StarterKit.configure({ underline: false }),
+      Underline,
+      Placeholder.configure({ placeholder: "Type something…" }),
+      Markdown.configure({ html: false, transformPastedText: true }),
+    ],
+    content: data.content || "",
+    editable: false,
+    onUpdate: ({ editor }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const md = ((editor.storage as any)?.markdown?.getMarkdown() as string | undefined) ?? "";
+      if (md === dataRef.current.content) return;
+      prevContentRef.current = md;
+      onUpdateRef.current(nodeIdRef.current, {
+        data: { ...dataRef.current, content: md },
+      });
+    },
+    onBlur: () => {
+      setEditing(false);
+    },
+  });
+
+  // Sync the editable flag with our `editing` state. Tiptap's options are
+  // captured once, so we toggle imperatively.
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(editing);
+  }, [editor, editing]);
+
+  // External content change (undo/redo, CLI edit, duplicate-paste) — reset
+  // the editor so it mirrors node.data without clobbering user typing.
+  useEffect(() => {
+    if (!editor) return;
+    if (data.content === prevContentRef.current) return;
+    prevContentRef.current = data.content;
+    // `emitUpdate: false` avoids firing our onUpdate → onUpdate loop.
+    editor.commands.setContent(data.content || "", { emitUpdate: false });
+  }, [editor, data.content]);
+
+  // First-mount: empty-content nodes drop straight into editing so typing
+  // works immediately without an extra double-click.
+  useEffect(() => {
+    if (!editor) return;
+    if (data.content === "") {
+      setEditing(true);
+      // Defer focus until editable=true has applied to the DOM.
+      const t = setTimeout(() => editor.commands.focus(), 0);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Deselection commits the edit — matches tldraw's click-away-to-finalize feel.
+  useEffect(() => {
+    if (!isSelected && editing) {
+      setEditing(false);
+      editor?.commands.blur();
+    }
+  }, [isSelected, editing, editor]);
+
+  // Auto-size the wrapper to fit content. Manual-size mode (user has dragged
+  // a resize handle) is authoritative — we don't write anything back, and
+  // .node-body clips any overflow.
   useLayoutEffect(() => {
     if (!autoSize) return;
-    const el = ref.current;
+    const el = wrapperRef.current;
     if (!el) return;
     const measuredW = Math.max(40, Math.ceil(el.offsetWidth));
     const measuredH = Math.max(28, Math.ceil(el.offsetHeight));
@@ -99,41 +133,11 @@ export const TextNodeBody = ({ node, onUpdate, isSelected, onSelect, onDragStart
     }
   });
 
-  // First mount: empty content → drop straight into editing mode so typing
-  // works immediately. Skipped for nodes that already have content (paste,
-  // duplicate, reload from storage).
-  useEffect(() => {
-    if (data.content === "" && ref.current) {
-      setEditing(true);
-      const el = ref.current;
-      const t = setTimeout(() => el.focus(), 0);
-      return () => clearTimeout(t);
-    }
-    return undefined;
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Deselection finalizes the edit — matches tldraw's click-away-to-commit feel.
-  useEffect(() => {
-    if (!isSelected && editing) {
-      setEditing(false);
-      ref.current?.blur();
-    }
-  }, [isSelected, editing]);
-
-  const handleInput = useCallback(
-    (e: React.FormEvent<HTMLDivElement>) => {
-      const next = e.currentTarget.innerText;
-      if (next !== data.content) {
-        onUpdate(node.id, { data: { ...data, content: next } });
-      }
-    },
-    [node.id, data, onUpdate]
-  );
-
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (editing) {
-        // Caret placement / text selection — don't drag.
+        // Let prosemirror handle caret placement / text selection; just make
+        // sure the wrapper's drag listeners don't fire.
         e.stopPropagation();
         return;
       }
@@ -143,90 +147,42 @@ export const TextNodeBody = ({ node, onUpdate, isSelected, onSelect, onDragStart
     [editing, node, onSelect, onDragStart]
   );
 
-  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditing(true);
-    // contentEditable=true is applied after the state flush; focus once it's
-    // in the DOM so the caret lands where the user double-clicked.
-    setTimeout(() => ref.current?.focus(), 0);
-  }, []);
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (editing) return;
+      setEditing(true);
+      setTimeout(() => editor?.commands.focus(), 0);
+    },
+    [editing, editor]
+  );
 
-  const handleBlur = useCallback(() => {
-    setEditing(false);
-  }, []);
-
-  // Cmd/Ctrl + B / I / U wraps the current selection with a markdown marker
-  // (`**`, `*`, `++`). The wrapping tokens become part of the source text so
-  // markdown-it renders them as <strong>, <em>, <u> once the user exits edit
-  // mode.
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        ref.current?.blur();
+        editor?.commands.blur();
         setEditing(false);
-        return;
-      }
-      if ((e.metaKey || e.ctrlKey) && !e.altKey) {
-        const key = e.key.toLowerCase();
-        let marker: string | null = null;
-        if (key === "b") marker = "**";
-        else if (key === "i") marker = "*";
-        else if (key === "u") marker = "++";
-        if (marker) {
-          e.preventDefault();
-          const el = ref.current;
-          if (!el) return;
-          const sel = window.getSelection();
-          if (!sel || sel.rangeCount === 0) return;
-          const range = sel.getRangeAt(0);
-          if (!el.contains(range.commonAncestorContainer)) return;
-          const selectedText = range.toString();
-          const wrapped = `${marker}${selectedText}${marker}`;
-          range.deleteContents();
-          const textNode = document.createTextNode(wrapped);
-          range.insertNode(textNode);
-          // Caret placement: if user had a selection, park the caret after
-          // the wrapped text. If empty selection, put it between the markers
-          // so they can start typing the styled text.
-          const after = document.createRange();
-          if (selectedText) {
-            after.setStartAfter(textNode);
-          } else {
-            after.setStart(textNode, marker.length);
-          }
-          after.collapse(true);
-          sel.removeAllRanges();
-          sel.addRange(after);
-          const next = el.innerText;
-          if (next !== data.content) {
-            onUpdate(node.id, { data: { ...data, content: next } });
-          }
-        }
       }
     },
-    [node.id, data, onUpdate]
+    [editor]
   );
 
   return (
     <div
-      ref={ref}
+      ref={wrapperRef}
       className={`text-node-body${editing ? " text-node-body--editing" : ""}`}
-      contentEditable={editing}
-      suppressContentEditableWarning
-      spellCheck={false}
-      onInput={editing ? handleInput : undefined}
       onMouseDown={handleMouseDown}
       onDoubleClick={handleDoubleClick}
-      onBlur={editing ? handleBlur : undefined}
-      onKeyDown={editing ? handleKeyDown : undefined}
+      onKeyDown={handleKeyDown}
       style={{
         color: data.textColor,
         backgroundColor: data.backgroundColor,
         fontSize: data.fontSize ?? 18,
       }}
-      data-placeholder="Type something…"
-    />
+    >
+      <EditorContent editor={editor} />
+    </div>
   );
 };
 
@@ -303,7 +259,12 @@ const TextColorTrigger = ({
       ref={triggerRef}
       className={`text-color-trigger${open ? " text-color-trigger--open" : ""}`}
       title={title}
-      onMouseDown={(e) => e.stopPropagation()}
+      // preventDefault on mousedown keeps the editor focused when the user
+      // reaches for a color while editing — no exit-and-re-enter ceremony.
+      onMouseDown={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+      }}
     >
       <div
         className={`text-color-dot${isTransparent ? " text-color-dot--transparent" : ""}`}
@@ -332,6 +293,7 @@ const TextColorTrigger = ({
                   backgroundColor: isNone ? undefined : preset.value,
                 }}
                 title={preset.name}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={(e) => {
                   e.stopPropagation();
                   handlePick(preset.value);
