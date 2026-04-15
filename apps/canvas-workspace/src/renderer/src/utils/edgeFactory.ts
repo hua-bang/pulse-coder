@@ -7,7 +7,9 @@ export const genEdgeId = (): string => `edge-${Date.now()}-${++edgeIdCounter}`;
  * Create a new edge with sensible defaults:
  *  - no bend (straight line),
  *  - triangular arrow head on target, nothing on source,
- *  - thin solid black stroke.
+ *  - medium-weight solid black stroke (sits at the middle "M" tick of
+ *    EdgeStylePanel's width ladder, so freshly-drawn lines read clearly
+ *    on the canvas without jumping out).
  *
  * Visual defaults mirror tldraw's default arrow. The caller decides the
  * endpoints, kind, label, etc.
@@ -23,7 +25,7 @@ export const createDefaultEdge = (
   bend: 0,
   arrowHead: 'triangle',
   arrowTail: 'none',
-  stroke: { color: '#1f2328', width: 1.6, style: 'solid' },
+  stroke: { color: '#1f2328', width: 2.4, style: 'solid' },
   updatedAt: Date.now(),
   ...overrides,
 });

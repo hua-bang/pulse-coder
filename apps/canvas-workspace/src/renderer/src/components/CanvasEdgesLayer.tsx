@@ -33,7 +33,7 @@ interface Props {
 
 const DEFAULT_STROKE: Required<EdgeStroke> = {
   color: '#1f2328',
-  width: 1.6,
+  width: 2.4,
   style: 'solid',
 };
 
@@ -225,7 +225,14 @@ export const CanvasEdgesLayer = ({
 
         return (
           <g key={edge.id}>
-            {/* Wide transparent hit target so thin lines stay clickable. */}
+            {/* Wide transparent hit target so thin lines stay clickable.
+                A mousedown on the body both selects the edge AND starts
+                a bend drag — users reported that having to grab the
+                tiny midpoint handle to curve a line felt awkward, so
+                we now treat "grab anywhere on the stroke" as a shortcut
+                to bending it. A click that doesn't move still resolves
+                to "just select" because no bend-update fires and
+                commitHistory is a no-op when state is unchanged. */}
             <path
               d={d}
               fill="none"
@@ -234,7 +241,7 @@ export const CanvasEdgesLayer = ({
               vectorEffect="non-scaling-stroke"
               style={{
                 pointerEvents: 'stroke',
-                cursor: 'pointer',
+                cursor: 'grab',
               }}
               onMouseDown={(e) => {
                 // Selecting an edge steals the mousedown so it doesn't
@@ -242,6 +249,7 @@ export const CanvasEdgesLayer = ({
                 // deselect logic.
                 e.stopPropagation();
                 onSelectEdge?.(edge.id);
+                onHandleMouseDown?.(edge.id, 'bend', e, { s, t });
               }}
             />
             {/* Selection underlay: soft blue tint, rendered under the
@@ -252,7 +260,7 @@ export const CanvasEdgesLayer = ({
                 fill="none"
                 stroke={SELECTION_COLOR}
                 strokeOpacity={0.35}
-                strokeWidth={(stroke.width ?? 1.6) + 6}
+                strokeWidth={(stroke.width ?? DEFAULT_STROKE.width) + 6}
                 strokeLinecap="round"
                 vectorEffect="non-scaling-stroke"
               />

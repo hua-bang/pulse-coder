@@ -54,6 +54,15 @@ export type EdgeInteractionState =
       s: Point;
       t: Point;
       cursor: Point;
+      /** Edge.bend at drag start. We apply cursor-offset deltas on top
+       *  of this so a drag that starts *on the curve* (not on the
+       *  midpoint handle) doesn't yank the bend to the cursor's raw
+       *  perpendicular offset. */
+      originBend: number;
+      /** Cursor's perpendicular offset from the straight line s→t at
+       *  drag start. Subtracted from subsequent offsets to yield a
+       *  pure delta. */
+      originOffset: number;
     };
 
 interface UseEdgeInteractionArgs {
@@ -73,6 +82,11 @@ interface UseEdgeInteractionArgs {
   /** Edges are needed by move-end / move-bend to look up the edge
    *  being dragged. */
   edges: CanvasEdge[];
+  /** Called once after a connect-drag successfully commits a new edge
+   *  (ignored for discarded clicks and self-drops). The Canvas wires
+   *  this to `setActiveTool('select')` so the user isn't stuck in
+   *  connect mode after drawing one arrow. */
+  onConnectCommitted?: (edgeId: string) => void;
 }
 
 /**
@@ -114,6 +128,7 @@ export const useEdgeInteraction = ({
   updateEdge,
   commitHistory,
   edges,
+  onConnectCommitted,
 }: UseEdgeInteractionArgs) => {
   const [state, setState] = useState<EdgeInteractionState | null>(null);
   // Mirror of state for use inside the stable window-level listeners,
@@ -182,7 +197,8 @@ export const useEdgeInteraction = ({
     }
 
     if (current.kind === 'move-bend') {
-      const newBend = bendFromCursor(current.s, current.t, pt);
+      const offset = bendFromCursor(current.s, current.t, pt);
+      const newBend = current.originBend + (offset - current.originOffset);
       setState({ ...current, cursor: pt });
       updateEdge(current.edgeId, { bend: newBend }, false);
       return;
@@ -204,7 +220,10 @@ export const useEdgeInteraction = ({
           target.kind === 'node' &&
           current.source.nodeId === target.nodeId;
         if (!isSelfDrop) {
-          addEdge(createDefaultEdge(current.source, target));
+          const edge = addEdge(createDefaultEdge(current.source, target));
+          // Hand control back to the caller so it can exit connect mode
+          // (tldraw-style: you draw one arrow, then you're back in select).
+          onConnectCommitted?.(edge.id);
         }
       }
     } else if (current.kind === 'move-end' || current.kind === 'move-bend') {
@@ -214,7 +233,7 @@ export const useEdgeInteraction = ({
     }
 
     setState(null);
-  }, [addEdge, commitHistory]);
+  }, [addEdge, commitHistory, onConnectCommitted]);
 
   // Window-level listeners are installed only while an interaction is
   // live. Using window (not the canvas container) means the drag keeps
@@ -290,8 +309,22 @@ export const useEdgeInteraction = ({
   ) => {
     const pt = toCanvas(clientX, clientY);
     if (!pt) return;
-    setState({ kind: 'move-bend', edgeId, s, t, cursor: pt });
-  }, [toCanvas]);
+    const edge = edges.find((e) => e.id === edgeId);
+    const originBend = edge?.bend ?? 0;
+    // Cursor's offset-from-straight-line at mousedown time — baseline
+    // for delta math in handleMove so dragging from anywhere on the
+    // curve (not just the midpoint handle) feels continuous.
+    const originOffset = bendFromCursor(s, t, pt);
+    setState({
+      kind: 'move-bend',
+      edgeId,
+      s,
+      t,
+      cursor: pt,
+      originBend,
+      originOffset,
+    });
+  }, [edges, toCanvas]);
 
   /**
    * Resolve the current preview edge's endpoints (for rendering the

@@ -188,6 +188,16 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
     updateEdge,
     commitHistory,
     edges,
+    // After the user commits one arrow, hop back to the select tool and
+    // auto-select the new edge so the style panel is immediately
+    // available. Matches tldraw's "draw one arrow, then edit" flow and
+    // fixes the "cursor is still in connect mode, hard to adjust the
+    // nodes around it" feedback.
+    onConnectCommitted: (edgeId) => {
+      setActiveTool('select');
+      setSelectedEdgeId(edgeId);
+      setSelectedNodeIds([]);
+    },
   });
 
   const handleEdgeHandleMouseDown = useCallback(

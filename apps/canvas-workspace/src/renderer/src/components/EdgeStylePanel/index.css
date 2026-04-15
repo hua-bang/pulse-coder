@@ -1,13 +1,21 @@
 /* Floating panel shown when an edge is selected. Positioned via inline
    left/top, centered horizontally on the anchor point and shifted up so
-   its bottom edge sits ~12px above the anchor. */
+   its bottom edge sits ~12px above the anchor.
+
+   Laid out as two stacked rows:
+     row 1 — stroke appearance (color / width / style)
+     row 2 — endpoint caps + delete
+   Splitting like this keeps each row narrow enough to scan at a glance
+   instead of the earlier single-row layout that crowded 20+ controls
+   side-by-side. */
 .edge-style-panel {
   position: absolute;
   transform: translate(-50%, calc(-100% - 12px));
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 4px 6px;
+  gap: 4px;
+  padding: 6px 8px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -20,6 +28,18 @@
   white-space: nowrap;
 }
 
+.edge-style-line {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.edge-style-line--caps {
+  /* The cap row is denser (2 cap groups + delete), so trim the outer
+     gap slightly to keep the panel visually balanced. */
+  gap: 1px;
+}
+
 .edge-style-row {
   display: flex;
   align-items: center;
@@ -30,20 +50,19 @@
   gap: 1px;
 }
 
-.edge-style-label {
-  font-size: 10px;
-  font-weight: 600;
+.edge-style-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-secondary);
   padding: 0 4px 0 2px;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
 }
 
 .edge-style-divider {
   width: 1px;
   height: 20px;
   background: var(--border);
-  margin: 0 3px;
+  margin: 0 6px;
   flex-shrink: 0;
 }
 

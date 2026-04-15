@@ -45,9 +45,9 @@ const COLORS: string[] = [
 ];
 
 const WIDTHS: Array<{ label: string; value: number }> = [
-  { label: 'S', value: 1.2 },
-  { label: 'M', value: 1.6 },
-  { label: 'L', value: 2.4 },
+  { label: 'S', value: 1.6 },
+  { label: 'M', value: 2.4 },
+  { label: 'L', value: 3.6 },
 ];
 
 const STYLES: Array<NonNullable<EdgeStroke['style']>> = ['solid', 'dashed', 'dotted'];
@@ -112,7 +112,7 @@ export const EdgeStylePanel = ({
   onRemove,
 }: Props) => {
   const color = edge.stroke?.color ?? '#1f2328';
-  const width = edge.stroke?.width ?? 1.6;
+  const width = edge.stroke?.width ?? 2.4;
   const style = edge.stroke?.style ?? 'solid';
   const head: EdgeArrowCap = edge.arrowHead ?? 'triangle';
   const tail: EdgeArrowCap = edge.arrowTail ?? 'none';
@@ -148,106 +148,124 @@ export const EdgeStylePanel = ({
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.stopPropagation()}
     >
-      <div className="edge-style-row">
-        {COLORS.map((c) => (
-          <button
-            key={c}
-            className={`edge-style-swatch${c === color ? ' edge-style-swatch--active' : ''}`}
-            style={{ background: c }}
-            onClick={() => setStroke({ color: c })}
-            title={c}
-          />
-        ))}
+      {/* Row 1 — stroke appearance: color, width, dash style. */}
+      <div className="edge-style-line">
+        <div className="edge-style-row">
+          {COLORS.map((c) => (
+            <button
+              key={c}
+              className={`edge-style-swatch${c === color ? ' edge-style-swatch--active' : ''}`}
+              style={{ background: c }}
+              onClick={() => setStroke({ color: c })}
+              title={c}
+            />
+          ))}
+        </div>
+
+        <div className="edge-style-divider" />
+
+        <div className="edge-style-row">
+          {WIDTHS.map((w) => (
+            <button
+              key={w.label}
+              className={`edge-style-btn${Math.abs(width - w.value) < 0.05 ? ' edge-style-btn--active' : ''}`}
+              onClick={() => setStroke({ width: w.value })}
+              title={`Width ${w.label}`}
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18">
+                <line x1={2} y1={9} x2={16} y2={9} stroke="currentColor" strokeWidth={w.value} strokeLinecap="round" />
+              </svg>
+            </button>
+          ))}
+        </div>
+
+        <div className="edge-style-divider" />
+
+        <div className="edge-style-row">
+          {STYLES.map((st) => (
+            <button
+              key={st}
+              className={`edge-style-btn${st === style ? ' edge-style-btn--active' : ''}`}
+              onClick={() => setStroke({ style: st })}
+              title={st}
+            >
+              <svg width="22" height="18" viewBox="0 0 22 18">
+                <line
+                  x1={2} y1={9} x2={20} y2={9}
+                  stroke="currentColor"
+                  strokeWidth={1.6}
+                  strokeLinecap="round"
+                  strokeDasharray={strokeDasharrayFor(st)}
+                />
+              </svg>
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="edge-style-divider" />
-
-      <div className="edge-style-row">
-        {WIDTHS.map((w) => (
-          <button
-            key={w.label}
-            className={`edge-style-btn${Math.abs(width - w.value) < 0.05 ? ' edge-style-btn--active' : ''}`}
-            onClick={() => setStroke({ width: w.value })}
-            title={`Width ${w.label}`}
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18">
-              <line x1={2} y1={9} x2={16} y2={9} stroke="currentColor" strokeWidth={w.value} strokeLinecap="round" />
+      {/* Row 2 — endpoints & actions: start-cap, end-cap, delete. Split
+          onto its own row so the five-icon cap groups don't crowd the
+          stroke controls. The leading arrow icons make "this group
+          controls the start/end of the arrow" readable at a glance
+          instead of the old cryptic "H" / "T" text labels. */}
+      <div className="edge-style-line edge-style-line--caps">
+        <div className="edge-style-row edge-style-row--caps">
+          <span className="edge-style-icon" title="Arrow end (target)" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 14 14">
+              <line x1={1} y1={7} x2={11} y2={7} stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
+              <path d="M8,3 L12,7 L8,11 z" fill="currentColor" />
             </svg>
-          </button>
-        ))}
-      </div>
+          </span>
+          {CAPS.map((c) => (
+            <button
+              key={`head-${c}`}
+              className={`edge-style-btn edge-style-btn--cap${c === head ? ' edge-style-btn--active' : ''}`}
+              onClick={() => onUpdate(edge.id, { arrowHead: c })}
+              title={`End: ${c}`}
+            >
+              <CapPreview cap={c} color="currentColor" side="head" />
+            </button>
+          ))}
+        </div>
 
-      <div className="edge-style-divider" />
+        <div className="edge-style-divider" />
 
-      <div className="edge-style-row">
-        {STYLES.map((st) => (
-          <button
-            key={st}
-            className={`edge-style-btn${st === style ? ' edge-style-btn--active' : ''}`}
-            onClick={() => setStroke({ style: st })}
-            title={st}
-          >
-            <svg width="22" height="18" viewBox="0 0 22 18">
-              <line
-                x1={2} y1={9} x2={20} y2={9}
-                stroke="currentColor"
-                strokeWidth={1.6}
-                strokeLinecap="round"
-                strokeDasharray={strokeDasharrayFor(st)}
-              />
+        <div className="edge-style-row edge-style-row--caps">
+          <span className="edge-style-icon" title="Arrow start (source)" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 14 14">
+              <line x1={3} y1={7} x2={13} y2={7} stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
+              <path d="M6,3 L2,7 L6,11 z" fill="currentColor" />
             </svg>
-          </button>
-        ))}
+          </span>
+          {CAPS.map((c) => (
+            <button
+              key={`tail-${c}`}
+              className={`edge-style-btn edge-style-btn--cap${c === tail ? ' edge-style-btn--active' : ''}`}
+              onClick={() => onUpdate(edge.id, { arrowTail: c })}
+              title={`Start: ${c}`}
+            >
+              <CapPreview cap={c} color="currentColor" side="tail" />
+            </button>
+          ))}
+        </div>
+
+        <div className="edge-style-divider" />
+
+        <button
+          className="edge-style-btn edge-style-btn--danger"
+          onClick={() => onRemove(edge.id)}
+          title="Delete edge"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path
+              d="M4 4l8 8M12 4L4 12"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
       </div>
-
-      <div className="edge-style-divider" />
-
-      <div className="edge-style-row edge-style-row--caps">
-        <span className="edge-style-label">H</span>
-        {CAPS.map((c) => (
-          <button
-            key={`head-${c}`}
-            className={`edge-style-btn edge-style-btn--cap${c === head ? ' edge-style-btn--active' : ''}`}
-            onClick={() => onUpdate(edge.id, { arrowHead: c })}
-            title={`Head: ${c}`}
-          >
-            <CapPreview cap={c} color="currentColor" side="head" />
-          </button>
-        ))}
-      </div>
-
-      <div className="edge-style-divider" />
-
-      <div className="edge-style-row edge-style-row--caps">
-        <span className="edge-style-label">T</span>
-        {CAPS.map((c) => (
-          <button
-            key={`tail-${c}`}
-            className={`edge-style-btn edge-style-btn--cap${c === tail ? ' edge-style-btn--active' : ''}`}
-            onClick={() => onUpdate(edge.id, { arrowTail: c })}
-            title={`Tail: ${c}`}
-          >
-            <CapPreview cap={c} color="currentColor" side="tail" />
-          </button>
-        ))}
-      </div>
-
-      <div className="edge-style-divider" />
-
-      <button
-        className="edge-style-btn edge-style-btn--danger"
-        onClick={() => onRemove(edge.id)}
-        title="Delete edge"
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path
-            d="M4 4l8 8M12 4L4 12"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-          />
-        </svg>
-      </button>
     </div>
   );
 };

@@ -872,7 +872,7 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
         arrowTail: z.enum(['none', 'triangle', 'arrow', 'dot', 'bar']).optional()
           .describe('Cap rendered at the source end. Default: "none".'),
         color: z.string().optional().describe('Stroke color (hex, e.g. "#1f2328").'),
-        width: z.number().optional().describe('Stroke width in px. Default 1.6.'),
+        width: z.number().optional().describe('Stroke width in px. Default 2.4.'),
         style: z.enum(['solid', 'dashed', 'dotted']).optional().describe('Stroke dash style. Default "solid".'),
         bend: z.number().optional().describe('Perpendicular peak offset of the curve. 0 (default) = straight line.'),
         kind: z.string().optional().describe('Optional semantic tag (e.g. "depends-on", "references").'),
@@ -916,7 +916,7 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
           input.color != null || input.width != null || input.style != null
             ? {
                 color: (input.color as string | undefined) ?? '#1f2328',
-                width: (input.width as number | undefined) ?? 1.6,
+                width: (input.width as number | undefined) ?? 2.4,
                 style: (input.style as 'solid' | 'dashed' | 'dotted' | undefined) ?? 'solid',
               }
             : undefined;
@@ -988,7 +988,7 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
           input.color != null || input.width != null || input.style != null
             ? {
                 color: (input.color as string | undefined) ?? existing.stroke?.color ?? '#1f2328',
-                width: (input.width as number | undefined) ?? existing.stroke?.width ?? 1.6,
+                width: (input.width as number | undefined) ?? existing.stroke?.width ?? 2.4,
                 style:
                   (input.style as 'solid' | 'dashed' | 'dotted' | undefined) ??
                   existing.stroke?.style ??
