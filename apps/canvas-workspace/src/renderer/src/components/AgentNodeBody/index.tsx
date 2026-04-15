@@ -69,12 +69,17 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
   const initialScrollback = useRef(data.scrollback ?? '');
   /**
    * Distinguishes a fresh user-initiated launch (picker → Start click) from
-   * a cold reload where the component is mounting with a previously
-   * persisted `running`/`done` status. On a cold reload the backing PTY
-   * has been torn down and cannot be reattached, so we must NOT re-spawn a
-   * shell and re-run the agent command — doing so both destroys the saved
-   * terminal output and can race with status persistence, leaving the node
-   * looking like the initial picker after reload.
+   * the other ways `launched` can become true on mount. On a cold reload
+   * of a previously spawned PTY the backing shell has been torn down and
+   * cannot be reattached, so we must NOT re-spawn and re-run the agent
+   * command — doing so both destroys the saved terminal output and can
+   * race with status persistence.
+   *
+   * Note: this ref alone isn't sufficient to identify a cold reload — a
+   * tool-triggered auto-launch (e.g. `canvas_create_agent_node` with
+   * `autoLaunch: true`) also mounts with `launched=true` without a Start
+   * click but has never spawned a PTY. The mount effect combines this
+   * ref with `data.sessionId`/`data.scrollback` to tell the two apart.
    *
    * Stays `false` across re-renders; flipped to `true` in `handleLaunch`
    * and reset in `handleRestart`.
@@ -225,10 +230,21 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
   useEffect(() => {
     if (launched && !spawnedRef.current) {
       // If the component is mounting with launched=true but the user did
-      // NOT click Start in this render lifecycle, we're resuming a
-      // previously persisted 'running'/'done' node after a reload. Skip
-      // re-spawning the PTY in that case.
-      const isRestored = !userLaunchedRef.current;
+      // NOT click Start in this render lifecycle, there are two sub-cases:
+      //   a) Cold reload of a real previous session — the prior PTY had
+      //      spawned (so `sessionId` was persisted by spawnAgent) or had
+      //      output serialized to `scrollback`. The PTY was killed on the
+      //      previous unmount and cannot be reattached; replay scrollback.
+      //   b) A tool just created this node (e.g.
+      //      `canvas_create_agent_node` with autoLaunch) and persisted
+      //      `status: 'running'` without ever spawning a PTY. `sessionId`
+      //      and `scrollback` are both empty — we must do a FRESH spawn,
+      //      otherwise the terminal hangs showing "previous session (no
+      //      saved output)" and the agent never runs.
+      const hasPriorSession =
+        !!(data.sessionId && data.sessionId.length > 0)
+        || !!(data.scrollback && data.scrollback.length > 0);
+      const isRestored = !userLaunchedRef.current && hasPriorSession;
       void spawnAgent(
         pendingAgentRef.current,
         pendingCwdRef.current,
