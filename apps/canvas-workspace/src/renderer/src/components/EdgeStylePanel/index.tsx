@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import './index.css';
 import type {
   CanvasEdge,
@@ -19,6 +19,14 @@ import {
  * and delete it. Positioned above the edge's midpoint in screen space so
  * it tracks the edge as nodes move / the canvas pans.
  *
+ * Surface chrome is a single row of "chips" — one per property — each
+ * showing the edge's *current* value. Clicking a chip expands a second
+ * row inside the same popover with the full option list for that
+ * property. Only one section can be open at a time; selecting a value
+ * (or clicking outside the panel) collapses it back to the chip row.
+ * This keeps the panel's default footprint small so it doesn't swallow
+ * the edge it's attached to.
+ *
  * Clicks inside the panel are stopped from bubbling up into the canvas
  * click handler so changing style doesn't accidentally deselect the
  * edge we're editing.
@@ -30,6 +38,8 @@ interface Props {
   onUpdate: (id: string, patch: Partial<CanvasEdge>) => void;
   onRemove: (id: string) => void;
 }
+
+type Section = 'color' | 'width' | 'style' | 'head' | 'tail';
 
 // Palette mirrors tldraw-style defaults — 1 neutral + 6 hues that read well on the
 // off-white canvas background at both zoom extremes. First entry matches
@@ -104,6 +114,43 @@ const CapPreview = ({ cap, color, side }: { cap: EdgeArrowCap; color: string; si
   );
 };
 
+/**
+ * Inline preview for the width chip — a short line rendered at the
+ * edge's current stroke width (clamped to what the chip can display).
+ */
+const WidthPreview = ({ width }: { width: number }) => (
+  <svg width="22" height="14" viewBox="0 0 22 14">
+    <line
+      x1={3}
+      y1={7}
+      x2={19}
+      y2={7}
+      stroke="currentColor"
+      strokeWidth={Math.min(width, 4)}
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+/**
+ * Inline preview for the style chip — a short line rendered in the
+ * current dash pattern.
+ */
+const StylePreview = ({ style }: { style: EdgeStroke['style'] }) => (
+  <svg width="22" height="14" viewBox="0 0 22 14">
+    <line
+      x1={3}
+      y1={7}
+      x2={19}
+      y2={7}
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeDasharray={strokeDasharrayFor(style)}
+    />
+  </svg>
+);
+
 export const EdgeStylePanel = ({
   edge,
   nodes,
@@ -116,6 +163,14 @@ export const EdgeStylePanel = ({
   const style = edge.stroke?.style ?? 'solid';
   const head: EdgeArrowCap = edge.arrowHead ?? 'triangle';
   const tail: EdgeArrowCap = edge.arrowTail ?? 'none';
+
+  const [openSection, setOpenSection] = useState<Section | null>(null);
+  // Collapse the popover whenever the selection switches to a different
+  // edge — otherwise the old section would stay open against the fresh
+  // current values, which feels confusing.
+  useEffect(() => {
+    setOpenSection(null);
+  }, [edge.id]);
 
   // Resolve the edge's midpoint in canvas coords (accounts for bend),
   // then convert to screen coords via the current transform. The panel
@@ -138,6 +193,32 @@ export const EdgeStylePanel = ({
     onUpdate(edge.id, { stroke: { ...edge.stroke, ...patch } });
   };
 
+  const toggleSection = (section: Section) =>
+    setOpenSection((current) => (current === section ? null : section));
+
+  // Wrapper that picks a value AND collapses the popover. Selecting is
+  // always a terminal action — the user rarely wants to pick twice in
+  // a row from the same property, and auto-collapsing keeps the panel
+  // footprint minimal.
+  const choose = (fn: () => void) => {
+    fn();
+    setOpenSection(null);
+  };
+
+  const renderChip = (
+    section: Section,
+    title: string,
+    children: React.ReactNode,
+  ) => (
+    <button
+      className={`edge-chip${openSection === section ? ' edge-chip--active' : ''}`}
+      onClick={() => toggleSection(section)}
+      title={title}
+    >
+      {children}
+    </button>
+  );
+
   return (
     <div
       className="edge-style-panel"
@@ -148,111 +229,32 @@ export const EdgeStylePanel = ({
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.stopPropagation()}
     >
-      {/* Row 1 — stroke appearance: color, width, dash style. */}
-      <div className="edge-style-line">
-        <div className="edge-style-row">
-          {COLORS.map((c) => (
-            <button
-              key={c}
-              className={`edge-style-swatch${c === color ? ' edge-style-swatch--active' : ''}`}
-              style={{ background: c }}
-              onClick={() => setStroke({ color: c })}
-              title={c}
-            />
-          ))}
-        </div>
+      <div className="edge-style-chip-row">
+        {renderChip(
+          'color',
+          `Color ${color}`,
+          <span className="edge-chip-swatch" style={{ background: color }} />,
+        )}
+        {renderChip('width', `Width`, <WidthPreview width={width} />)}
+        {renderChip('style', `Style ${style ?? 'solid'}`, <StylePreview style={style} />)}
 
         <div className="edge-style-divider" />
 
-        <div className="edge-style-row">
-          {WIDTHS.map((w) => (
-            <button
-              key={w.label}
-              className={`edge-style-btn${Math.abs(width - w.value) < 0.05 ? ' edge-style-btn--active' : ''}`}
-              onClick={() => setStroke({ width: w.value })}
-              title={`Width ${w.label}`}
-            >
-              <svg width="18" height="18" viewBox="0 0 18 18">
-                <line x1={2} y1={9} x2={16} y2={9} stroke="currentColor" strokeWidth={w.value} strokeLinecap="round" />
-              </svg>
-            </button>
-          ))}
-        </div>
-
-        <div className="edge-style-divider" />
-
-        <div className="edge-style-row">
-          {STYLES.map((st) => (
-            <button
-              key={st}
-              className={`edge-style-btn${st === style ? ' edge-style-btn--active' : ''}`}
-              onClick={() => setStroke({ style: st })}
-              title={st}
-            >
-              <svg width="22" height="18" viewBox="0 0 22 18">
-                <line
-                  x1={2} y1={9} x2={20} y2={9}
-                  stroke="currentColor"
-                  strokeWidth={1.6}
-                  strokeLinecap="round"
-                  strokeDasharray={strokeDasharrayFor(st)}
-                />
-              </svg>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Row 2 — endpoints & actions: start-cap, end-cap, delete. Split
-          onto its own row so the five-icon cap groups don't crowd the
-          stroke controls. The leading arrow icons make "this group
-          controls the start/end of the arrow" readable at a glance
-          instead of the old cryptic "H" / "T" text labels. */}
-      <div className="edge-style-line edge-style-line--caps">
-        <div className="edge-style-row edge-style-row--caps">
-          <span className="edge-style-icon" title="Arrow end (target)" aria-hidden="true">
-            <svg width="14" height="14" viewBox="0 0 14 14">
-              <line x1={1} y1={7} x2={11} y2={7} stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
-              <path d="M8,3 L12,7 L8,11 z" fill="currentColor" />
-            </svg>
-          </span>
-          {CAPS.map((c) => (
-            <button
-              key={`head-${c}`}
-              className={`edge-style-btn edge-style-btn--cap${c === head ? ' edge-style-btn--active' : ''}`}
-              onClick={() => onUpdate(edge.id, { arrowHead: c })}
-              title={`End: ${c}`}
-            >
-              <CapPreview cap={c} color="currentColor" side="head" />
-            </button>
-          ))}
-        </div>
-
-        <div className="edge-style-divider" />
-
-        <div className="edge-style-row edge-style-row--caps">
-          <span className="edge-style-icon" title="Arrow start (source)" aria-hidden="true">
-            <svg width="14" height="14" viewBox="0 0 14 14">
-              <line x1={3} y1={7} x2={13} y2={7} stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
-              <path d="M6,3 L2,7 L6,11 z" fill="currentColor" />
-            </svg>
-          </span>
-          {CAPS.map((c) => (
-            <button
-              key={`tail-${c}`}
-              className={`edge-style-btn edge-style-btn--cap${c === tail ? ' edge-style-btn--active' : ''}`}
-              onClick={() => onUpdate(edge.id, { arrowTail: c })}
-              title={`Start: ${c}`}
-            >
-              <CapPreview cap={c} color="currentColor" side="tail" />
-            </button>
-          ))}
-        </div>
+        {renderChip(
+          'head',
+          `Arrow end`,
+          <CapPreview cap={head} color="currentColor" side="head" />,
+        )}
+        {renderChip(
+          'tail',
+          `Arrow start`,
+          <CapPreview cap={tail} color="currentColor" side="tail" />,
+        )}
 
         <div className="edge-style-divider" />
 
         <button
-          className="edge-style-btn edge-style-btn--danger"
+          className="edge-chip edge-chip--danger"
           onClick={() => onRemove(edge.id)}
           title="Delete edge"
         >
@@ -260,12 +262,111 @@ export const EdgeStylePanel = ({
             <path
               d="M4 4l8 8M12 4L4 12"
               stroke="currentColor"
-              strokeWidth="1.4"
+              strokeWidth="1.5"
               strokeLinecap="round"
             />
           </svg>
         </button>
       </div>
+
+      {openSection && (
+        <div className="edge-style-popover">
+          {openSection === 'color' && (
+            <div className="edge-style-row">
+              {COLORS.map((c) => (
+                <button
+                  key={c}
+                  className={`edge-style-swatch${c === color ? ' edge-style-swatch--active' : ''}`}
+                  style={{ background: c }}
+                  onClick={() => choose(() => setStroke({ color: c }))}
+                  title={c}
+                />
+              ))}
+            </div>
+          )}
+
+          {openSection === 'width' && (
+            <div className="edge-style-row">
+              {WIDTHS.map((w) => (
+                <button
+                  key={w.label}
+                  className={`edge-style-btn${Math.abs(width - w.value) < 0.05 ? ' edge-style-btn--active' : ''}`}
+                  onClick={() => choose(() => setStroke({ width: w.value }))}
+                  title={`Width ${w.label}`}
+                >
+                  <svg width="26" height="18" viewBox="0 0 26 18">
+                    <line
+                      x1={3}
+                      y1={9}
+                      x2={23}
+                      y2={9}
+                      stroke="currentColor"
+                      strokeWidth={w.value}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {openSection === 'style' && (
+            <div className="edge-style-row">
+              {STYLES.map((st) => (
+                <button
+                  key={st}
+                  className={`edge-style-btn${st === style ? ' edge-style-btn--active' : ''}`}
+                  onClick={() => choose(() => setStroke({ style: st }))}
+                  title={st}
+                >
+                  <svg width="30" height="18" viewBox="0 0 30 18">
+                    <line
+                      x1={3}
+                      y1={9}
+                      x2={27}
+                      y2={9}
+                      stroke="currentColor"
+                      strokeWidth={1.8}
+                      strokeLinecap="round"
+                      strokeDasharray={strokeDasharrayFor(st)}
+                    />
+                  </svg>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {openSection === 'head' && (
+            <div className="edge-style-row edge-style-row--caps">
+              {CAPS.map((c) => (
+                <button
+                  key={`head-${c}`}
+                  className={`edge-style-btn edge-style-btn--cap${c === head ? ' edge-style-btn--active' : ''}`}
+                  onClick={() => choose(() => onUpdate(edge.id, { arrowHead: c }))}
+                  title={`End: ${c}`}
+                >
+                  <CapPreview cap={c} color="currentColor" side="head" />
+                </button>
+              ))}
+            </div>
+          )}
+
+          {openSection === 'tail' && (
+            <div className="edge-style-row edge-style-row--caps">
+              {CAPS.map((c) => (
+                <button
+                  key={`tail-${c}`}
+                  className={`edge-style-btn edge-style-btn--cap${c === tail ? ' edge-style-btn--active' : ''}`}
+                  onClick={() => choose(() => onUpdate(edge.id, { arrowTail: c }))}
+                  title={`Start: ${c}`}
+                >
+                  <CapPreview cap={c} color="currentColor" side="tail" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
