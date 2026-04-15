@@ -45,6 +45,11 @@ const DEFAULT_STROKE: Required<EdgeStroke> = {
 const SELECTION_COLOR = '#2a7fff';
 const HIT_PROXY_WIDTH = 10;
 const HANDLE_RADIUS = 5;
+/** Canvas-space gap between an arrow's tip and the node boundary it points
+ *  at. Without this, the arrow-head marker sits flush against the node
+ *  and gets visually swallowed by the node's background/border. tldraw
+ *  leaves similar breathing room for the same reason. */
+const ARROW_NODE_GAP = 6;
 
 const strokeDasharray = (style: EdgeStroke['style']): string | undefined => {
   switch (style) {
@@ -77,6 +82,27 @@ const buildPathData = (s: Point, t: Point, bend: number): string => {
   if (!bend) return `M ${s.x} ${s.y} L ${t.x} ${t.y}`;
   const { cx, cy } = bendControlPoint(s.x, s.y, t.x, t.y, bend);
   return `M ${s.x} ${s.y} Q ${cx} ${cy} ${t.x} ${t.y}`;
+};
+
+/**
+ * Pull the resolved `end` point back from the node boundary by `gap`
+ * canvas units along the straight line from `other` → `end`. Used when
+ * the endpoint is node-bound AND has a visible arrow cap, so the cap
+ * doesn't render flush against the node (where it visually merges into
+ * the node's border/background).
+ *
+ * Returns `end` unchanged when `gap` is 0 or the two points coincide.
+ */
+const insetTowardOther = (end: Point, other: Point, gap: number): Point => {
+  if (gap <= 0) return end;
+  const dx = end.x - other.x;
+  const dy = end.y - other.y;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return end;
+  return {
+    x: end.x - (dx / len) * gap,
+    y: end.y - (dy / len) * gap,
+  };
 };
 
 const capId = (prefix: string, cap: EdgeArrowCap, color: string): string => {
@@ -189,13 +215,24 @@ export const CanvasEdgesLayer = ({
   // Resolve each edge's endpoints into absolute canvas coords. Auto-
   // anchored node-bound endpoints are shifted to their bbox-boundary
   // point toward the opposite endpoint, so edges visually terminate at
-  // node edges rather than piercing into node centers.
+  // node edges rather than piercing into node centers. Additionally, if
+  // the endpoint carries a visible arrow cap we inset it by a small gap
+  // so the marker has clear space outside the node (otherwise the cap
+  // sits flush against the node border and visually disappears).
   const resolved = useMemo(() => {
     return edges.map((edge) => {
       const approxS = resolveEndpoint(edge.source, nodesById);
       const approxT = resolveEndpoint(edge.target, nodesById);
-      const s = resolveEndpointToward(edge.source, nodesById, approxT);
-      const t = resolveEndpointToward(edge.target, nodesById, approxS);
+      let s = resolveEndpointToward(edge.source, nodesById, approxT);
+      let t = resolveEndpointToward(edge.target, nodesById, approxS);
+      const head = edge.arrowHead ?? 'triangle';
+      const tail = edge.arrowTail ?? 'none';
+      if (edge.target.kind === 'node' && head !== 'none') {
+        t = insetTowardOther(t, s, ARROW_NODE_GAP);
+      }
+      if (edge.source.kind === 'node' && tail !== 'none') {
+        s = insetTowardOther(s, t, ARROW_NODE_GAP);
+      }
       return { edge, s, t };
     });
   }, [edges, nodesById]);
