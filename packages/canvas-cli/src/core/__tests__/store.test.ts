@@ -14,6 +14,7 @@ import {
   ensureWorkspaceDir,
   commitNodeMutation,
   CanvasWipeRefusedError,
+  CanvasReadError,
 } from '../store';
 import type { CanvasNode, CanvasSaveData } from '../types';
 
@@ -59,6 +60,15 @@ describe('store', () => {
       await saveCanvas('ws-1', emptyCanvas, testDir);
       const loaded = await loadCanvas('ws-1', testDir);
       expect(loaded).toEqual(emptyCanvas);
+    });
+
+    it('throws CanvasReadError on unparseable canvas.json (partial write)', async () => {
+      // Simulate another writer caught mid-flush: truncated JSON.
+      await ensureWorkspaceDir('ws-partial', testDir);
+      const file = join(getWorkspaceDir('ws-partial', testDir), 'canvas.json');
+      await fs.writeFile(file, '{"nodes": [{"id": "n1", "type"', 'utf-8');
+
+      await expect(loadCanvas('ws-partial', testDir)).rejects.toBeInstanceOf(CanvasReadError);
     });
   });
 
@@ -166,6 +176,38 @@ describe('store', () => {
       await saveCanvas('ws-empty', emptyCanvas, testDir, { allowEmpty: true });
       await expect(
         saveCanvas('ws-empty', emptyCanvas, testDir),
+      ).resolves.toBeUndefined();
+    });
+
+    it('refuses empty write when disk canvas.json is unparseable', async () => {
+      // A writer dumping `{nodes: []}` while another writer is mid-flush
+      // should NOT be allowed to proceed — we can't tell whether the disk
+      // had data under that partial JSON. Regression test for the silent
+      // wipe bug caused by `saveCanvas` treating "unreadable" the same
+      // as "no data to protect".
+      await ensureWorkspaceDir('ws-corrupt', testDir);
+      const file = join(getWorkspaceDir('ws-corrupt', testDir), 'canvas.json');
+      await fs.writeFile(file, '{"nodes": [{"id": "half', 'utf-8');
+
+      await expect(
+        saveCanvas('ws-corrupt', emptyCanvas, testDir),
+      ).rejects.toBeInstanceOf(CanvasReadError);
+
+      // Disk must be untouched so the next read (once the mid-flush
+      // writer finishes) recovers the real data.
+      const raw = await fs.readFile(file, 'utf-8');
+      expect(raw).toBe('{"nodes": [{"id": "half');
+    });
+
+    it('allows { allowEmpty: true } even when disk is unparseable', async () => {
+      // Explicit opt-in (e.g. fresh-workspace bootstrap) should still be
+      // honored — the caller has said "I know this is intentional".
+      await ensureWorkspaceDir('ws-corrupt-ok', testDir);
+      const file = join(getWorkspaceDir('ws-corrupt-ok', testDir), 'canvas.json');
+      await fs.writeFile(file, 'not json at all', 'utf-8');
+
+      await expect(
+        saveCanvas('ws-corrupt-ok', emptyCanvas, testDir, { allowEmpty: true }),
       ).resolves.toBeUndefined();
     });
 

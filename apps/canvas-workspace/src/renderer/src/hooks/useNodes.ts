@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CanvasNode, CanvasTransform, CanvasSaveData, FrameNodeData, FileNodeData, TextNodeData } from '../types';
-import { genId, createDefaultNode, createNodeData } from '../utils/nodeFactory';
+import type {
+  CanvasEdge,
+  CanvasNode,
+  CanvasSaveData,
+  CanvasTransform,
+  FileNodeData,
+  FrameNodeData,
+  TextNodeData,
+} from '../types';
+import { createDefaultNode, createNodeData, genId } from '../utils/nodeFactory';
+import { degradeEndpointsForDeletedNode } from '../utils/edgeFactory';
 import { useNodeHistory } from './useNodeHistory';
 
 const SAVE_DEBOUNCE_MS = 800;
@@ -46,12 +55,16 @@ export const useNodes = (
       return;
     }
     const snapshot = nodesRef.current;
+    const edgeSnapshot = edgesRef.current;
     const payload: CanvasSaveData = {
       nodes: snapshot,
+      edges: edgeSnapshot,
       transform: transformRef.current,
       savedAt: new Date().toISOString(),
     };
-    console.debug(`[canvas] saving ${canvasId}: ${payload.nodes.length} nodes`);
+    console.debug(
+      `[canvas] saving ${canvasId}: ${payload.nodes.length} nodes, ${edgeSnapshot.length} edges`,
+    );
     void api.save(canvasId, payload).then((res) => {
       if (!res.ok) {
         console.warn('[canvas] save failed:', res.error);
@@ -83,8 +96,9 @@ export const useNodes = (
   const [loaded, setLoaded] = useState(false);
 
   const {
-    nodes, setNodes, nodesRef, historyRef, historyIndexRef,
-    applyNodes, commitHistory, undo, redo,
+    nodes, edges, setNodes, setEdges, nodesRef, edgesRef,
+    historyRef, historyIndexRef,
+    applyNodes, applyEdges, applyState, commitHistory, undo, redo,
   } = useNodeHistory(scheduleSave);
 
   const setTransformForSave = useCallback(
@@ -172,6 +186,15 @@ export const useNodes = (
       nodesRef.current = nextNodes;
       setNodes(nextNodes);
 
+      // Edges for Step 1: treat disk as authoritative. CLI-side edge mutations
+      // are rare compared to node changes, and the external-update event
+      // currently carries no edge-level granularity. Replacing wholesale
+      // keeps us in sync for the common cases (CLI added/removed an edge,
+      // or a bound node was deleted elsewhere and edges were degraded).
+      const diskEdges = Array.isArray(result.data.edges) ? result.data.edges : [];
+      edgesRef.current = diskEdges;
+      setEdges(diskEdges);
+
       // Mark the affected nodes as externally-edited for 2.5s so the Canvas
       // component can render a transient highlight.
       setExternallyEditedIds((prev) => {
@@ -238,9 +261,11 @@ export const useNodes = (
     const api = window.canvasWorkspace?.store;
     if (!api) {
       const empty: CanvasNode[] = [];
-      historyRef.current = [empty];
+      const emptyEdges: CanvasEdge[] = [];
+      historyRef.current = [{ nodes: empty, edges: emptyEdges }];
       historyIndexRef.current = 0;
       setNodes(empty);
+      setEdges(emptyEdges);
       loadedRef.current = true;
       setLoaded(true);
       return;
@@ -249,24 +274,23 @@ export const useNodes = (
     void api.load(canvasId).then((result) => {
       if (result.ok && result.data) {
         const saved = result.data;
-        if (Array.isArray(saved.nodes)) {
-          setNodes(saved.nodes);
-          nodesRef.current = saved.nodes;
-          historyRef.current = [saved.nodes];
-          historyIndexRef.current = 0;
-          // Every node we loaded is on disk — seed the persisted set so
-          // the external-update handler can tell future deletes apart
-          // from locally-added unsaved nodes.
-          for (const n of saved.nodes) persistedIdsRef.current.add(n.id);
-        } else {
-          historyRef.current = [[]];
-          historyIndexRef.current = 0;
-        }
+        const loadedNodes = Array.isArray(saved.nodes) ? saved.nodes : [];
+        const loadedEdges = Array.isArray(saved.edges) ? saved.edges : [];
+        setNodes(loadedNodes);
+        setEdges(loadedEdges);
+        nodesRef.current = loadedNodes;
+        edgesRef.current = loadedEdges;
+        historyRef.current = [{ nodes: loadedNodes, edges: loadedEdges }];
+        historyIndexRef.current = 0;
+        // Every node we loaded is on disk — seed the persisted set so
+        // the external-update handler can tell future deletes apart
+        // from locally-added unsaved nodes.
+        for (const n of loadedNodes) persistedIdsRef.current.add(n.id);
         if (saved.transform && onRestoreTransformRef.current) {
           onRestoreTransformRef.current(saved.transform);
         }
       } else {
-        historyRef.current = [[]];
+        historyRef.current = [{ nodes: [], edges: [] }];
         historyIndexRef.current = 0;
       }
       loadedRef.current = true;
@@ -318,17 +342,34 @@ export const useNodes = (
 
   const removeNode = useCallback(
     (id: string) => {
-      applyNodes(nodesRef.current.filter((n) => n.id !== id));
+      const victim = nodesRef.current.find((n) => n.id === id);
+      const nextNodes = nodesRef.current.filter((n) => n.id !== id);
+      // Any edges bound to the deleted node get their endpoints degraded
+      // to free points at the node's last-known anchor — preserving the
+      // user's drawn connections instead of silently deleting them. This
+      // is one atomic history step so undo reverses both the node delete
+      // and the endpoint degradation together.
+      const nextEdges = victim
+        ? degradeEndpointsForDeletedNode(edgesRef.current, victim)
+        : edgesRef.current;
+      applyState({ nodes: nextNodes, edges: nextEdges });
     },
-    [applyNodes, nodesRef]
+    [applyState, edgesRef, nodesRef]
   );
 
   const removeNodes = useCallback(
     (ids: string[]) => {
       if (ids.length === 0) return;
-      applyNodes(nodesRef.current.filter((n) => !ids.includes(n.id)));
+      const idSet = new Set(ids);
+      const victims = nodesRef.current.filter((n) => idSet.has(n.id));
+      const nextNodes = nodesRef.current.filter((n) => !idSet.has(n.id));
+      let nextEdges = edgesRef.current;
+      for (const victim of victims) {
+        nextEdges = degradeEndpointsForDeletedNode(nextEdges, victim);
+      }
+      applyState({ nodes: nextNodes, edges: nextEdges });
     },
-    [applyNodes, nodesRef]
+    [applyState, edgesRef, nodesRef]
   );
 
   const moveNode = useCallback(
@@ -453,8 +494,45 @@ export const useNodes = (
     [applyNodes, scheduleSave, canvasId, setNodes, nodesRef]
   );
 
+  const addEdge = useCallback(
+    (edge: CanvasEdge) => {
+      applyEdges([...edgesRef.current, edge]);
+      return edge;
+    },
+    [applyEdges, edgesRef],
+  );
+
+  const updateEdge = useCallback(
+    (id: string, patch: Partial<CanvasEdge>, addToHistory = true) => {
+      applyEdges(
+        edgesRef.current.map((e) =>
+          e.id === id ? { ...e, ...patch, updatedAt: Date.now() } : e,
+        ),
+        addToHistory,
+      );
+    },
+    [applyEdges, edgesRef],
+  );
+
+  const removeEdge = useCallback(
+    (id: string) => {
+      applyEdges(edgesRef.current.filter((e) => e.id !== id));
+    },
+    [applyEdges, edgesRef],
+  );
+
+  const removeEdges = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) return;
+      const idSet = new Set(ids);
+      applyEdges(edgesRef.current.filter((e) => !idSet.has(e.id)));
+    },
+    [applyEdges, edgesRef],
+  );
+
   return {
     nodes,
+    edges,
     loaded,
     externallyEditedIds,
     addNode,
@@ -464,6 +542,10 @@ export const useNodes = (
     moveNode,
     moveNodes,
     resizeNode,
+    addEdge,
+    updateEdge,
+    removeEdge,
+    removeEdges,
     setTransformForSave,
     flushSave,
     commitHistory,

@@ -60,15 +60,58 @@ export async function ensureWorkspaceDir(workspaceId: string, storeDir?: string)
   }
 }
 
+/**
+ * Thrown by `loadCanvas` when the canvas file exists on disk but is
+ * unreadable — typically because another writer caught it mid-flush and
+ * `JSON.parse` failed, or because of an I/O error.
+ *
+ * This is deliberately distinct from the null-return-on-ENOENT case so
+ * callers can tell "the canvas really doesn't exist" (safe to bootstrap)
+ * apart from "we couldn't read the canvas right now" (DO NOT bootstrap —
+ * that would silently wipe real user data).
+ */
+export class CanvasReadError extends Error {
+  readonly workspaceId: string;
+  readonly cause: unknown;
+  constructor(workspaceId: string, cause: unknown) {
+    super(
+      `[canvas-cli] failed to read canvas.json for workspace "${workspaceId}": ` +
+      `${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    this.name = 'CanvasReadError';
+    this.workspaceId = workspaceId;
+    this.cause = cause;
+  }
+}
+
+function isEnoent(err: unknown): boolean {
+  return !!err && typeof err === 'object' && (err as { code?: string }).code === 'ENOENT';
+}
+
 export async function loadCanvas(workspaceId: string, storeDir?: string): Promise<CanvasSaveData | null> {
+  let raw: string;
   try {
-    const raw = await fs.readFile(canvasPath(workspaceId, storeDir), 'utf-8');
+    raw = await fs.readFile(canvasPath(workspaceId, storeDir), 'utf-8');
+  } catch (err) {
+    // File genuinely doesn't exist — legitimate "no canvas yet" signal.
+    if (isEnoent(err)) return null;
+    // Any other read error (EACCES, EBUSY, etc.) is a transient failure.
+    // Surface it so callers don't confuse it with "no canvas" and bootstrap
+    // an empty one on top of real data.
+    throw new CanvasReadError(workspaceId, err);
+  }
+
+  try {
     const parsed = JSON.parse(raw) as CanvasSaveData;
     // Normalize: ensure nodes is always an array
     parsed.nodes = parsed.nodes ?? [];
     return parsed;
-  } catch {
-    return null;
+  } catch (err) {
+    // Parse failure almost always means we caught another writer mid-flush.
+    // Returning null here would let `createNode`'s bootstrap overwrite real
+    // on-disk data with `{ nodes: [] }` via `{ allowEmpty: true }` — the
+    // exact wipe-data-without-warning bug we're defending against.
+    throw new CanvasReadError(workspaceId, err);
   }
 }
 
@@ -119,17 +162,31 @@ export async function saveCanvas(
   // `apps/canvas-workspace/src/main/canvas-store.ts` so every write path
   // into `canvas.json` has the same protection.
   if (!opts.allowEmpty && Array.isArray(data.nodes) && data.nodes.length === 0) {
+    let raw: string | null = null;
     try {
-      const raw = await fs.readFile(canvasPath(workspaceId, storeDir), 'utf-8');
-      const existing = JSON.parse(raw) as CanvasSaveData;
-      const existingNodes = Array.isArray(existing.nodes) ? existing.nodes : [];
+      raw = await fs.readFile(canvasPath(workspaceId, storeDir), 'utf-8');
+    } catch (err) {
+      if (!isEnoent(err)) {
+        // Can't verify what's on disk — refuse rather than risk wiping
+        // a populated canvas we just happened to fail to read.
+        throw new CanvasReadError(workspaceId, err);
+      }
+      // ENOENT → nothing on disk, fall through and write.
+    }
+    if (raw !== null) {
+      let existingNodes: CanvasNode[];
+      try {
+        const existing = JSON.parse(raw) as CanvasSaveData;
+        existingNodes = Array.isArray(existing.nodes) ? existing.nodes : [];
+      } catch (err) {
+        // Parse failure mid-flight: if we assume "nothing to protect" and
+        // write `{nodes: []}` we'd be committing the exact data-loss bug
+        // this guard exists to prevent. Refuse.
+        throw new CanvasReadError(workspaceId, err);
+      }
       if (existingNodes.length > 0) {
         throw new CanvasWipeRefusedError(workspaceId, existingNodes.length);
       }
-    } catch (err) {
-      if (err instanceof CanvasWipeRefusedError) throw err;
-      // File missing, unreadable, or unparseable — nothing on disk to
-      // protect, fall through and write.
     }
   }
 

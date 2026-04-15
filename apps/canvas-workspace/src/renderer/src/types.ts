@@ -91,8 +91,70 @@ export interface CanvasTransform {
   scale: number;
 }
 
+/**
+ * One end of a `CanvasEdge`.
+ *
+ * `node`  → the endpoint tracks a node's anchor; the actual screen position
+ *           is computed each render from the node's x/y/width/height.
+ * `point` → the endpoint is a free canvas coordinate (no node binding).
+ *           Used when the user drags an endpoint into empty space, or when
+ *           a bound node is deleted and we degrade instead of cascade-delete.
+ */
+export type EdgeAnchor = 'top' | 'right' | 'bottom' | 'left' | 'auto';
+
+export type EdgeEndpoint =
+  | { kind: 'node'; nodeId: string; anchor?: EdgeAnchor }
+  | { kind: 'point'; x: number; y: number };
+
+export type EdgeArrowCap = 'none' | 'triangle' | 'arrow' | 'dot' | 'bar';
+
+export interface EdgeStroke {
+  color?: string;
+  width?: number;
+  style?: 'solid' | 'dashed' | 'dotted';
+}
+
+/**
+ * A connection drawn between two endpoints on the canvas.
+ *
+ * Edges are tldraw-style: they are first-class shapes, not pure
+ * "relations between nodes". Either endpoint can be free
+ * (`{ kind: 'point', x, y }`) so users can draw arrows into empty
+ * space; when a bound node is deleted, the renderer degrades the
+ * affected endpoint to a free point rather than removing the edge.
+ *
+ * `bend` is a single signed scalar: 0 = straight, +N = pixels of
+ * perpendicular offset from the source→target midpoint (toward the
+ * normal's positive direction), -N = the other side. This keeps the
+ * geometry representable as a single-control quadratic Bezier and
+ * matches tldraw's arrow storage.
+ *
+ * `payload` is a free-form dictionary keyed by the edge's `kind` —
+ * e.g. `kind: 'context'` edges can stash prompt-injection hints for
+ * the canvas agent, `kind: 'data'` edges a transformer config, etc.
+ * Everything stored must be JSON-safe; it round-trips through
+ * canvas-store as-is.
+ */
+export interface CanvasEdge {
+  id: string;
+  source: EdgeEndpoint;
+  target: EdgeEndpoint;
+  bend?: number;
+  arrowHead?: EdgeArrowCap;
+  arrowTail?: EdgeArrowCap;
+  stroke?: EdgeStroke;
+  label?: string;
+  kind?: string;
+  payload?: Record<string, unknown>;
+  /** Epoch millis of last mutation; used for cross-process merge. */
+  updatedAt?: number;
+}
+
 export interface CanvasSaveData {
   nodes: CanvasNode[];
+  /** Connections between nodes. Optional for backwards compatibility with
+   *  older canvas.json files that pre-date connections. */
+  edges?: CanvasEdge[];
   transform: CanvasTransform;
   savedAt: string;
 }

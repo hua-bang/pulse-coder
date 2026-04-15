@@ -37,6 +37,22 @@ const tools = [
         />
       </svg>
     )
+  },
+  {
+    id: "connect",
+    label: "Connect",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <circle cx="4" cy="4" r="2" stroke="currentColor" strokeWidth="1.3" />
+        <circle cx="14" cy="14" r="2" stroke="currentColor" strokeWidth="1.3" />
+        <path
+          d="M5.5 5.5L12.5 12.5"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+        />
+      </svg>
+    )
   }
 ];
 

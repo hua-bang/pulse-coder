@@ -38,8 +38,46 @@ export interface CanvasTransform {
   scale: number;
 }
 
+// ─── Edges (connections between / around nodes) ─────────────────────
+//
+// Edges live at the workspace level alongside nodes. They are
+// optional in `CanvasSaveData` for backwards compatibility with
+// canvas.json files written before the edge feature shipped.
+
+export type EdgeAnchor = 'top' | 'right' | 'bottom' | 'left' | 'auto';
+
+export type EdgeEndpoint =
+  | { kind: 'node'; nodeId: string; anchor?: EdgeAnchor }
+  | { kind: 'point'; x: number; y: number };
+
+export type EdgeArrowCap = 'none' | 'triangle' | 'arrow' | 'dot' | 'bar';
+
+export interface EdgeStroke {
+  color?: string;
+  width?: number;
+  style?: 'solid' | 'dashed' | 'dotted';
+}
+
+export interface CanvasEdge {
+  id: string;
+  source: EdgeEndpoint;
+  target: EdgeEndpoint;
+  /** Peak perpendicular offset of the rendered curve. 0 = straight line. */
+  bend?: number;
+  arrowHead?: EdgeArrowCap;
+  arrowTail?: EdgeArrowCap;
+  stroke?: EdgeStroke;
+  label?: string;
+  /** Optional semantic tag for downstream consumers (agent, layout, etc). */
+  kind?: string;
+  /** Free-form extension slot mirroring `CanvasNodeData`. */
+  payload?: Record<string, unknown>;
+  updatedAt?: number;
+}
+
 export interface CanvasSaveData {
   nodes: CanvasNode[];
+  edges?: CanvasEdge[];
   transform: CanvasTransform;
   savedAt: string;
 }

@@ -7,6 +7,7 @@ import { useNodeResize } from '../../hooks/useNodeResize';
 import { useCanvasContext } from '../../hooks/useCanvasContext';
 import { useCanvasFit } from '../../hooks/useCanvasFit';
 import { useCanvasKeyboard } from '../../hooks/useCanvasKeyboard';
+import { useEdgeInteraction } from '../../hooks/useEdgeInteraction';
 import type { CanvasNode } from '../../types';
 import { computeFrameDepths } from '../../utils/frameHierarchy';
 import { CanvasSurface } from './CanvasSurface';
@@ -45,6 +46,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
 
   const {
     nodes,
+    edges,
     loaded,
     externallyEditedIds,
     addNode,
@@ -54,6 +56,9 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
     moveNode,
     moveNodes,
     resizeNode,
+    addEdge,
+    updateEdge,
+    removeEdge,
     setTransformForSave,
     flushSave,
     commitHistory,
@@ -62,6 +67,13 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
     duplicateNode,
     pasteNodes,
   } = useNodes(canvasId, () => {});
+
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  // Which edge (if any) is in label-edit mode. Driven by dbl-click on
+  // the edge body; cleared on blur/Escape/Enter. Stored here (not inside
+  // EdgeLabel) so that selecting a different edge or deleting the edge
+  // can forcibly end the edit session.
+  const [editingEdgeLabelId, setEditingEdgeLabelId] = useState<string | null>(null);
 
   // Flush pending saves on window close or component unmount
   useEffect(() => {
@@ -119,6 +131,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
 
   useCanvasKeyboard({
     undo, redo, nodes, selectedNodeIds, setSelectedNodeIds,
+    selectedEdgeId, setSelectedEdgeId, removeEdge,
     duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, removeNodes,
     searchOpen, setSearchOpen, contextMenu, setContextMenu,
     setHighlightedId, handleFocusNode,
@@ -144,9 +157,120 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
   const { resizingId, onResizeStart, onResizeMove, onResizeEnd } =
     useNodeResize(resizeNode, transform.scale);
 
+  // sortedNodes is the render order (frames first, non-frames on top,
+  // deeper frames over shallower). It doubles as the hit-test stack
+  // for edge interactions — we iterate it in reverse so the topmost
+  // node under the cursor wins.
+  const sortedNodes = useMemo(
+    () => {
+      const depths = computeFrameDepths(nodes);
+      return [...nodes].sort((a, b) => {
+        if (a.type === 'frame' && b.type !== 'frame') return -1;
+        if (a.type !== 'frame' && b.type === 'frame') return 1;
+        if (a.type === 'frame' && b.type === 'frame') {
+          return (depths.get(a.id) ?? 0) - (depths.get(b.id) ?? 0);
+        }
+        return 0;
+      });
+    },
+    [nodes]
+  );
+
+  const getContainer = useCallback(() => containerRef.current, []);
+
+  const {
+    state: edgeInteractionState,
+    beginConnect,
+    beginMoveEnd,
+    beginMoveBend,
+    beginMoveEdge,
+    getPreviewEndpoints,
+  } = useEdgeInteraction({
+    nodes,
+    sortedNodes,
+    screenToCanvas,
+    getContainer,
+    addEdge,
+    updateEdge,
+    commitHistory,
+    edges,
+    // After the user commits one arrow, hop back to the select tool and
+    // auto-select the new edge so the style panel is immediately
+    // available. Matches tldraw's "draw one arrow, then edit" flow and
+    // fixes the "cursor is still in connect mode, hard to adjust the
+    // nodes around it" feedback.
+    onConnectCommitted: (edgeId) => {
+      setActiveTool('select');
+      setSelectedEdgeId(edgeId);
+      setSelectedNodeIds([]);
+    },
+  });
+
+  const handleEdgeHandleMouseDown = useCallback(
+    (
+      edgeId: string,
+      handle: 'source' | 'target' | 'bend',
+      e: React.MouseEvent,
+      ctx: { s: { x: number; y: number }; t: { x: number; y: number } },
+    ) => {
+      if (handle === 'bend') {
+        beginMoveBend(edgeId, ctx.s, ctx.t, e.clientX, e.clientY);
+      } else {
+        beginMoveEnd(edgeId, handle, e.clientX, e.clientY);
+      }
+    },
+    [beginMoveBend, beginMoveEnd],
+  );
+
+  const handleConnectOverlayMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      beginConnect(e.clientX, e.clientY);
+    },
+    [beginConnect],
+  );
+
+  const handleEdgeBodyMouseDown = useCallback(
+    (edgeId: string, e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+      beginMoveEdge(edgeId, e.clientX, e.clientY);
+    },
+    [beginMoveEdge],
+  );
+
+  const handleEdgeBodyDoubleClick = useCallback(
+    (edgeId: string) => {
+      // Ensure the edge is selected before editing so the style panel
+      // stays in sync with the edge the user is labeling.
+      setSelectedEdgeId(edgeId);
+      setSelectedNodeIds([]);
+      setEditingEdgeLabelId(edgeId);
+    },
+    [],
+  );
+
+  const handleCommitEditEdgeLabel = useCallback(
+    (edgeId: string, label: string) => {
+      // Normalize: empty or whitespace-only labels clear the field back
+      // to `undefined`, keeping the stored data clean (and making the
+      // label chip disappear from the overlay).
+      const trimmed = label.trim();
+      updateEdge(edgeId, { label: trimmed.length > 0 ? trimmed : undefined });
+      setEditingEdgeLabelId(null);
+    },
+    [updateEdge],
+  );
+
+  const handleCancelEditEdgeLabel = useCallback(() => {
+    setEditingEdgeLabelId(null);
+  }, []);
+
   const isBlankCanvasTarget = useCallback((target: EventTarget | null) => {
     if (!(target instanceof HTMLElement)) return false;
-    return !target.closest('.canvas-node, .floating-toolbar, .zoom-indicator, .context-menu');
+    return !target.closest(
+      '.canvas-node, .floating-toolbar, .zoom-indicator, .context-menu, .canvas-edges, .canvas-connect-overlay, .edge-style-panel',
+    );
   }, []);
 
   const handleContextMenu = useCallback(
@@ -206,8 +330,19 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent) => {
       if (contextMenu) setContextMenu(null);
-      if ((e.target as HTMLElement).closest('.canvas-node')) return;
+      const target = e.target as HTMLElement;
+      if (target.closest('.canvas-node')) return;
+      // Clicking inside the edges SVG (either a hit-proxy or a handle)
+      // lands on a child of .canvas-edges. Those children stopPropagate
+      // their own onMouseDown, but the click event can still arrive
+      // here — ignore it so we don't wipe the selection we just set.
+      if (target.closest('.canvas-edges')) return;
+      // EdgeStylePanel clicks already stopPropagation in its own handlers,
+      // but this belt-and-braces check covers any edge cases where an
+      // internal button relies on default bubbling.
+      if (target.closest('.edge-style-panel')) return;
       setSelectedNodeIds([]);
+      setSelectedEdgeId(null);
     },
     [contextMenu]
   );
@@ -227,24 +362,6 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
     onResizeEnd();
     commitHistory();
   }, [canvasMouseUp, onDragEnd, onResizeEnd, commitHistory]);
-
-  const sortedNodes = useMemo(
-    () => {
-      const depths = computeFrameDepths(nodes);
-      return [...nodes].sort((a, b) => {
-        // Non-frames always render in front of frames.
-        if (a.type === 'frame' && b.type !== 'frame') return -1;
-        if (a.type !== 'frame' && b.type === 'frame') return 1;
-        // Among frames, shallower frames render first (i.e. behind deeper
-        // frames), so a nested child frame paints on top of its parent.
-        if (a.type === 'frame' && b.type === 'frame') {
-          return (depths.get(a.id) ?? 0) - (depths.get(b.id) ?? 0);
-        }
-        return 0;
-      });
-    },
-    [nodes]
-  );
 
   const cursorClass = activeTool === 'hand'
     ? ' canvas-container--hand'
@@ -282,6 +399,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
         moving={moving}
         sortedNodes={sortedNodes}
         nodes={nodes}
+        edges={edges}
         rootFolder={rootFolder}
         canvasId={canvasId}
         canvasName={canvasName}
@@ -289,14 +407,27 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
         draggingIds={draggingIds}
         resizingId={resizingId}
         selectedNodeIds={selectedNodeIds}
+        selectedEdgeId={selectedEdgeId}
         highlightedId={highlightedId}
         externallyEditedIds={externallyEditedIds}
+        edgeInteractionState={edgeInteractionState}
+        edgePreviewEndpoints={getPreviewEndpoints()}
         onDragStart={onDragStart}
         onResizeStart={onResizeStart}
         onUpdate={updateNode}
         onRemove={removeNode}
-        onSelect={(id) => setSelectedNodeIds([id])}
+        onSelect={(id) => {
+          setSelectedNodeIds([id]);
+          setSelectedEdgeId(null);
+        }}
         onFocus={handleFocusNode}
+        onSelectEdge={(id) => {
+          setSelectedEdgeId(id);
+          if (id) setSelectedNodeIds([]);
+        }}
+        onEdgeHandleMouseDown={handleEdgeHandleMouseDown}
+        onEdgeBodyMouseDown={handleEdgeBodyMouseDown}
+        onEdgeBodyDoubleClick={handleEdgeBodyDoubleClick}
       />
 
       <CanvasOverlays
@@ -314,6 +445,24 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
         onResetTransform={resetTransform}
         onSearchSelect={handleSearchSelect}
         onCloseSearch={() => setSearchOpen(false)}
+        onConnectMouseDown={handleConnectOverlayMouseDown}
+        selectedEdge={edges.find((e) => e.id === selectedEdgeId) ?? null}
+        transform={transform}
+        onUpdateEdge={(id, patch) => {
+          // Style mutations are single-step edits; commit to history
+          // by default so undo reverses one color/width change at a time.
+          updateEdge(id, patch);
+        }}
+        onRemoveEdge={(id) => {
+          removeEdge(id);
+          setSelectedEdgeId(null);
+          if (editingEdgeLabelId === id) setEditingEdgeLabelId(null);
+        }}
+        edges={edges}
+        editingEdgeLabelId={editingEdgeLabelId}
+        onStartEditEdgeLabel={handleEdgeBodyDoubleClick}
+        onCommitEditEdgeLabel={handleCommitEditEdgeLabel}
+        onCancelEditEdgeLabel={handleCancelEditEdgeLabel}
       />
     </div>
   );

@@ -8,7 +8,7 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import type { NodeSummary, WorkspaceSummary } from './types';
+import type { EdgeSummary, NodeSummary, WorkspaceSummary } from './types';
 import { getNodeRenderedText } from '../webview-registry';
 
 const STORE_DIR = join(homedir(), '.pulse-coder', 'canvas');
@@ -25,8 +25,29 @@ interface CanvasNode {
   updatedAt?: number;
 }
 
+type EdgeAnchor = 'top' | 'right' | 'bottom' | 'left' | 'auto';
+
+type EdgeEndpoint =
+  | { kind: 'node'; nodeId: string; anchor?: EdgeAnchor }
+  | { kind: 'point'; x: number; y: number };
+
+interface CanvasEdge {
+  id: string;
+  source: EdgeEndpoint;
+  target: EdgeEndpoint;
+  bend?: number;
+  arrowHead?: string;
+  arrowTail?: string;
+  stroke?: { color?: string; width?: number; style?: string };
+  label?: string;
+  kind?: string;
+  payload?: Record<string, unknown>;
+  updatedAt?: number;
+}
+
 interface CanvasSaveData {
   nodes: CanvasNode[];
+  edges?: CanvasEdge[];
   transform: { x: number; y: number; scale: number };
   savedAt: string;
 }
@@ -260,6 +281,44 @@ function summarizeNode(node: CanvasNode): NodeSummary {
 }
 
 /**
+ * Resolve a single endpoint into a "[nodeId] "Title"" / "point(x, y)"
+ * snippet used by the Connections block in the prompt. When the target
+ * node is missing (e.g. deleted) we fall back to the raw id so the
+ * agent can still reason about the reference.
+ */
+function describeEndpoint(
+  endpoint: CanvasEdge['source'],
+  nodesById: Map<string, CanvasNode>,
+): string {
+  if (endpoint.kind === 'point') {
+    return `point(${Math.round(endpoint.x)}, ${Math.round(endpoint.y)})`;
+  }
+  const node = nodesById.get(endpoint.nodeId);
+  if (!node) return `[${endpoint.nodeId}] (missing)`;
+  const title = node.title && node.title.trim().length > 0 ? node.title : node.type;
+  return `[${node.id}] "${title}"`;
+}
+
+/**
+ * Turn a raw edge into its prompt-facing summary. The string form is
+ * what the formatter prints; the raw node IDs are kept alongside it so
+ * the agent can invoke edge tools or `canvas_read_node` without needing
+ * to re-resolve the reference itself.
+ */
+function summarizeEdge(edge: CanvasEdge, nodesById: Map<string, CanvasNode>): EdgeSummary {
+  const summary: EdgeSummary = {
+    id: edge.id,
+    source: describeEndpoint(edge.source, nodesById),
+    target: describeEndpoint(edge.target, nodesById),
+  };
+  if (edge.source.kind === 'node') summary.sourceNodeId = edge.source.nodeId;
+  if (edge.target.kind === 'node') summary.targetNodeId = edge.target.nodeId;
+  if (edge.label) summary.label = edge.label;
+  if (edge.kind) summary.kind = edge.kind;
+  return summary;
+}
+
+/**
  * Build a lightweight workspace summary. This is cheap and always injected
  * into the Canvas Agent's system prompt so it "knows what's on the canvas".
  */
@@ -272,12 +331,16 @@ export async function buildWorkspaceSummary(workspaceId: string): Promise<Worksp
   const workspaceName = entry?.name ?? workspaceId;
   const canvasDir = join(STORE_DIR, workspaceId);
 
+  const nodesById = new Map(canvas.nodes.map((n) => [n.id, n]));
+  const edges = Array.isArray(canvas.edges) ? canvas.edges : [];
+
   return {
     workspaceId,
     workspaceName,
     canvasDir,
     nodeCount: canvas.nodes.length,
     nodes: canvas.nodes.map(summarizeNode),
+    edges: edges.length > 0 ? edges.map((e) => summarizeEdge(e, nodesById)) : undefined,
   };
 }
 
@@ -483,6 +546,20 @@ export function formatSummaryForPrompt(summary: WorkspaceSummary): string {
     lines.push('## Text Nodes');
     for (const n of byType.text) {
       lines.push(`- [${n.id}] **${n.title}**`);
+    }
+    lines.push('');
+  }
+
+  if (summary.edges?.length) {
+    lines.push('## Connections');
+    lines.push(
+      '_Arrows the user has drawn between (or around) nodes. Treat them as ' +
+      'semantic hints: "A → B" usually means A informs, depends on, or flows into B._',
+    );
+    for (const e of summary.edges) {
+      const labelHint = e.label ? ` — "${e.label}"` : '';
+      const kindHint = e.kind ? ` [${e.kind}]` : '';
+      lines.push(`- [${e.id}] ${e.source} → ${e.target}${labelHint}${kindHint}`);
     }
     lines.push('');
   }

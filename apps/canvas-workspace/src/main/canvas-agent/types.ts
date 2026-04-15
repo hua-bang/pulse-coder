@@ -52,12 +52,31 @@ export interface NodeSummary {
   url?: string;
 }
 
+/**
+ * Compact description of a single edge for prompt / JSON responses.
+ * Endpoints are pre-resolved to human-readable labels so the agent
+ * doesn't need to cross-reference node IDs from the separate node list.
+ */
+export interface EdgeSummary {
+  id: string;
+  source: string;
+  target: string;
+  /** Raw node IDs when the endpoint is node-bound; useful for follow-up tool calls. */
+  sourceNodeId?: string;
+  targetNodeId?: string;
+  label?: string;
+  kind?: string;
+}
+
 export interface WorkspaceSummary {
   workspaceId: string;
   workspaceName: string;
   canvasDir: string;
   nodeCount: number;
   nodes: NodeSummary[];
+  /** Edges are optional for backwards compatibility with callers that
+   *  pre-date the connections feature. */
+  edges?: EdgeSummary[];
 }
 
 // ─── Events (main → renderer) ──────────────────────────────────────

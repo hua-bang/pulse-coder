@@ -131,16 +131,54 @@ const knownNodeIds = new Map<string, Set<string>>();
  *      is how canvas-cli creates show up. Disk-only nodes whose IDs *are*
  *      known were deleted in the UI and must not be re-added.
  */
+const isEnoent = (err: unknown): boolean =>
+  !!err && typeof err === 'object' && (err as { code?: string }).code === 'ENOENT';
+
 const mergeExternalNodes = async (
   id: string,
   inMemoryData: CanvasSaveData,
 ): Promise<CanvasSaveData> => {
   const known = knownNodeIds.get(id) ?? new Set<string>();
 
+  let raw: string | null = null;
   try {
-    const raw = await fs.readFile(getFilePath(id), 'utf-8');
+    raw = await fs.readFile(getFilePath(id), 'utf-8');
+  } catch (err) {
+    if (isEnoent(err)) {
+      // Fresh canvas on disk — nothing to merge against; in-memory wins.
+      return inMemoryData;
+    }
+    // Transient I/O failure. If the renderer is asking us to write an
+    // empty canvas and we can't verify the disk is also empty, refuse
+    // rather than risk clobbering real data.
+    const memNodes = Array.isArray(inMemoryData.nodes) ? inMemoryData.nodes : [];
+    if (memNodes.length === 0) {
+      throw new Error(
+        `[canvas-store] cannot verify on-disk canvas for ${id} before empty write: ${String(err)}`,
+      );
+    }
+    return inMemoryData;
+  }
+
+  let diskNodes: CanvasNode[];
+  try {
     const diskData = JSON.parse(raw) as CanvasSaveData;
-    const diskNodes = Array.isArray(diskData.nodes) ? diskData.nodes : [];
+    diskNodes = Array.isArray(diskData.nodes) ? diskData.nodes : [];
+  } catch (err) {
+    // Caught another writer mid-flush. If memory is empty, we have no
+    // safe way to tell whether disk was empty too — refuse. Otherwise
+    // fall back to the memory snapshot we were given (the save handler's
+    // second-pass merge narrows this race further).
+    const memNodes = Array.isArray(inMemoryData.nodes) ? inMemoryData.nodes : [];
+    if (memNodes.length === 0) {
+      throw new Error(
+        `[canvas-store] canvas.json for ${id} was unparseable while guarding empty write: ${String(err)}`,
+      );
+    }
+    return inMemoryData;
+  }
+
+  try {
     const memoryNodes = Array.isArray(inMemoryData.nodes) ? inMemoryData.nodes : [];
 
     const memoryNodesRaw = Array.isArray(inMemoryData.nodes) ? inMemoryData.nodes : [];

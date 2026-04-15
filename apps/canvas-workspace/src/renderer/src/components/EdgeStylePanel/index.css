@@ -1,0 +1,184 @@
+/* Floating panel shown when an edge is selected. Positioned via inline
+   left/top, centered horizontally on the anchor point and shifted up so
+   its bottom edge sits ~12px above the anchor.
+
+   Layout is a two-level "chip row + popover":
+     • chip row — one chip per property, showing its current value as a
+       mini preview. Always visible; keeps the default footprint small.
+     • popover  — opened when a chip is clicked, reveals the full option
+       list for that property. Only one section can be open at a time.
+   Selecting a value auto-collapses the popover back to the chip row. */
+.edge-style-panel {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 12px));
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  /* Sit above the connect-mode overlay (zIndex 5) but below the floating
+     toolbar chrome (zIndex 500) so the user can still switch tools. */
+  z-index: 50;
+  /* Prevent the flex row from collapsing its children and wrapping awkwardly
+     at the edge of the viewport — the whole panel is compact by design. */
+  white-space: nowrap;
+}
+
+.edge-style-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.edge-style-popover {
+  /* Separate the expanded option list from the chip row with a hairline
+     so the two-level structure reads clearly without adding vertical
+     padding that would balloon the panel. */
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  margin-top: 2px;
+  display: flex;
+  justify-content: center;
+}
+
+.edge-style-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.edge-style-row--caps {
+  gap: 1px;
+}
+
+.edge-style-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 6px;
+  flex-shrink: 0;
+}
+
+/* Chip — the always-visible summary button for one property. Shows the
+   property's current value as a mini preview inside a neutral tile, and
+   toggles the popover open/closed on click. */
+.edge-chip {
+  height: 28px;
+  min-width: 32px;
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: background 0.1s, color 0.1s;
+}
+
+.edge-chip svg {
+  display: block;
+}
+
+.edge-chip:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text);
+}
+
+.edge-chip--active {
+  /* Active chip = its popover is currently open. A soft accent tint
+     makes it clear which property the popover belongs to. */
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.edge-chip--active:hover {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.edge-chip--danger {
+  color: var(--text-secondary);
+}
+
+.edge-chip--danger:hover {
+  background: rgba(229, 72, 77, 0.1);
+  color: #e5484d;
+}
+
+/* Color swatch rendered inside the color chip to preview the edge's
+   current stroke color. Outlined so light colors still read on the
+   off-white surface. */
+.edge-chip-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.edge-style-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.edge-style-swatch:hover {
+  transform: scale(1.08);
+}
+
+.edge-style-swatch--active {
+  /* Accent ring around the chosen color so it reads as selected without
+     relying on the color value itself (which can be identical to the
+     ring). */
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--accent);
+}
+
+.edge-style-btn {
+  height: 26px;
+  min-width: 26px;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: background 0.1s, color 0.1s;
+}
+
+.edge-style-btn svg {
+  display: block;
+}
+
+.edge-style-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text);
+}
+
+.edge-style-btn--active {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.edge-style-btn--active:hover {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.edge-style-btn--cap {
+  min-width: 22px;
+  padding: 0 2px;
+}

@@ -64,12 +64,32 @@ function getNodeCapabilities(type: NodeType): NodeCapability[] {
 
 // --- Canvas data access ---
 
+function isEnoent(err: unknown): boolean {
+  return !!err && typeof err === 'object' && (err as { code?: string }).code === 'ENOENT';
+}
+
+/**
+ * Returns null ONLY when canvas.json is truly missing (ENOENT). Any other
+ * failure (I/O, JSON parse error from catching another writer mid-flush)
+ * is rethrown so callers don't confuse "unreadable right now" with "doesn't
+ * exist" and overwrite real data. Mirrors canvas-cli / canvas-agent.
+ */
 async function loadCanvas(workspaceId: string): Promise<CanvasSaveData | null> {
+  const filePath = join(STORE_DIR, workspaceId, 'canvas.json');
+  let raw: string;
   try {
-    const raw = await fs.readFile(join(STORE_DIR, workspaceId, 'canvas.json'), 'utf-8');
+    raw = await fs.readFile(filePath, 'utf-8');
+  } catch (err) {
+    if (isEnoent(err)) return null;
+    throw err;
+  }
+  try {
     return JSON.parse(raw) as CanvasSaveData;
-  } catch {
-    return null;
+  } catch (err) {
+    throw new Error(
+      `[canvas-mcp] failed to parse canvas.json for workspace "${workspaceId}": ` +
+      `${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -96,10 +116,30 @@ async function saveCanvas(
   // write path into canvas.json refuses to silently clobber existing
   // nodes with an empty list.
   if (!opts.allowEmpty && Array.isArray(data.nodes) && data.nodes.length === 0) {
+    let raw: string | null = null;
     try {
-      const raw = await fs.readFile(filePath, 'utf-8');
-      const existing = JSON.parse(raw) as CanvasSaveData;
-      const existingNodes = Array.isArray(existing.nodes) ? existing.nodes : [];
+      raw = await fs.readFile(filePath, 'utf-8');
+    } catch (err) {
+      if (!isEnoent(err)) {
+        throw new Error(
+          `[canvas-mcp] failed to read canvas.json while guarding empty write ` +
+          `for workspace "${workspaceId}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      // ENOENT → nothing on disk, fall through and write.
+    }
+    if (raw !== null) {
+      let existingNodes: CanvasNode[];
+      try {
+        const existing = JSON.parse(raw) as CanvasSaveData;
+        existingNodes = Array.isArray(existing.nodes) ? existing.nodes : [];
+      } catch (err) {
+        // Caught another writer mid-flush: refuse rather than wipe.
+        throw new Error(
+          `[canvas-mcp] failed to parse existing canvas.json while guarding empty write ` +
+          `for workspace "${workspaceId}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
       if (existingNodes.length > 0) {
         throw new Error(
           `[canvas-mcp] refusing to overwrite ${existingNodes.length} on-disk nodes ` +
@@ -107,11 +147,6 @@ async function saveCanvas(
           `Pass { allowEmpty: true } to saveCanvas if this wipe is intentional.`,
         );
       }
-    } catch (err) {
-      if (err instanceof Error && err.message.startsWith('[canvas-mcp] refusing')) {
-        throw err;
-      }
-      // File missing or unparseable — nothing to protect.
     }
   }
 

@@ -40,8 +40,37 @@ interface CanvasNode {
   updatedAt?: number;
 }
 
+type EdgeAnchor = 'top' | 'right' | 'bottom' | 'left' | 'auto';
+
+type EdgeEndpoint =
+  | { kind: 'node'; nodeId: string; anchor?: EdgeAnchor }
+  | { kind: 'point'; x: number; y: number };
+
+type EdgeArrowCap = 'none' | 'triangle' | 'arrow' | 'dot' | 'bar';
+
+interface EdgeStroke {
+  color?: string;
+  width?: number;
+  style?: 'solid' | 'dashed' | 'dotted';
+}
+
+interface CanvasEdge {
+  id: string;
+  source: EdgeEndpoint;
+  target: EdgeEndpoint;
+  bend?: number;
+  arrowHead?: EdgeArrowCap;
+  arrowTail?: EdgeArrowCap;
+  stroke?: EdgeStroke;
+  label?: string;
+  kind?: string;
+  payload?: Record<string, unknown>;
+  updatedAt?: number;
+}
+
 interface CanvasSaveData {
   nodes: CanvasNode[];
+  edges?: CanvasEdge[];
   transform: { x: number; y: number; scale: number };
   savedAt: string;
 }
@@ -61,14 +90,39 @@ function canvasPath(workspaceId: string): string {
   return join(STORE_DIR, workspaceId, 'canvas.json');
 }
 
+function isEnoent(err: unknown): boolean {
+  return !!err && typeof err === 'object' && (err as { code?: string }).code === 'ENOENT';
+}
+
+/**
+ * Load `canvas.json` for a workspace.
+ *
+ * Returns `null` ONLY when the file is genuinely missing (ENOENT). Any
+ * other failure (I/O error, JSON parse error from catching another writer
+ * mid-flush) is rethrown so callers don't confuse "unreadable right now"
+ * with "doesn't exist" and wipe real data by bootstrapping an empty
+ * canvas. This mirrors `packages/canvas-cli/src/core/store.ts#loadCanvas`.
+ */
 async function loadCanvas(workspaceId: string): Promise<CanvasSaveData | null> {
+  let raw: string;
   try {
-    const raw = await fs.readFile(canvasPath(workspaceId), 'utf-8');
+    raw = await fs.readFile(canvasPath(workspaceId), 'utf-8');
+  } catch (err) {
+    if (isEnoent(err)) return null;
+    throw err;
+  }
+  try {
     const data = JSON.parse(raw) as CanvasSaveData;
     data.nodes = data.nodes ?? [];
     return data;
-  } catch {
-    return null;
+  } catch (err) {
+    // Parse failure almost always means another writer caught mid-flush.
+    // Do NOT return null here — the caller might treat that as "no canvas"
+    // and overwrite real user data with an empty bootstrap.
+    throw new Error(
+      `[canvas-agent] failed to parse canvas.json for workspace "${workspaceId}": ` +
+      `${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -94,10 +148,33 @@ async function saveCanvas(
   // write path into canvas.json refuses to silently clobber existing
   // nodes with an empty list.
   if (!opts.allowEmpty && Array.isArray(data.nodes) && data.nodes.length === 0) {
+    let raw: string | null = null;
     try {
-      const raw = await fs.readFile(canvasPath(workspaceId), 'utf-8');
-      const existing = JSON.parse(raw) as CanvasSaveData;
-      const existingNodes = Array.isArray(existing.nodes) ? existing.nodes : [];
+      raw = await fs.readFile(canvasPath(workspaceId), 'utf-8');
+    } catch (err) {
+      if (!isEnoent(err)) {
+        // Can't verify what's on disk — refuse rather than risk wiping a
+        // populated canvas that just happened to be unreadable this turn.
+        throw new Error(
+          `[canvas-agent] failed to read canvas.json while guarding empty write ` +
+          `for workspace "${workspaceId}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      // ENOENT → nothing on disk, fall through and write.
+    }
+    if (raw !== null) {
+      let existingNodes: CanvasNode[];
+      try {
+        const existing = JSON.parse(raw) as CanvasSaveData;
+        existingNodes = Array.isArray(existing.nodes) ? existing.nodes : [];
+      } catch (err) {
+        // Parse failure mid-flight: treating "unparseable" as "nothing to
+        // protect" is exactly how silent wipes happen. Refuse the write.
+        throw new Error(
+          `[canvas-agent] failed to parse existing canvas.json while guarding empty write ` +
+          `for workspace "${workspaceId}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
       if (existingNodes.length > 0) {
         throw new Error(
           `[canvas-agent] refusing to overwrite ${existingNodes.length} on-disk nodes ` +
@@ -105,11 +182,6 @@ async function saveCanvas(
           `Pass { allowEmpty: true } to saveCanvas if this wipe is intentional.`,
         );
       }
-    } catch (err) {
-      if (err instanceof Error && err.message.startsWith('[canvas-agent] refusing')) {
-        throw err;
-      }
-      // File missing or unparseable — nothing to protect.
     }
   }
 
@@ -171,6 +243,50 @@ export interface CanvasTool {
 
 /** Prompts shorter than this are passed directly as CLI args; longer ones go to a file. */
 const INLINE_PROMPT_THRESHOLD = 256;
+
+let edgeIdCounter = 0;
+function genEdgeId(): string {
+  return `edge-${Date.now()}-${++edgeIdCounter}`;
+}
+
+/**
+ * Short human-readable title for an edge endpoint, used when describing
+ * connections back to the agent. Falls back to `point(x, y)` for free
+ * endpoints and `[id]` for unresolved nodes.
+ */
+function describeEndpoint(endpoint: EdgeEndpoint, nodesById: Map<string, CanvasNode>): string {
+  if (endpoint.kind === 'point') {
+    return `point(${Math.round(endpoint.x)}, ${Math.round(endpoint.y)})`;
+  }
+  const node = nodesById.get(endpoint.nodeId);
+  if (!node) return `[${endpoint.nodeId}] (missing)`;
+  return `[${node.id}] "${node.title || node.type}"`;
+}
+
+/**
+ * Build an EdgeEndpoint from the flat source/target fields on the tool
+ * input. Prefers `nodeId` when both a node ref and explicit x/y are
+ * supplied, and throws if neither is provided.
+ */
+function buildEndpoint(args: {
+  nodeId?: string;
+  anchor?: string;
+  x?: number;
+  y?: number;
+  which: 'source' | 'target';
+}): EdgeEndpoint {
+  if (args.nodeId) {
+    const anchor = (args.anchor as EdgeAnchor | undefined) ?? 'auto';
+    return { kind: 'node', nodeId: args.nodeId, anchor };
+  }
+  if (typeof args.x === 'number' && typeof args.y === 'number') {
+    return { kind: 'point', x: args.x, y: args.y };
+  }
+  throw new Error(
+    `canvas_create_edge: ${args.which} endpoint needs either \`${args.which}NodeId\` ` +
+      `or both \`${args.which}X\` and \`${args.which}Y\`.`,
+  );
+}
 
 // ─── Tool definitions ──────────────────────────────────────────────
 
@@ -733,6 +849,256 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
         broadcastUpdate(workspaceId, [nodeId]);
 
         return JSON.stringify({ ok: true, nodeId, title });
+      },
+    },
+
+    // ─── Edges (connections between nodes) ──────────────────────────
+
+    canvas_list_edges: {
+      name: 'canvas_list_edges',
+      description:
+        'List every edge (connection / arrow) on the canvas with resolved endpoint titles. ' +
+        'Useful when you need to understand what the user has linked together — e.g. to figure out ' +
+        'which file node backs an agent node, or to find nodes that reference each other. ' +
+        'Defaults to the current workspace; pass `workspaceId` to inspect another canvas the user @-mentioned.',
+      inputSchema: z.object({
+        workspaceId: z.string().optional().describe('Target workspace ID. Defaults to the current workspace.'),
+      }),
+      execute: async (input) => {
+        const targetWorkspaceId = (input.workspaceId as string) || workspaceId;
+        const canvas = await loadCanvas(targetWorkspaceId);
+        if (!canvas) return `Error: workspace not found: ${targetWorkspaceId}`;
+        const edges = canvas.edges ?? [];
+        if (edges.length === 0) return 'No edges on this canvas.';
+        const nodesById = new Map(canvas.nodes.map((n) => [n.id, n]));
+        return JSON.stringify(
+          edges.map((e) => ({
+            id: e.id,
+            source: describeEndpoint(e.source, nodesById),
+            target: describeEndpoint(e.target, nodesById),
+            label: e.label,
+            kind: e.kind,
+            arrowHead: e.arrowHead ?? 'triangle',
+            arrowTail: e.arrowTail ?? 'none',
+            stroke: e.stroke,
+            bend: e.bend ?? 0,
+          })),
+          null,
+          2,
+        );
+      },
+    },
+
+    canvas_create_edge: {
+      name: 'canvas_create_edge',
+      description:
+        'Connect two nodes (or free points) on the canvas with an arrow. ' +
+        'Endpoints are node-bound by default: pass `sourceNodeId` / `targetNodeId`. For a free-floating ' +
+        'endpoint (not attached to any node) pass `sourceX`/`sourceY` or `targetX`/`targetY` in canvas coords instead. ' +
+        'Use `label` to annotate the connection with text the user will see. ' +
+        'Use `kind` and `payload` to tag the edge with semantic info other tools can read later ' +
+        '(e.g. `kind: "depends-on"`, `payload: { reason: "uses the PRD" }`).',
+      inputSchema: z.object({
+        sourceNodeId: z.string().optional().describe('Source node ID (node-bound endpoint).'),
+        sourceAnchor: z.enum(['top', 'right', 'bottom', 'left', 'auto']).optional()
+          .describe('Which side of the source node to anchor to. Default: "auto" (edge-hugging).'),
+        sourceX: z.number().optional().describe('Free-point source X (canvas coords). Used if sourceNodeId is omitted.'),
+        sourceY: z.number().optional().describe('Free-point source Y (canvas coords). Used if sourceNodeId is omitted.'),
+        targetNodeId: z.string().optional().describe('Target node ID (node-bound endpoint).'),
+        targetAnchor: z.enum(['top', 'right', 'bottom', 'left', 'auto']).optional()
+          .describe('Which side of the target node to anchor to. Default: "auto".'),
+        targetX: z.number().optional().describe('Free-point target X (canvas coords).'),
+        targetY: z.number().optional().describe('Free-point target Y (canvas coords).'),
+        label: z.string().optional().describe('Optional short label displayed on the edge.'),
+        arrowHead: z.enum(['none', 'triangle', 'arrow', 'dot', 'bar']).optional()
+          .describe('Cap rendered at the target end. Default: "triangle".'),
+        arrowTail: z.enum(['none', 'triangle', 'arrow', 'dot', 'bar']).optional()
+          .describe('Cap rendered at the source end. Default: "none".'),
+        color: z.string().optional().describe('Stroke color (hex, e.g. "#1f2328").'),
+        width: z.number().optional().describe('Stroke width in px. Default 2.4.'),
+        style: z.enum(['solid', 'dashed', 'dotted']).optional().describe('Stroke dash style. Default "solid".'),
+        bend: z.number().optional().describe('Perpendicular peak offset of the curve. 0 (default) = straight line.'),
+        kind: z.string().optional().describe('Optional semantic tag (e.g. "depends-on", "references").'),
+        payload: z.record(z.string(), z.unknown()).optional().describe('Free-form extra data attached to the edge.'),
+      }),
+      execute: async (input) => {
+        let source: EdgeEndpoint;
+        let target: EdgeEndpoint;
+        try {
+          source = buildEndpoint({
+            nodeId: input.sourceNodeId as string | undefined,
+            anchor: input.sourceAnchor as string | undefined,
+            x: input.sourceX as number | undefined,
+            y: input.sourceY as number | undefined,
+            which: 'source',
+          });
+          target = buildEndpoint({
+            nodeId: input.targetNodeId as string | undefined,
+            anchor: input.targetAnchor as string | undefined,
+            x: input.targetX as number | undefined,
+            y: input.targetY as number | undefined,
+            which: 'target',
+          });
+        } catch (err) {
+          return `Error: ${err instanceof Error ? err.message : String(err)}`;
+        }
+
+        const canvas = await loadCanvas(workspaceId);
+        if (!canvas) return 'Error: workspace not found';
+
+        // Validate referenced nodes exist before committing — otherwise the
+        // agent could create a zombie edge pointing at a deleted node id.
+        if (source.kind === 'node' && !canvas.nodes.some((n) => n.id === source.nodeId)) {
+          return `Error: source node not found: ${source.nodeId}`;
+        }
+        if (target.kind === 'node' && !canvas.nodes.some((n) => n.id === target.nodeId)) {
+          return `Error: target node not found: ${target.nodeId}`;
+        }
+
+        const stroke: EdgeStroke | undefined =
+          input.color != null || input.width != null || input.style != null
+            ? {
+                color: (input.color as string | undefined) ?? '#1f2328',
+                width: (input.width as number | undefined) ?? 2.4,
+                style: (input.style as 'solid' | 'dashed' | 'dotted' | undefined) ?? 'solid',
+              }
+            : undefined;
+
+        const edge: CanvasEdge = {
+          id: genEdgeId(),
+          source,
+          target,
+          bend: (input.bend as number | undefined) ?? 0,
+          arrowHead: (input.arrowHead as EdgeArrowCap | undefined) ?? 'triangle',
+          arrowTail: (input.arrowTail as EdgeArrowCap | undefined) ?? 'none',
+          stroke,
+          label: input.label as string | undefined,
+          kind: input.kind as string | undefined,
+          payload: input.payload as Record<string, unknown> | undefined,
+          updatedAt: Date.now(),
+        };
+
+        const fresh = (await loadCanvas(workspaceId)) ?? canvas;
+        fresh.edges = [...(fresh.edges ?? []), edge];
+        await saveCanvas(workspaceId, fresh);
+
+        // Broadcast using the endpoint node IDs so the renderer highlights
+        // them as "recently changed". Edges with two free-point endpoints
+        // still trigger a reload via any existing node id on the canvas;
+        // if none exist we skip — the renderer only re-reads when at least
+        // one node id is supplied, which is fine for a canvas with zero nodes.
+        const touchedIds = [source, target]
+          .filter((ep): ep is Extract<EdgeEndpoint, { kind: 'node' }> => ep.kind === 'node')
+          .map((ep) => ep.nodeId);
+        if (touchedIds.length === 0 && fresh.nodes.length > 0) {
+          // Two free-point endpoints — nudge the renderer by referencing any
+          // node so it re-reads edges from disk.
+          touchedIds.push(fresh.nodes[0].id);
+        }
+        if (touchedIds.length > 0) broadcastUpdate(workspaceId, touchedIds);
+
+        return JSON.stringify({ ok: true, edgeId: edge.id });
+      },
+    },
+
+    canvas_update_edge: {
+      name: 'canvas_update_edge',
+      description:
+        'Update fields on an existing edge. Supports changing label, kind, payload, arrow caps, stroke, and bend. ' +
+        'Endpoint mutation is intentionally not supported — delete the edge and create a new one instead to keep the ' +
+        'semantics obvious in the undo history.',
+      inputSchema: z.object({
+        edgeId: z.string().describe('The ID of the edge to update.'),
+        label: z.string().optional(),
+        kind: z.string().optional(),
+        payload: z.record(z.string(), z.unknown()).optional(),
+        arrowHead: z.enum(['none', 'triangle', 'arrow', 'dot', 'bar']).optional(),
+        arrowTail: z.enum(['none', 'triangle', 'arrow', 'dot', 'bar']).optional(),
+        color: z.string().optional(),
+        width: z.number().optional(),
+        style: z.enum(['solid', 'dashed', 'dotted']).optional(),
+        bend: z.number().optional(),
+      }),
+      execute: async (input) => {
+        const edgeId = input.edgeId as string;
+        const canvas = await loadCanvas(workspaceId);
+        if (!canvas) return 'Error: workspace not found';
+        const edges = canvas.edges ?? [];
+        const idx = edges.findIndex((e) => e.id === edgeId);
+        if (idx === -1) return `Error: edge not found: ${edgeId}`;
+        const existing = edges[idx];
+        const nextStroke =
+          input.color != null || input.width != null || input.style != null
+            ? {
+                color: (input.color as string | undefined) ?? existing.stroke?.color ?? '#1f2328',
+                width: (input.width as number | undefined) ?? existing.stroke?.width ?? 2.4,
+                style:
+                  (input.style as 'solid' | 'dashed' | 'dotted' | undefined) ??
+                  existing.stroke?.style ??
+                  'solid',
+              }
+            : existing.stroke;
+        const next: CanvasEdge = {
+          ...existing,
+          label: input.label !== undefined ? (input.label as string) : existing.label,
+          kind: input.kind !== undefined ? (input.kind as string) : existing.kind,
+          payload:
+            input.payload !== undefined
+              ? (input.payload as Record<string, unknown>)
+              : existing.payload,
+          arrowHead: (input.arrowHead as EdgeArrowCap | undefined) ?? existing.arrowHead,
+          arrowTail: (input.arrowTail as EdgeArrowCap | undefined) ?? existing.arrowTail,
+          stroke: nextStroke,
+          bend: input.bend != null ? (input.bend as number) : existing.bend,
+          updatedAt: Date.now(),
+        };
+
+        const fresh = (await loadCanvas(workspaceId)) ?? canvas;
+        const freshEdges = [...(fresh.edges ?? [])];
+        const freshIdx = freshEdges.findIndex((e) => e.id === edgeId);
+        if (freshIdx >= 0) freshEdges[freshIdx] = next;
+        else freshEdges.push(next);
+        fresh.edges = freshEdges;
+        await saveCanvas(workspaceId, fresh);
+
+        const touchedIds = [next.source, next.target]
+          .filter((ep): ep is Extract<EdgeEndpoint, { kind: 'node' }> => ep.kind === 'node')
+          .map((ep) => ep.nodeId);
+        if (touchedIds.length === 0 && fresh.nodes.length > 0) {
+          touchedIds.push(fresh.nodes[0].id);
+        }
+        if (touchedIds.length > 0) broadcastUpdate(workspaceId, touchedIds);
+
+        return JSON.stringify({ ok: true, edgeId });
+      },
+    },
+
+    canvas_delete_edge: {
+      name: 'canvas_delete_edge',
+      description: 'Delete an edge by id.',
+      inputSchema: z.object({
+        edgeId: z.string().describe('The ID of the edge to delete.'),
+      }),
+      execute: async (input) => {
+        const edgeId = input.edgeId as string;
+        const canvas = await loadCanvas(workspaceId);
+        if (!canvas) return 'Error: workspace not found';
+        const existing = (canvas.edges ?? []).find((e) => e.id === edgeId);
+        if (!existing) return `Error: edge not found: ${edgeId}`;
+
+        const fresh = (await loadCanvas(workspaceId)) ?? canvas;
+        fresh.edges = (fresh.edges ?? []).filter((e) => e.id !== edgeId);
+        await saveCanvas(workspaceId, fresh);
+
+        const touchedIds = [existing.source, existing.target]
+          .filter((ep): ep is Extract<EdgeEndpoint, { kind: 'node' }> => ep.kind === 'node')
+          .map((ep) => ep.nodeId);
+        if (touchedIds.length === 0 && fresh.nodes.length > 0) {
+          touchedIds.push(fresh.nodes[0].id);
+        }
+        if (touchedIds.length > 0) broadcastUpdate(workspaceId, touchedIds);
+
+        return JSON.stringify({ ok: true, edgeId });
       },
     },
   };
