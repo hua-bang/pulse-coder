@@ -1,0 +1,118 @@
+/* Floating panel shown when an edge is selected. Positioned via inline
+   left/top, centered horizontally on the anchor point and shifted up so
+   its bottom edge sits ~12px above the anchor. */
+.edge-style-panel {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 12px));
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  /* Sit above the connect-mode overlay (zIndex 5) but below the floating
+     toolbar chrome (zIndex 500) so the user can still switch tools. */
+  z-index: 50;
+  /* Prevent the flex row from collapsing its children and wrapping awkwardly
+     at the edge of the viewport — the whole panel is compact by design. */
+  white-space: nowrap;
+}
+
+.edge-style-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.edge-style-row--caps {
+  gap: 1px;
+}
+
+.edge-style-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 0 4px 0 2px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.edge-style-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 3px;
+  flex-shrink: 0;
+}
+
+.edge-style-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.edge-style-swatch:hover {
+  transform: scale(1.08);
+}
+
+.edge-style-swatch--active {
+  /* Accent ring around the chosen color so it reads as selected without
+     relying on the color value itself (which can be identical to the
+     ring). */
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--accent);
+}
+
+.edge-style-btn {
+  height: 26px;
+  min-width: 26px;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: background 0.1s, color 0.1s;
+}
+
+.edge-style-btn svg {
+  display: block;
+}
+
+.edge-style-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text);
+}
+
+.edge-style-btn--active {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.edge-style-btn--active:hover {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.edge-style-btn--cap {
+  min-width: 22px;
+  padding: 0 2px;
+}
+
+.edge-style-btn--danger {
+  color: var(--text-secondary);
+}
+
+.edge-style-btn--danger:hover {
+  background: rgba(229, 72, 77, 0.1);
+  color: #e5484d;
+}

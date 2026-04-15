@@ -218,7 +218,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
   const isBlankCanvasTarget = useCallback((target: EventTarget | null) => {
     if (!(target instanceof HTMLElement)) return false;
     return !target.closest(
-      '.canvas-node, .floating-toolbar, .zoom-indicator, .context-menu, .canvas-edges, .canvas-connect-overlay',
+      '.canvas-node, .floating-toolbar, .zoom-indicator, .context-menu, .canvas-edges, .canvas-connect-overlay, .edge-style-panel',
     );
   }, []);
 
@@ -286,6 +286,10 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
       // their own onMouseDown, but the click event can still arrive
       // here — ignore it so we don't wipe the selection we just set.
       if (target.closest('.canvas-edges')) return;
+      // EdgeStylePanel clicks already stopPropagation in its own handlers,
+      // but this belt-and-braces check covers any edge cases where an
+      // internal button relies on default bubbling.
+      if (target.closest('.edge-style-panel')) return;
       setSelectedNodeIds([]);
       setSelectedEdgeId(null);
     },
@@ -389,6 +393,17 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
         onSearchSelect={handleSearchSelect}
         onCloseSearch={() => setSearchOpen(false)}
         onConnectMouseDown={handleConnectOverlayMouseDown}
+        selectedEdge={edges.find((e) => e.id === selectedEdgeId) ?? null}
+        transform={transform}
+        onUpdateEdge={(id, patch) => {
+          // Style mutations are single-step edits; commit to history
+          // by default so undo reverses one color/width change at a time.
+          updateEdge(id, patch);
+        }}
+        onRemoveEdge={(id) => {
+          removeEdge(id);
+          setSelectedEdgeId(null);
+        }}
       />
     </div>
   );

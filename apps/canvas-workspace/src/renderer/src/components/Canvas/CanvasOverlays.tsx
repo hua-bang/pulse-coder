@@ -1,10 +1,11 @@
 import type React from 'react';
-import type { CanvasNode } from '../../types';
+import type { CanvasEdge, CanvasNode, CanvasTransform } from '../../types';
 import { NodeContextMenu } from '../NodeContextMenu';
 import { FloatingToolbar } from '../FloatingToolbar';
 import { ZoomIndicator } from '../ZoomIndicator';
 import { SearchPalette } from '../SearchPalette';
 import { CanvasEmptyHint } from '../CanvasEmptyHint';
+import { EdgeStylePanel } from '../EdgeStylePanel';
 
 interface CanvasOverlaysProps {
   nodes: CanvasNode[];
@@ -29,6 +30,15 @@ interface CanvasOverlaysProps {
   /** Mousedown handler for the connect-mode overlay. Wired by the
    *  parent Canvas component to the edge interaction hook. */
   onConnectMouseDown?: (e: React.MouseEvent) => void;
+  /** Currently-selected edge (full object) — null when none or the
+   *  selection refers to a node. The overlays layer uses it to render
+   *  the floating EdgeStylePanel. */
+  selectedEdge?: CanvasEdge | null;
+  /** Canvas transform, needed by EdgeStylePanel to project the edge
+   *  midpoint from canvas space to screen space. */
+  transform: CanvasTransform;
+  onUpdateEdge?: (id: string, patch: Partial<CanvasEdge>) => void;
+  onRemoveEdge?: (id: string) => void;
 }
 
 export const CanvasOverlays = ({
@@ -47,6 +57,10 @@ export const CanvasOverlays = ({
   onSearchSelect,
   onCloseSearch,
   onConnectMouseDown,
+  selectedEdge,
+  transform,
+  onUpdateEdge,
+  onRemoveEdge,
 }: CanvasOverlaysProps) => (
   <>
     {nodes.length === 0 && !contextMenu && <CanvasEmptyHint />}
@@ -89,6 +103,16 @@ export const CanvasOverlays = ({
       chatPanelOpen={chatPanelOpen}
       onChatToggle={onChatToggle}
     />
+
+    {selectedEdge && onUpdateEdge && onRemoveEdge && (
+      <EdgeStylePanel
+        edge={selectedEdge}
+        nodes={nodes}
+        transform={transform}
+        onUpdate={onUpdateEdge}
+        onRemove={onRemoveEdge}
+      />
+    )}
 
     <ZoomIndicator scale={scale} onReset={onResetTransform} />
 
