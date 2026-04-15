@@ -8,6 +8,7 @@ import { useCanvasContext } from '../../hooks/useCanvasContext';
 import { useCanvasFit } from '../../hooks/useCanvasFit';
 import { useCanvasKeyboard } from '../../hooks/useCanvasKeyboard';
 import { useEdgeInteraction } from '../../hooks/useEdgeInteraction';
+import { useMarqueeSelect } from '../../hooks/useMarqueeSelect';
 import type { CanvasNode } from '../../types';
 import { computeFrameDepths } from '../../utils/frameHierarchy';
 import { CanvasSurface } from './CanvasSurface';
@@ -206,6 +207,25 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
     },
   });
 
+  const {
+    rect: marqueeRect,
+    begin: marqueeBegin,
+    move: marqueeMove,
+    end: marqueeEnd,
+  } = useMarqueeSelect({
+    nodes,
+    screenToCanvas,
+    getContainer,
+    setSelectedNodeIds,
+    setSelectedEdgeId,
+  });
+
+  /** True for exactly one onClick fire after a marquee commits, so the
+   *  `handleCanvasClick` deselect fallback doesn't wipe the fresh selection.
+   *  Some browsers still synthesize a click after a drag that starts+ends on
+   *  the same element, so we can't rely on the click simply not firing. */
+  const justMarqueedRef = useRef(false);
+
   const handleEdgeHandleMouseDown = useCallback(
     (
       edgeId: string,
@@ -330,6 +350,12 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent) => {
       if (contextMenu) setContextMenu(null);
+      // A marquee just ran — swallow the trailing click so its fresh
+      // selection survives the blank-canvas deselect fallback below.
+      if (justMarqueedRef.current) {
+        justMarqueedRef.current = false;
+        return;
+      }
       const target = e.target as HTMLElement;
       if (target.closest('.canvas-node')) return;
       // Clicking inside the edges SVG (either a hit-proxy or a handle)
@@ -347,21 +373,52 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
     [contextMenu]
   );
 
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      canvasMouseDown(e);
+      // `useCanvas` sets defaultPrevented on the synthetic event when it
+      // takes over for pan (middle click, alt+left, or hand tool). Don't
+      // start a marquee when panning — the two gestures share the left
+      // button in hand mode and the user clearly wants to pan.
+      if (e.defaultPrevented) return;
+      if (e.button !== 0 || e.altKey) return;
+      if (activeTool !== 'select') return;
+      // If edge tools are mid-drag (connect/move-end/move-bend/move-edge)
+      // the canvas mousedown won't even reach us because those drags are
+      // started by the overlay or handles, but belt-and-braces: skip.
+      if (edgeInteractionState) return;
+      // `isBlankCanvasTarget` already excludes node bodies, the connect
+      // overlay, edges, toolbars and menus — so mousedown here means the
+      // pointer is on the bare canvas (grid/transform/container). This is
+      // what lets us cleanly coexist with frame nodes: clicking a frame's
+      // body/header bubbles through `.canvas-node` and is rejected here,
+      // so frame drags (via `.node-header`) keep working unchanged.
+      if (!isBlankCanvasTarget(e.target)) return;
+      marqueeBegin(e, selectedNodeIds);
+    },
+    [canvasMouseDown, activeTool, edgeInteractionState, isBlankCanvasTarget, marqueeBegin, selectedNodeIds]
+  );
+
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
       canvasMouseMove(e);
       onDragMove(e);
       onResizeMove(e);
+      marqueeMove(e);
     },
-    [canvasMouseMove, onDragMove, onResizeMove]
+    [canvasMouseMove, onDragMove, onResizeMove, marqueeMove]
   );
 
   const handleMouseUp = useCallback(() => {
     canvasMouseUp();
     onDragEnd();
     onResizeEnd();
+    // `marqueeEnd()` returns true when a marquee was actually drawn, so we
+    // know to suppress the trailing onClick that would otherwise wipe the
+    // selection the marquee just committed via `marqueeMove`.
+    if (marqueeEnd()) justMarqueedRef.current = true;
     commitHistory();
-  }, [canvasMouseUp, onDragEnd, onResizeEnd, commitHistory]);
+  }, [canvasMouseUp, onDragEnd, onResizeEnd, marqueeEnd, commitHistory]);
 
   const cursorClass = activeTool === 'hand'
     ? ' canvas-container--hand'
@@ -383,7 +440,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
       className={`canvas-container${cursorClass}`}
       style={hidden ? { visibility: 'hidden', pointerEvents: 'none' } : undefined}
       onWheel={handleWheel}
-      onMouseDown={canvasMouseDown}
+      onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
@@ -412,6 +469,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
         externallyEditedIds={externallyEditedIds}
         edgeInteractionState={edgeInteractionState}
         edgePreviewEndpoints={getPreviewEndpoints()}
+        marqueeRect={marqueeRect}
         onDragStart={onDragStart}
         onResizeStart={onResizeStart}
         onUpdate={updateNode}
