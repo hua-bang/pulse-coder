@@ -1,10 +1,34 @@
 import { useMemo } from 'react';
-import type { CanvasEdge, CanvasNode, EdgeArrowCap, EdgeStroke } from '../types';
-import { resolveEndpoint } from '../utils/edgeFactory';
+import type {
+  CanvasEdge,
+  CanvasNode,
+  EdgeArrowCap,
+  EdgeStroke,
+} from '../types';
+import {
+  bendHandlePoint,
+  resolveEndpoint,
+  resolveEndpointToward,
+} from '../utils/edgeFactory';
+import type { EdgeInteractionState, Point } from '../hooks/useEdgeInteraction';
 
 interface Props {
   edges: CanvasEdge[];
   nodes: CanvasNode[];
+  selectedEdgeId: string | null;
+  onSelectEdge?: (id: string | null) => void;
+  /** Live interaction state — renders preview / freezes the edge under
+   *  drag. Optional because Step 1 call sites don't pass it. */
+  interactionState?: EdgeInteractionState | null;
+  /** Preview endpoints resolved by the interaction hook. When set, we
+   *  draw a dashed draft line between these two points. */
+  previewEndpoints?: { s: Point; t: Point } | null;
+  onHandleMouseDown?: (
+    edgeId: string,
+    handle: 'source' | 'target' | 'bend',
+    e: React.MouseEvent,
+    ctx: { s: Point; t: Point },
+  ) => void;
 }
 
 const DEFAULT_STROKE: Required<EdgeStroke> = {
@@ -12,6 +36,10 @@ const DEFAULT_STROKE: Required<EdgeStroke> = {
   width: 1.6,
   style: 'solid',
 };
+
+const SELECTION_COLOR = '#2a7fff';
+const HIT_PROXY_WIDTH = 10;
+const HANDLE_RADIUS = 5;
 
 const strokeDasharray = (style: EdgeStroke['style']): string | undefined => {
   switch (style) {
@@ -22,13 +50,6 @@ const strokeDasharray = (style: EdgeStroke['style']): string | undefined => {
   }
 };
 
-/**
- * Signed perpendicular offset → quadratic Bezier control point.
- * The control point sits at (midpoint + normal * bend). A positive bend
- * bows the curve to the right of the s→t direction, negative to the left.
- * Bend of 0 produces a degenerate quadratic that renders as a straight
- * line, which is exactly what we want.
- */
 const bendControlPoint = (
   sx: number, sy: number,
   tx: number, ty: number,
@@ -40,30 +61,24 @@ const bendControlPoint = (
   const dx = tx - sx;
   const dy = ty - sy;
   const len = Math.hypot(dx, dy) || 1;
-  // Unit perpendicular (rotate 90° CCW: (dy/len, -dx/len) points to the
-  // right when looking from source to target in screen coords).
   const nx = dy / len;
   const ny = -dx / len;
-  return { cx: mx + nx * bend, cy: my + ny * bend };
+  // bend = peak offset of rendered curve; control point sits at 2×bend
+  // because a quadratic's t=0.5 value is (M + P1)/2 (see useEdgeInteraction).
+  return { cx: mx + nx * bend * 2, cy: my + ny * bend * 2 };
 };
 
-const capId = (
-  prefix: string,
-  cap: EdgeArrowCap,
-  color: string,
-): string => {
-  // One marker per (cap, color) — no per-edge markers. This keeps the
-  // SVG lean when many edges share the same style. Color is part of the
-  // id because <marker> fill inherits from the marker, not the path.
+const buildPathData = (s: Point, t: Point, bend: number): string => {
+  if (!bend) return `M ${s.x} ${s.y} L ${t.x} ${t.y}`;
+  const { cx, cy } = bendControlPoint(s.x, s.y, t.x, t.y, bend);
+  return `M ${s.x} ${s.y} Q ${cx} ${cy} ${t.x} ${t.y}`;
+};
+
+const capId = (prefix: string, cap: EdgeArrowCap, color: string): string => {
   const hex = color.replace(/[^a-zA-Z0-9]/g, '_');
   return `${prefix}-${cap}-${hex}`;
 };
 
-/**
- * Emit exactly the set of <marker> defs the current edges reference.
- * Walking the edges once and de-duplicating avoids bloating the DOM
- * with unused caps.
- */
 const useMarkerDefs = (edges: CanvasEdge[]) => {
   return useMemo(() => {
     const markers = new Map<
@@ -90,10 +105,8 @@ const useMarkerDefs = (edges: CanvasEdge[]) => {
 const MarkerShape = ({ cap, color }: { cap: EdgeArrowCap; color: string }) => {
   switch (cap) {
     case 'triangle':
-      // Filled triangle pointing along the +x axis (tangent direction).
       return <path d="M0,0 L10,5 L0,10 z" fill={color} />;
     case 'arrow':
-      // Open V-shape.
       return (
         <path
           d="M0,0 L10,5 L0,10"
@@ -127,12 +140,7 @@ const Markers = ({
         markerWidth={12}
         markerHeight={12}
         viewBox="0 0 10 10"
-        // Head caps point forward along the path's tangent; tail caps are
-        // flipped 180° so they point away from the source.
         orient={side === 'head' ? 'auto' : 'auto-start-reverse'}
-        // Offset the reference point so the cap sits at the path end
-        // without overshooting. For triangles we put refX at the tip (10)
-        // so the tip lands exactly on the endpoint.
         refX={cap === 'triangle' ? 10 : 5}
         refY={5}
         markerUnits="userSpaceOnUse"
@@ -144,16 +152,26 @@ const Markers = ({
 );
 
 /**
- * Renders all edges for the canvas as a single SVG layer stacked beneath
- * the node views. Lives inside `.canvas-transform`, so panning/zooming
- * gets it for free; `vector-effect="non-scaling-stroke"` keeps line
- * weights visually constant through scale.
+ * Renders every edge as SVG inside `.canvas-transform`, plus:
+ *  - a transparent thick hit-proxy stroke per edge so thin lines are
+ *    still easy to click;
+ *  - a pale highlight underneath the selected edge;
+ *  - 3 handles (start, bend midpoint, end) on the selected edge;
+ *  - a dashed preview edge while a connect/move-end drag is in flight.
  *
- * Interaction is disabled in Step 1 — the layer is `pointer-events: none`
- * end-to-end. Step 2 will add a wider transparent hit-proxy path per
- * edge for selection/dragging.
+ * The layer itself has `pointer-events: none`; individual child
+ * elements re-enable events (hit-proxies: `stroke`, handles: `all`).
+ * This keeps node drag/resize/click behaviour untouched.
  */
-export const CanvasEdgesLayer = ({ edges, nodes }: Props) => {
+export const CanvasEdgesLayer = ({
+  edges,
+  nodes,
+  selectedEdgeId,
+  onSelectEdge,
+  interactionState,
+  previewEndpoints,
+  onHandleMouseDown,
+}: Props) => {
   const nodesById = useMemo(() => {
     const m = new Map<string, CanvasNode>();
     for (const n of nodes) m.set(n.id, n);
@@ -162,15 +180,25 @@ export const CanvasEdgesLayer = ({ edges, nodes }: Props) => {
 
   const markers = useMarkerDefs(edges);
 
-  if (edges.length === 0) return null;
+  // Resolve each edge's endpoints into absolute canvas coords. Auto-
+  // anchored node-bound endpoints are shifted to their bbox-boundary
+  // point toward the opposite endpoint, so edges visually terminate at
+  // node edges rather than piercing into node centers.
+  const resolved = useMemo(() => {
+    return edges.map((edge) => {
+      const approxS = resolveEndpoint(edge.source, nodesById);
+      const approxT = resolveEndpoint(edge.target, nodesById);
+      const s = resolveEndpointToward(edge.source, nodesById, approxT);
+      const t = resolveEndpointToward(edge.target, nodesById, approxS);
+      return { edge, s, t };
+    });
+  }, [edges, nodesById]);
+
+  if (edges.length === 0 && !previewEndpoints) return null;
 
   return (
     <svg
       className="canvas-edges"
-      // Tiny base size — we rely on overflow:visible so paths at arbitrary
-      // canvas coords (including negative) still render. The parent div
-      // does the panning/zooming via CSS transform; we just draw in its
-      // local coordinate space.
       width={1}
       height={1}
       style={{
@@ -182,34 +210,231 @@ export const CanvasEdgesLayer = ({ edges, nodes }: Props) => {
       }}
     >
       <Markers markers={markers} />
-      {edges.map((edge) => {
-        const s = resolveEndpoint(edge.source, nodesById);
-        const t = resolveEndpoint(edge.target, nodesById);
-        const bend = edge.bend ?? 0;
-        const { cx, cy } = bendControlPoint(s.x, s.y, t.x, t.y, bend);
-        const d = bend === 0
-          ? `M ${s.x} ${s.y} L ${t.x} ${t.y}`
-          : `M ${s.x} ${s.y} Q ${cx} ${cy} ${t.x} ${t.y}`;
 
+      {resolved.map(({ edge, s, t }) => {
+        const bend = edge.bend ?? 0;
+        const d = buildPathData(s, t, bend);
         const stroke = { ...DEFAULT_STROKE, ...edge.stroke };
         const head = edge.arrowHead ?? 'triangle';
         const tail = edge.arrowTail ?? 'none';
+        const isSelected = edge.id === selectedEdgeId;
+        // While this edge's source/target is being dragged live, the
+        // stored endpoint already reflects the in-progress state (we
+        // push updates history-silently from useEdgeInteraction), so
+        // no special case needed here — the path re-renders naturally.
 
         return (
-          <path
-            key={edge.id}
-            d={d}
-            fill="none"
-            stroke={stroke.color}
-            strokeWidth={stroke.width}
-            strokeDasharray={strokeDasharray(stroke.style)}
-            strokeLinecap="round"
-            vectorEffect="non-scaling-stroke"
-            markerEnd={head !== 'none' ? `url(#${capId('edge-head', head, stroke.color)})` : undefined}
-            markerStart={tail !== 'none' ? `url(#${capId('edge-tail', tail, stroke.color)})` : undefined}
-          />
+          <g key={edge.id}>
+            {/* Wide transparent hit target so thin lines stay clickable. */}
+            <path
+              d={d}
+              fill="none"
+              stroke="transparent"
+              strokeWidth={HIT_PROXY_WIDTH}
+              vectorEffect="non-scaling-stroke"
+              style={{
+                pointerEvents: 'stroke',
+                cursor: 'pointer',
+              }}
+              onMouseDown={(e) => {
+                // Selecting an edge steals the mousedown so it doesn't
+                // bubble up into the canvas-container's blank-click
+                // deselect logic.
+                e.stopPropagation();
+                onSelectEdge?.(edge.id);
+              }}
+            />
+            {/* Selection underlay: soft blue tint, rendered under the
+                real stroke so the edge's own color still reads. */}
+            {isSelected && (
+              <path
+                d={d}
+                fill="none"
+                stroke={SELECTION_COLOR}
+                strokeOpacity={0.35}
+                strokeWidth={(stroke.width ?? 1.6) + 6}
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+            {/* Visible stroke. */}
+            <path
+              d={d}
+              fill="none"
+              stroke={stroke.color}
+              strokeWidth={stroke.width}
+              strokeDasharray={strokeDasharray(stroke.style)}
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+              markerEnd={head !== 'none' ? `url(#${capId('edge-head', head, stroke.color)})` : undefined}
+              markerStart={tail !== 'none' ? `url(#${capId('edge-tail', tail, stroke.color)})` : undefined}
+            />
+            {/* Handles for the selected edge only. Rendered as a last
+                child so they sit visually above the stroke. */}
+            {isSelected && onHandleMouseDown && (
+              <EdgeHandles
+                edge={edge}
+                s={s}
+                t={t}
+                onHandleMouseDown={(handle, e) =>
+                  onHandleMouseDown(edge.id, handle, e, { s, t })
+                }
+              />
+            )}
+          </g>
         );
       })}
+
+      {previewEndpoints && (
+        <PreviewEdge
+          s={previewEndpoints.s}
+          t={previewEndpoints.t}
+          highlightNodeId={interactionState?.kind === 'connect' || interactionState?.kind === 'move-end'
+            ? interactionState.hoverNodeId
+            : null}
+          nodesById={nodesById}
+        />
+      )}
     </svg>
+  );
+};
+
+/**
+ * Three handles — start (source), bend midpoint, end (target) —
+ * rendered for the currently selected edge. Each handle intercepts
+ * mousedown so the interaction hook can begin a drag.
+ */
+const EdgeHandles = ({
+  edge,
+  s,
+  t,
+  onHandleMouseDown,
+}: {
+  edge: CanvasEdge;
+  s: Point;
+  t: Point;
+  onHandleMouseDown: (handle: 'source' | 'target' | 'bend', e: React.MouseEvent) => void;
+}) => {
+  const bend = edge.bend ?? 0;
+  const mid = bendHandlePoint(s, t, bend);
+
+  const handleStyle: React.CSSProperties = {
+    pointerEvents: 'all',
+    cursor: 'grab',
+  };
+
+  return (
+    <>
+      <circle
+        cx={s.x}
+        cy={s.y}
+        r={HANDLE_RADIUS}
+        fill="#ffffff"
+        stroke={SELECTION_COLOR}
+        strokeWidth={1.5}
+        vectorEffect="non-scaling-stroke"
+        style={handleStyle}
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          onHandleMouseDown('source', e);
+        }}
+      />
+      <circle
+        cx={mid.x}
+        cy={mid.y}
+        r={HANDLE_RADIUS - 0.5}
+        fill="#ffffff"
+        stroke={SELECTION_COLOR}
+        strokeWidth={1.5}
+        vectorEffect="non-scaling-stroke"
+        style={handleStyle}
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          onHandleMouseDown('bend', e);
+        }}
+      />
+      <circle
+        cx={t.x}
+        cy={t.y}
+        r={HANDLE_RADIUS}
+        fill="#ffffff"
+        stroke={SELECTION_COLOR}
+        strokeWidth={1.5}
+        vectorEffect="non-scaling-stroke"
+        style={handleStyle}
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          onHandleMouseDown('target', e);
+        }}
+      />
+    </>
+  );
+};
+
+/**
+ * Dashed preview line rendered while the user is drawing a new edge
+ * or dragging an existing endpoint. A faint outline on the hover
+ * target node confirms a successful drop will bind to it.
+ */
+const PreviewEdge = ({
+  s,
+  t,
+  highlightNodeId,
+  nodesById,
+}: {
+  s: Point;
+  t: Point;
+  highlightNodeId: string | null;
+  nodesById: Map<string, CanvasNode>;
+}) => {
+  const d = `M ${s.x} ${s.y} L ${t.x} ${t.y}`;
+  const node = highlightNodeId ? nodesById.get(highlightNodeId) : null;
+  return (
+    <>
+      <path
+        d={d}
+        fill="none"
+        stroke={SELECTION_COLOR}
+        strokeWidth={1.5}
+        strokeDasharray="5 3"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+        markerEnd={`url(#${capId('edge-head', 'triangle', SELECTION_COLOR)})`}
+        style={{ pointerEvents: 'none' }}
+      />
+      {/* Also register the preview's triangle-on-blue marker so
+          marker-end="url(#…)" resolves. Duplicate marker defs are
+          harmless; the <defs> above won't include this combo unless an
+          edge already uses blue. */}
+      <defs>
+        <marker
+          id={capId('edge-head', 'triangle', SELECTION_COLOR)}
+          markerWidth={12}
+          markerHeight={12}
+          viewBox="0 0 10 10"
+          orient="auto"
+          refX={10}
+          refY={5}
+          markerUnits="userSpaceOnUse"
+        >
+          <path d="M0,0 L10,5 L0,10 z" fill={SELECTION_COLOR} />
+        </marker>
+      </defs>
+      {node && (
+        <rect
+          x={node.x - 2}
+          y={node.y - 2}
+          width={node.width + 4}
+          height={node.height + 4}
+          fill="none"
+          stroke={SELECTION_COLOR}
+          strokeWidth={1.5}
+          strokeDasharray="4 3"
+          vectorEffect="non-scaling-stroke"
+          style={{ pointerEvents: 'none' }}
+          rx={6}
+        />
+      )}
+    </>
   );
 };

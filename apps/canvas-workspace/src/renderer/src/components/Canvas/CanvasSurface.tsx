@@ -3,6 +3,7 @@ import type { CanvasEdge, CanvasNode } from '../../types';
 import { CanvasNodeView } from '../CanvasNodeView';
 import { CanvasEdgesLayer } from '../CanvasEdgesLayer';
 import type { ResizeEdge } from '../../hooks/useNodeResize';
+import type { EdgeInteractionState, Point } from '../../hooks/useEdgeInteraction';
 
 interface CanvasSurfaceProps {
   transform: { x: number; y: number; scale: number };
@@ -26,8 +27,15 @@ interface CanvasSurfaceProps {
   draggingIds: Set<string>;
   resizingId: string | null;
   selectedNodeIds: string[];
+  selectedEdgeId: string | null;
   highlightedId: string | null;
   externallyEditedIds: Set<string>;
+  /** Live edge interaction state — passed straight to the edges layer so it
+   *  can render the preview / highlight the hover target. */
+  edgeInteractionState: EdgeInteractionState | null;
+  /** Preview endpoints resolved by the interaction hook. Null when no
+   *  connect/move-end drag is in flight. */
+  edgePreviewEndpoints: { s: Point; t: Point } | null;
   onDragStart: (e: React.MouseEvent, node: CanvasNode) => void;
   onResizeStart: (
     e: React.MouseEvent,
@@ -42,6 +50,13 @@ interface CanvasSurfaceProps {
   onRemove: (id: string) => void;
   onSelect: (id: string) => void;
   onFocus: (node: CanvasNode) => void;
+  onSelectEdge: (id: string | null) => void;
+  onEdgeHandleMouseDown: (
+    edgeId: string,
+    handle: 'source' | 'target' | 'bend',
+    e: React.MouseEvent,
+    ctx: { s: Point; t: Point },
+  ) => void;
 }
 
 export const CanvasSurface = ({
@@ -58,14 +73,19 @@ export const CanvasSurface = ({
   draggingIds,
   resizingId,
   selectedNodeIds,
+  selectedEdgeId,
   highlightedId,
   externallyEditedIds,
+  edgeInteractionState,
+  edgePreviewEndpoints,
   onDragStart,
   onResizeStart,
   onUpdate,
   onRemove,
   onSelect,
   onFocus,
+  onSelectEdge,
+  onEdgeHandleMouseDown,
 }: CanvasSurfaceProps) => (
   <div
     className={`canvas-transform${moving || animating ? ' canvas-transform--moving' : ''}`}
@@ -80,7 +100,15 @@ export const CanvasSurface = ({
     {/* Edges render beneath nodes so node interactions keep working and
         so the connection line visually terminates behind the node it
         points at rather than being covered by it. */}
-    <CanvasEdgesLayer edges={edges} nodes={nodes} />
+    <CanvasEdgesLayer
+      edges={edges}
+      nodes={nodes}
+      selectedEdgeId={selectedEdgeId}
+      onSelectEdge={onSelectEdge}
+      interactionState={edgeInteractionState}
+      previewEndpoints={edgePreviewEndpoints}
+      onHandleMouseDown={onEdgeHandleMouseDown}
+    />
     {sortedNodes.map((node) => (
       <CanvasNodeView
         key={node.id}

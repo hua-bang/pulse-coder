@@ -7,6 +7,11 @@ interface Options {
   nodes: CanvasNode[];
   selectedNodeIds: string[];
   setSelectedNodeIds: (ids: string[]) => void;
+  /** Currently selected edge (if any). Delete/Backspace removes it; Esc
+   *  deselects it before falling through to node-deselect. */
+  selectedEdgeId: string | null;
+  setSelectedEdgeId: (id: string | null) => void;
+  removeEdge: (id: string) => void;
   duplicateNode: (id: string) => CanvasNode | null;
   clipboardNodes: CanvasNode[];
   setClipboardNodes: (nodes: CanvasNode[]) => void;
@@ -22,6 +27,7 @@ interface Options {
 
 export const useCanvasKeyboard = ({
   undo, redo, nodes, selectedNodeIds, setSelectedNodeIds,
+  selectedEdgeId, setSelectedEdgeId, removeEdge,
   duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, removeNodes,
   searchOpen, setSearchOpen, contextMenu, setContextMenu,
   setHighlightedId, handleFocusNode,
@@ -80,10 +86,17 @@ export const useCanvasKeyboard = ({
       if (e.key === 'Escape') {
         if (searchOpen) { setSearchOpen(false); return; }
         if (contextMenu) { setContextMenu(null); return; }
+        if (selectedEdgeId) { setSelectedEdgeId(null); return; }
         setSelectedNodeIds([]);
         return;
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && !isEditable) {
+        if (selectedEdgeId) {
+          e.preventDefault();
+          removeEdge(selectedEdgeId);
+          setSelectedEdgeId(null);
+          return;
+        }
         if (selectedNodeIds.length > 0) {
           e.preventDefault();
           removeNodes(selectedNodeIds);
@@ -95,7 +108,7 @@ export const useCanvasKeyboard = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, nodes, selectedNodeIds, setSelectedNodeIds, duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, removeNodes, searchOpen, setSearchOpen, contextMenu, setContextMenu]);
+  }, [undo, redo, nodes, selectedNodeIds, setSelectedNodeIds, selectedEdgeId, setSelectedEdgeId, removeEdge, duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, removeNodes, searchOpen, setSearchOpen, contextMenu, setContextMenu]);
 
   // Cmd/Ctrl+Tab to cycle through nodes (Shift reverses direction)
   useEffect(() => {
