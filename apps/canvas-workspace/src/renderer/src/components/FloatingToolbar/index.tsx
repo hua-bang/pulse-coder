@@ -3,7 +3,7 @@ import './index.css';
 interface Props {
   activeTool: string;
   onToolChange: (tool: string) => void;
-  onAddNode: (type: "file" | "terminal" | "frame" | "agent" | "text" | "iframe") => void;
+  onAddNode: (type: "file" | "terminal" | "frame" | "agent" | "text" | "iframe" | "infographic") => void;
   chatPanelOpen?: boolean;
   onChatToggle?: () => void;
 }
@@ -165,6 +165,23 @@ export const FloatingToolbar = ({
             />
           </svg>
           <span className="toolbar-btn-label">Link</span>
+        </button>
+        <button
+          className="toolbar-btn toolbar-btn--create"
+          onClick={() => onAddNode("infographic")}
+          title="Add Infographic (AI-generated visual)"
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <rect
+              x="2.5" y="2.5" width="13" height="13" rx="2"
+              stroke="currentColor" strokeWidth="1.3"
+            />
+            <path
+              d="M6 12V8M9 12V5M12 12V9.5"
+              stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"
+            />
+          </svg>
+          <span className="toolbar-btn-label">Infographic</span>
         </button>
         <button
           className="toolbar-btn toolbar-btn--create"

@@ -1,0 +1,225 @@
+.infographic-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--surface);
+}
+
+.infographic-body--empty,
+.infographic-body--loading {
+  justify-content: center;
+  align-items: center;
+  padding: 14px 16px;
+  gap: 8px;
+}
+
+.infographic-empty-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 440px;
+}
+
+.infographic-empty-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.infographic-empty-input {
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 8px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  resize: vertical;
+  min-height: 72px;
+  outline: none;
+}
+
+.infographic-empty-input:focus {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 2px rgba(35, 131, 226, 0.12);
+}
+
+.infographic-empty-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.infographic-empty-btn {
+  font-size: 12px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.infographic-empty-btn:hover:not(:disabled) {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.04));
+}
+
+.infographic-empty-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.infographic-empty-btn--primary {
+  background: #7c5cff;
+  color: white;
+  border-color: #7c5cff;
+}
+
+.infographic-empty-btn--primary:hover:not(:disabled) {
+  background: #6b4bef;
+}
+
+.infographic-empty-error {
+  font-size: 11px;
+  color: #e03e3e;
+  padding: 4px 6px;
+  background: rgba(224, 62, 62, 0.08);
+  border-radius: 4px;
+}
+
+.infographic-empty-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Loading state */
+.infographic-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border-light);
+  border-top-color: #7c5cff;
+  border-radius: 50%;
+  animation: infographicSpin 0.9s linear infinite;
+}
+
+@keyframes infographicSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.infographic-loading-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.infographic-loading-prompt {
+  font-size: 11px;
+  color: var(--text-muted);
+  max-width: 440px;
+  text-align: center;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* Ready state */
+.infographic-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.infographic-bar-kind {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(124, 92, 255, 0.12);
+  color: #7c5cff;
+  flex-shrink: 0;
+}
+
+.infographic-bar-prompt {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.infographic-bar-prompt:hover {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.04));
+  color: var(--text);
+}
+
+.infographic-bar-prompt-text {
+  display: block;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.infographic-bar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.infographic-bar-btn:hover {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.04));
+  color: var(--text);
+}
+
+.infographic-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  border: none;
+  background: white;
+  min-height: 0;
+}
+
+.infographic-svg-wrap {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 8px;
+  background: white;
+  min-height: 0;
+}
+
+.infographic-svg-wrap svg {
+  max-width: 100%;
+  max-height: 100%;
+  height: auto;
+  width: auto;
+}

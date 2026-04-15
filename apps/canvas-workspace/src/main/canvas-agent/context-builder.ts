@@ -247,6 +247,12 @@ function summarizeNode(node: CanvasNode): NodeSummary {
     case 'iframe':
       summary.url = (node.data.url as string) || undefined;
       break;
+    case 'infographic':
+      summary.kind = (node.data.kind as string) || undefined;
+      summary.infographicStatus = (node.data.status as string) || undefined;
+      summary.sourcePrompt = (node.data.sourcePrompt as string) || undefined;
+      summary.path = (node.data.filePath as string) || undefined;
+      break;
     case 'text':
       // Text nodes don't have titles — fall back to a content preview so
       // the agent can refer to them by something meaningful.
@@ -347,6 +353,17 @@ export async function buildDetailedContext(workspaceId: string): Promise<Detaile
       case 'text':
         detailed.content = (node.data.content as string) ?? '';
         break;
+      case 'infographic': {
+        const filePath = (node.data.filePath as string) ?? '';
+        if (filePath) {
+          try {
+            detailed.content = await fs.readFile(filePath, 'utf-8');
+          } catch {
+            detailed.content = '';
+          }
+        }
+        break;
+      }
     }
 
     nodes.push(detailed);
@@ -412,6 +429,17 @@ export async function readNodeDetail(workspaceId: string, nodeId: string): Promi
     case 'text':
       detailed.content = (node.data.content as string) ?? '';
       break;
+    case 'infographic': {
+      const filePath = (node.data.filePath as string) ?? '';
+      if (filePath) {
+        try {
+          detailed.content = await fs.readFile(filePath, 'utf-8');
+        } catch {
+          detailed.content = '';
+        }
+      }
+      break;
+    }
   }
 
   return detailed;
@@ -483,6 +511,19 @@ export function formatSummaryForPrompt(summary: WorkspaceSummary): string {
     lines.push('## Text Nodes');
     for (const n of byType.text) {
       lines.push(`- [${n.id}] **${n.title}**`);
+    }
+    lines.push('');
+  }
+
+  if (byType.infographic?.length) {
+    lines.push('## Infographic Nodes');
+    for (const n of byType.infographic) {
+      const kindHint = n.kind ? `, ${n.kind}` : '';
+      const statusHint = n.infographicStatus ? `, ${n.infographicStatus}` : '';
+      const promptHint = n.sourcePrompt
+        ? ` — ${n.sourcePrompt.length > 60 ? n.sourcePrompt.slice(0, 60) + '…' : n.sourcePrompt}`
+        : '';
+      lines.push(`- [${n.id}] **${n.title}** (${(kindHint + statusHint).replace(/^, /, '')})${promptHint}`);
     }
     lines.push('');
   }

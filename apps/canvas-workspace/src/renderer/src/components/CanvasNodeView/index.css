@@ -117,6 +117,10 @@
   color: var(--text-muted);
 }
 
+.node-type-badge--infographic {
+  color: #7c5cff;
+}
+
 .node-title {
   flex: 1;
   font-size: 13px;

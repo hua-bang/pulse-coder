@@ -50,6 +50,12 @@ export interface NodeSummary {
   label?: string;
   /** Embedded URL for iframe nodes. */
   url?: string;
+  /** Output format ("html" | "svg") for infographic nodes. */
+  kind?: string;
+  /** Generation state ("empty" | "generating" | "ready" | "error") for infographic nodes. */
+  infographicStatus?: string;
+  /** Source prompt used to generate an infographic. */
+  sourcePrompt?: string;
 }
 
 export interface WorkspaceSummary {

@@ -141,6 +141,24 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
       ipcRenderer.invoke("iframe:unregister-webview", { workspaceId, nodeId })
   },
 
+  infographic: {
+    generate: (
+      workspaceId: string,
+      nodeId: string,
+      prompt: string,
+      kind?: "html" | "svg"
+    ) =>
+      ipcRenderer.invoke("infographic:generate", {
+        workspaceId,
+        nodeId,
+        prompt,
+        kind
+      }),
+
+    read: (workspaceId: string, nodeId: string, kind: "html" | "svg") =>
+      ipcRenderer.invoke("infographic:read", { workspaceId, nodeId, kind })
+  },
+
   agent: {
     chat: (workspaceId: string, message: string, mentionedWorkspaceIds?: string[]) =>
       ipcRenderer.invoke("canvas-agent:chat", { workspaceId, message, mentionedWorkspaceIds }),

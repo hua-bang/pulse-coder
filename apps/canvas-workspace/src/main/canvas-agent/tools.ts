@@ -21,12 +21,13 @@ import {
   formatSummaryForPrompt,
 } from './context-builder';
 import { hasSession, writeToSession } from '../pty-manager';
+import { generateInfographic } from '../infographic-service';
 
 const STORE_DIR = join(homedir(), '.pulse-coder', 'canvas');
 
 // ─── Types mirrored from canvas-cli ────────────────────────────────
 
-type NodeType = 'file' | 'terminal' | 'frame' | 'agent' | 'text' | 'iframe';
+type NodeType = 'file' | 'terminal' | 'frame' | 'agent' | 'text' | 'iframe' | 'infographic';
 
 interface CanvasNode {
   id: string;
@@ -53,6 +54,7 @@ const DEFAULT_DIMENSIONS: Record<NodeType, { title: string; width: number; heigh
   agent: { title: 'Agent', width: 520, height: 380 },
   text: { title: 'Text', width: 260, height: 120 },
   iframe: { title: 'Web', width: 520, height: 400 },
+  infographic: { title: 'Infographic', width: 560, height: 420 },
 };
 
 // ─── Helpers ───────────────────────────────────────────────────────
@@ -369,6 +371,8 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
               url: (extraData.url as string) ?? '',
             };
             break;
+          case 'infographic':
+            return 'Error: use canvas_create_infographic to create infographic nodes (it generates the HTML/SVG content in the same call).';
         }
 
         // For file nodes, create a backing notes file
@@ -733,6 +737,99 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
         broadcastUpdate(workspaceId, [nodeId]);
 
         return JSON.stringify({ ok: true, nodeId, title });
+      },
+    },
+
+    // ─── Dedicated infographic node creation ─────────────────────────
+
+    canvas_create_infographic: {
+      name: 'canvas_create_infographic',
+      description:
+        'Generate a self-contained visual infographic (HTML or SVG) and place it on the canvas as a new node. ' +
+        'Use this when the user asks for a visual — a weather/recipe/stat card, a flowchart, a diagram, a comparison table, etc. ' +
+        'The model generates the markup from `prompt` in one shot (no tools), writes it to disk, and creates a node. ' +
+        'Choose `kind="html"` (default) for interactive widgets and layouts; choose `kind="svg"` for diagrams/flowcharts. ' +
+        'Compose `prompt` to include all relevant content and styling intent — the generator has no canvas context beyond ' +
+        'this string.',
+      inputSchema: z.object({
+        prompt: z.string().describe(
+          'Full description of what to draw, including any concrete data, labels, colour hints, and layout guidance. ' +
+          'The generator sees only this string — bake in everything it needs to know.',
+        ),
+        kind: z.enum(['html', 'svg']).optional().describe(
+          'Output format. "html" (default) produces an interactive single-page document rendered in a sandboxed webview. ' +
+          '"svg" produces a static inline SVG suitable for diagrams.',
+        ),
+        title: z.string().optional().describe('Node title shown in the header. Defaults to a truncated version of the prompt.'),
+        x: z.number().optional().describe('X position (auto-placed if omitted).'),
+        y: z.number().optional().describe('Y position (auto-placed if omitted).'),
+      }),
+      execute: async (input, ctx) => {
+        const prompt = (input.prompt as string) ?? '';
+        if (!prompt.trim()) return 'Error: prompt is required and must be non-empty';
+        const kind = ((input.kind as string) ?? 'html') as 'html' | 'svg';
+
+        const canvas = await loadCanvas(workspaceId);
+        if (!canvas) return 'Error: workspace not found';
+
+        const nodeId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const def = DEFAULT_DIMENSIONS.infographic;
+        const pos = (input.x != null && input.y != null)
+          ? { x: input.x as number, y: input.y as number }
+          : autoPlace(canvas.nodes);
+
+        // Derive a readable default title from the prompt if none provided.
+        const fallbackTitle = (() => {
+          const firstLine = prompt.split(/\r?\n/).find(l => l.trim())?.trim() ?? '';
+          if (!firstLine) return def.title;
+          return firstLine.length <= 48 ? firstLine : firstLine.slice(0, 48) + '…';
+        })();
+        const title = (input.title as string) || fallbackTitle;
+
+        let filePath = '';
+        let status: 'ready' | 'error' = 'ready';
+        let error: string | undefined;
+        try {
+          const result = await generateInfographic({
+            workspaceId,
+            nodeId,
+            prompt,
+            kind,
+            abortSignal: ctx?.abortSignal,
+          });
+          filePath = result.filePath;
+        } catch (err) {
+          status = 'error';
+          error = err instanceof Error ? err.message : String(err);
+        }
+
+        const newNode: CanvasNode = {
+          id: nodeId,
+          type: 'infographic',
+          title,
+          x: pos.x,
+          y: pos.y,
+          width: def.width,
+          height: def.height,
+          data: {
+            kind,
+            filePath,
+            sourcePrompt: prompt,
+            status,
+            ...(error ? { error } : {}),
+          },
+          updatedAt: Date.now(),
+        };
+
+        const fresh = (await loadCanvas(workspaceId)) ?? canvas;
+        fresh.nodes.push(newNode);
+        await saveCanvas(workspaceId, fresh);
+        broadcastUpdate(workspaceId, [nodeId]);
+
+        if (status === 'error') {
+          return JSON.stringify({ ok: false, nodeId, title, kind, error });
+        }
+        return JSON.stringify({ ok: true, nodeId, title, kind, filePath });
       },
     },
   };

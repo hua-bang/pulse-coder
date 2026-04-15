@@ -1,6 +1,6 @@
 export interface CanvasNode {
   id: string;
-  type: "file" | "terminal" | "frame" | "agent" | "text" | "iframe";
+  type: "file" | "terminal" | "frame" | "agent" | "text" | "iframe" | "infographic";
   title: string;
   x: number;
   y: number;
@@ -12,7 +12,8 @@ export interface CanvasNode {
     | FrameNodeData
     | AgentNodeData
     | TextNodeData
-    | IframeNodeData;
+    | IframeNodeData
+    | InfographicNodeData;
   /** Epoch millis of last mutation; used for cross-process merge. */
   updatedAt?: number;
 }
@@ -83,6 +84,33 @@ export interface TextNodeData {
 export interface IframeNodeData {
   /** Full URL (including protocol) to load in the iframe. Empty = show URL input. */
   url: string;
+}
+
+/**
+ * LLM-generated visual content (akin to Claude's "Visual and interactive
+ * content" feature). The node captures a short prompt, dispatches it to the
+ * Canvas Agent's generation service in the main process, and renders the
+ * result inside an isolated `<webview>` (HTML) or inline `<svg>` (SVG).
+ *
+ * Content is stored on disk under
+ * `~/.pulse-coder/canvas/{workspaceId}/infographics/{nodeId}.{svg|html}`
+ * rather than inline in canvas.json — infographic HTML can be large and we
+ * don't want it inflating every canvas snapshot.
+ */
+export interface InfographicNodeData {
+  /** 'html' → sandboxed webview via srcdoc; 'svg' → inline <svg>. */
+  kind: "html" | "svg";
+  /**
+   * Absolute path to the on-disk file holding the rendered content.
+   * Empty before the first successful generation.
+   */
+  filePath: string;
+  /** User prompt that produced the current content. */
+  sourcePrompt: string;
+  /** Generation status — drives the body's empty / loading / ready UI. */
+  status?: "empty" | "generating" | "ready" | "error";
+  /** Error message when `status === 'error'`. */
+  error?: string;
 }
 
 export interface CanvasTransform {
@@ -286,6 +314,7 @@ export interface CanvasWorkspaceApi {
   skills: SkillsApi;
   agent: AgentApi;
   iframe: IframeApi;
+  infographic: InfographicApi;
 }
 
 export interface IframeApi {
@@ -298,6 +327,33 @@ export interface IframeApi {
     workspaceId: string,
     nodeId: string,
   ) => Promise<{ ok: boolean }>;
+}
+
+export interface InfographicApi {
+  /**
+   * Run the Canvas Agent's LLM to produce HTML/SVG content from a prompt,
+   * persist it to the workspace's `infographics/` directory, and return the
+   * rendered content. The caller is responsible for updating the node's
+   * `data` (filePath, status) afterwards.
+   */
+  generate: (
+    workspaceId: string,
+    nodeId: string,
+    prompt: string,
+    kind?: "html" | "svg",
+  ) => Promise<{
+    ok: boolean;
+    kind?: "html" | "svg";
+    content?: string;
+    filePath?: string;
+    error?: string;
+  }>;
+  /** Read a previously-generated infographic file. */
+  read: (
+    workspaceId: string,
+    nodeId: string,
+    kind: "html" | "svg",
+  ) => Promise<{ ok: boolean; content?: string; error?: string }>;
 }
 
 declare global {

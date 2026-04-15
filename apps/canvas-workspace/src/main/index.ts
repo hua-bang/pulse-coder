@@ -12,6 +12,7 @@ import { setupFileWatcherIpc, teardownFileWatcher } from "./file-watcher";
 import { setupSkillInstallerIpc } from "./skill-installer";
 import { setupCanvasAgentIpc, teardownCanvasAgent } from "./canvas-agent-ipc";
 import { setupWebviewRegistryIpc } from "./webview-registry";
+import { setupInfographicIpc } from "./infographic-service";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const preloadPath = join(currentDir, "../preload/index.mjs");
@@ -141,6 +142,7 @@ app.whenReady().then(() => {
   setupSkillInstallerIpc();
   setupCanvasAgentIpc();
   setupWebviewRegistryIpc();
+  setupInfographicIpc();
   // MCP server disabled — canvas-cli is the preferred agent interface now.
   // startMCPServer();
   // void ensureMCPRegistered();
