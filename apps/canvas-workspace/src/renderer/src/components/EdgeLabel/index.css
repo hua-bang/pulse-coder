@@ -1,14 +1,17 @@
-/* Inline label shown on top of an edge.
+/* Inline label shown above an edge.
 
-   Positioned via inline left/top (screen coords computed from the edge's
-   bend-handle point). `translate(-50%, -50%)` centers the chip exactly
-   on the line midpoint.
+   Positioned via inline left/top (screen coords computed from the
+   edge's bend-handle point), then offset UPWARD by its full height
+   plus a small gap so the label sits just above the line. This keeps
+   the edge's midpoint clear — the bend drag-handle (drawn on the line
+   at the exact same midpoint) must remain grabbable when the edge is
+   selected, and stacking the label chip on top of it hides the handle.
 
    Sits in the overlay layer so the text isn't transformed with
    .canvas-transform — font stays crisp at any zoom. */
 .edge-label {
   position: absolute;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, calc(-100% - 8px));
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -36,16 +39,14 @@
 }
 
 .edge-label--editing {
-  /* During editing we drop the chip chrome entirely — no background,
-     no border, no shadow. The text sits directly on the canvas so the
-     user feels like they're typing onto the line itself. An accent-
-     colored caret (inherited from the browser) plus the input's own
-     focus outline are enough affordance. */
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
+  /* Keep the white chip background while editing — typing directly on
+     the canvas (transparent bg) is too noisy against busy underlying
+     edges/nodes. The accent ring is added *around* the chip so the
+     surface stays readable. */
+  background: var(--surface);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-light), var(--shadow-float);
   overflow: visible;
-  padding: 0;
 }
 
 .edge-label-text {
@@ -62,18 +63,17 @@
   border: none;
   outline: none;
   background: transparent;
-  /* Match the view-mode chip's inner padding so the text doesn't jump
-     horizontally when flipping between modes. */
-  padding: 2px 8px;
+  /* Padding lives on the label container, not the input — otherwise
+     field-sizing would grow the input past the chip bounds. */
+  padding: 0;
   margin: 0;
   font: inherit;
   color: inherit;
   text-align: center;
   /* field-sizing: content auto-grows the <input> to fit its contents,
      so the editor expands naturally as the user types. Supported in
-     Chromium 123+, which covers modern Electron. Pairing it with a
-     small explicit min-width keeps the input clickable even when empty. */
+     Chromium 123+, which covers modern Electron. */
   field-sizing: content;
   min-width: 48px;
-  max-width: 280px;
+  max-width: 260px;
 }
