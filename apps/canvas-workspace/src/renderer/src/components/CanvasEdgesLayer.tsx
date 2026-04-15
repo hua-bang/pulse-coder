@@ -309,14 +309,22 @@ export const CanvasEdgesLayer = ({
                 vectorEffect="non-scaling-stroke"
               />
             )}
-            {/* Visible stroke. */}
+            {/* Visible stroke. Linecap is "butt" whenever the matching
+                end has an arrow marker — SVG places the marker's refPoint
+                AT the path endpoint, so a rounded cap (radius = half
+                stroke width) would poke forward *past* the triangle tip
+                and make the arrow look slightly disconnected from the
+                line. Using "butt" ends the stroke flush with the path
+                endpoint so the triangle's tip becomes the exact rightmost
+                point of the arrow. Edges with no caps at all keep "round"
+                for their nicer free-end look. */}
             <path
               d={d}
               fill="none"
               stroke={stroke.color}
               strokeWidth={stroke.width}
               strokeDasharray={strokeDasharray(stroke.style)}
-              strokeLinecap="round"
+              strokeLinecap={head !== 'none' || tail !== 'none' ? 'butt' : 'round'}
               vectorEffect="non-scaling-stroke"
               markerEnd={head !== 'none' ? `url(#${capId('edge-head', head, stroke.color)})` : undefined}
               markerStart={tail !== 'none' ? `url(#${capId('edge-tail', tail, stroke.color)})` : undefined}
@@ -449,7 +457,10 @@ const PreviewEdge = ({
         stroke={SELECTION_COLOR}
         strokeWidth={1.5}
         strokeDasharray="5 3"
-        strokeLinecap="round"
+        // "butt" to match the committed-edge rendering: since there's a
+        // marker at the end, a rounded cap would poke past the triangle
+        // tip (see the committed-edge comment for the full explanation).
+        strokeLinecap="butt"
         vectorEffect="non-scaling-stroke"
         markerEnd={`url(#${capId('edge-head', 'triangle', SELECTION_COLOR)})`}
         style={{ pointerEvents: 'none' }}
