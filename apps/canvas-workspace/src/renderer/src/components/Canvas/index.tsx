@@ -178,6 +178,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
     beginConnect,
     beginMoveEnd,
     beginMoveBend,
+    beginMoveEdge,
     getPreviewEndpoints,
   } = useEdgeInteraction({
     nodes,
@@ -223,6 +224,14 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
       beginConnect(e.clientX, e.clientY);
     },
     [beginConnect],
+  );
+
+  const handleEdgeBodyMouseDown = useCallback(
+    (edgeId: string, e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+      beginMoveEdge(edgeId, e.clientX, e.clientY);
+    },
+    [beginMoveEdge],
   );
 
   const isBlankCanvasTarget = useCallback((target: EventTarget | null) => {
@@ -385,6 +394,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
           if (id) setSelectedNodeIds([]);
         }}
         onEdgeHandleMouseDown={handleEdgeHandleMouseDown}
+        onEdgeBodyMouseDown={handleEdgeBodyMouseDown}
       />
 
       <CanvasOverlays

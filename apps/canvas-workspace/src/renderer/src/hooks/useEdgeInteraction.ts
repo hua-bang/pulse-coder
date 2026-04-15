@@ -63,6 +63,19 @@ export type EdgeInteractionState =
        *  drag start. Subtracted from subsequent offsets to yield a
        *  pure delta. */
       originOffset: number;
+    }
+  | {
+      kind: 'move-edge';
+      edgeId: string;
+      /** Snapshot of the edge's endpoints at drag start. Free-point
+       *  endpoints get translated by (cursor - originCursor); node-bound
+       *  endpoints are kept as-is so arrows stay anchored to the nodes
+       *  they connect. */
+      initialSource: EdgeEndpoint;
+      initialTarget: EdgeEndpoint;
+      /** Cursor position (canvas coords) at drag start. */
+      originCursor: Point;
+      cursor: Point;
     };
 
 interface UseEdgeInteractionArgs {
@@ -203,6 +216,27 @@ export const useEdgeInteraction = ({
       updateEdge(current.edgeId, { bend: newBend }, false);
       return;
     }
+
+    if (current.kind === 'move-edge') {
+      const dx = pt.x - current.originCursor.x;
+      const dy = pt.y - current.originCursor.y;
+      const translateFree = (ep: EdgeEndpoint): EdgeEndpoint =>
+        ep.kind === 'point' ? { kind: 'point', x: ep.x + dx, y: ep.y + dy } : ep;
+      const nextSource = translateFree(current.initialSource);
+      const nextTarget = translateFree(current.initialTarget);
+      setState({ ...current, cursor: pt });
+      // Only patch the endpoints that actually changed so node-bound
+      // edges (both endpoints locked) don't generate a pointless
+      // write every mousemove frame.
+      if (nextSource === current.initialSource && nextTarget === current.initialTarget) {
+        return;
+      }
+      const patch: Partial<CanvasEdge> = {};
+      if (nextSource !== current.initialSource) patch.source = nextSource;
+      if (nextTarget !== current.initialTarget) patch.target = nextTarget;
+      updateEdge(current.edgeId, patch, false);
+      return;
+    }
   }, [toCanvas, updateEdge]);
 
   const handleUp = useCallback(() => {
@@ -226,7 +260,11 @@ export const useEdgeInteraction = ({
           onConnectCommitted?.(edge.id);
         }
       }
-    } else if (current.kind === 'move-end' || current.kind === 'move-bend') {
+    } else if (
+      current.kind === 'move-end' ||
+      current.kind === 'move-bend' ||
+      current.kind === 'move-edge'
+    ) {
       // Live updates during move-* were history-silent; commit a
       // single undo step here so the whole drag is atomic.
       commitHistory();
@@ -327,6 +365,28 @@ export const useEdgeInteraction = ({
   }, [edges, toCanvas]);
 
   /**
+   * Begin translating the whole edge. Called by the hit-proxy when the
+   * user mousedowns on the edge body. We snapshot both endpoints at
+   * drag start; only free-point endpoints get translated in handleMove
+   * — node-bound endpoints stay anchored to their node so the arrow
+   * keeps binding to the shape.
+   */
+  const beginMoveEdge = useCallback((edgeId: string, clientX: number, clientY: number) => {
+    const pt = toCanvas(clientX, clientY);
+    if (!pt) return;
+    const edge = edges.find((e) => e.id === edgeId);
+    if (!edge) return;
+    setState({
+      kind: 'move-edge',
+      edgeId,
+      initialSource: edge.source,
+      initialTarget: edge.target,
+      originCursor: pt,
+      cursor: pt,
+    });
+  }, [edges, toCanvas]);
+
+  /**
    * Resolve the current preview edge's endpoints (for rendering the
    * dashed draft line). Returns null when no connect/move-end drag is
    * active. Handles both free-point endpoints and node-bound auto
@@ -354,6 +414,7 @@ export const useEdgeInteraction = ({
     beginConnect,
     beginMoveEnd,
     beginMoveBend,
+    beginMoveEdge,
     getPreviewEndpoints,
   };
 };

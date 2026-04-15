@@ -29,6 +29,11 @@ interface Props {
     e: React.MouseEvent,
     ctx: { s: Point; t: Point },
   ) => void;
+  /** Mousedown on the edge body (not a handle). Used to start a "move
+   *  the whole edge" drag — the hit-proxy forwards here and the
+   *  interaction hook translates free-point endpoints by the cursor
+   *  delta while leaving node-bound endpoints anchored. */
+  onBodyMouseDown?: (edgeId: string, e: React.MouseEvent) => void;
 }
 
 const DEFAULT_STROKE: Required<EdgeStroke> = {
@@ -171,6 +176,7 @@ export const CanvasEdgesLayer = ({
   interactionState,
   previewEndpoints,
   onHandleMouseDown,
+  onBodyMouseDown,
 }: Props) => {
   const nodesById = useMemo(() => {
     const m = new Map<string, CanvasNode>();
@@ -227,12 +233,13 @@ export const CanvasEdgesLayer = ({
           <g key={edge.id}>
             {/* Wide transparent hit target so thin lines stay clickable.
                 A mousedown on the body both selects the edge AND starts
-                a bend drag — users reported that having to grab the
-                tiny midpoint handle to curve a line felt awkward, so
-                we now treat "grab anywhere on the stroke" as a shortcut
-                to bending it. A click that doesn't move still resolves
-                to "just select" because no bend-update fires and
-                commitHistory is a no-op when state is unchanged. */}
+                a "move the whole edge" drag via onBodyMouseDown. Free
+                endpoints translate with the cursor; node-bound endpoints
+                stay anchored to their node. Clicks without drag resolve
+                to plain "select" because no move-update fires and
+                commitHistory is a no-op when state is unchanged. The
+                midpoint bend handle (rendered on top via EdgeHandles)
+                still captures its own mousedowns for curving. */}
             <path
               d={d}
               fill="none"
@@ -249,7 +256,7 @@ export const CanvasEdgesLayer = ({
                 // deselect logic.
                 e.stopPropagation();
                 onSelectEdge?.(edge.id);
-                onHandleMouseDown?.(edge.id, 'bend', e, { s, t });
+                onBodyMouseDown?.(edge.id, e);
               }}
             />
             {/* Selection underlay: soft blue tint, rendered under the

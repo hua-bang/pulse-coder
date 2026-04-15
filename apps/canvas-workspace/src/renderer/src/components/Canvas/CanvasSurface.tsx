@@ -57,6 +57,9 @@ interface CanvasSurfaceProps {
     e: React.MouseEvent,
     ctx: { s: Point; t: Point },
   ) => void;
+  /** Mousedown on the edge body (not a handle). Starts a "translate
+   *  the whole edge" drag. */
+  onEdgeBodyMouseDown: (edgeId: string, e: React.MouseEvent) => void;
 }
 
 export const CanvasSurface = ({
@@ -86,6 +89,7 @@ export const CanvasSurface = ({
   onFocus,
   onSelectEdge,
   onEdgeHandleMouseDown,
+  onEdgeBodyMouseDown,
 }: CanvasSurfaceProps) => (
   <div
     className={`canvas-transform${moving || animating ? ' canvas-transform--moving' : ''}`}
@@ -108,6 +112,7 @@ export const CanvasSurface = ({
       interactionState={edgeInteractionState}
       previewEndpoints={edgePreviewEndpoints}
       onHandleMouseDown={onEdgeHandleMouseDown}
+      onBodyMouseDown={onEdgeBodyMouseDown}
     />
     {sortedNodes.map((node) => (
       <CanvasNodeView
