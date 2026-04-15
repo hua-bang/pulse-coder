@@ -1,4 +1,4 @@
-/* Inline label chip shown on top of an edge.
+/* Inline label shown on top of an edge.
 
    Positioned via inline left/top (screen coords computed from the edge's
    bend-handle point). `translate(-50%, -50%)` centers the chip exactly
@@ -22,6 +22,7 @@
   font-size: 12px;
   line-height: 16px;
   color: var(--text);
+  text-align: center;
   /* Sit above the edge stroke (inside .canvas-transform) but below the
      floating toolbar (zIndex 500) and below the EdgeStylePanel (zIndex
      50) so clicks on the panel still register first when the two
@@ -35,12 +36,16 @@
 }
 
 .edge-label--editing {
-  /* Accent ring while editing so it clearly reads as "active input".
-     Drops the default hover/cursor affordance — we're already focused. */
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-light), var(--shadow-float);
-  cursor: text;
+  /* During editing we drop the chip chrome entirely — no background,
+     no border, no shadow. The text sits directly on the canvas so the
+     user feels like they're typing onto the line itself. An accent-
+     colored caret (inherited from the browser) plus the input's own
+     focus outline are enough affordance. */
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
   overflow: visible;
+  padding: 0;
 }
 
 .edge-label-text {
@@ -57,10 +62,18 @@
   border: none;
   outline: none;
   background: transparent;
-  padding: 0;
+  /* Match the view-mode chip's inner padding so the text doesn't jump
+     horizontally when flipping between modes. */
+  padding: 2px 8px;
   margin: 0;
   font: inherit;
   color: inherit;
-  width: 160px;
-  min-width: 80px;
+  text-align: center;
+  /* field-sizing: content auto-grows the <input> to fit its contents,
+     so the editor expands naturally as the user types. Supported in
+     Chromium 123+, which covers modern Electron. Pairing it with a
+     small explicit min-width keeps the input clickable even when empty. */
+  field-sizing: content;
+  min-width: 48px;
+  max-width: 280px;
 }

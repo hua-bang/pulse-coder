@@ -339,6 +339,23 @@ export const CanvasEdgesLayer = ({
                 vectorEffect="non-scaling-stroke"
               />
             )}
+            {/* Handles for the selected edge. Rendered BEFORE the visible
+                stroke so the stroke (and more importantly its markers)
+                paint on top — without this, the white-filled target
+                handle circle sits over the arrow-head marker and the
+                triangle visually disappears. The stroke itself passes
+                through the handle but is only a few pixels wide, so
+                the handle's ring stays clearly readable. */}
+            {isSelected && onHandleMouseDown && (
+              <EdgeHandles
+                edge={edge}
+                s={s}
+                t={t}
+                onHandleMouseDown={(handle, e) =>
+                  onHandleMouseDown(edge.id, handle, e, { s, t })
+                }
+              />
+            )}
             {/* Visible stroke. Linecap is "butt" whenever the matching
                 end has an arrow marker — SVG places the marker's refPoint
                 AT the path endpoint, so a rounded cap (radius = half
@@ -359,18 +376,6 @@ export const CanvasEdgesLayer = ({
               markerEnd={head !== 'none' ? `url(#${capId('edge-head', head, stroke.color)})` : undefined}
               markerStart={tail !== 'none' ? `url(#${capId('edge-tail', tail, stroke.color)})` : undefined}
             />
-            {/* Handles for the selected edge only. Rendered as a last
-                child so they sit visually above the stroke. */}
-            {isSelected && onHandleMouseDown && (
-              <EdgeHandles
-                edge={edge}
-                s={s}
-                t={t}
-                onHandleMouseDown={(handle, e) =>
-                  onHandleMouseDown(edge.id, handle, e, { s, t })
-                }
-              />
-            )}
           </g>
         );
       })}
