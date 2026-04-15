@@ -6,6 +6,7 @@ import { ZoomIndicator } from '../ZoomIndicator';
 import { SearchPalette } from '../SearchPalette';
 import { CanvasEmptyHint } from '../CanvasEmptyHint';
 import { EdgeStylePanel } from '../EdgeStylePanel';
+import { EdgeLabel } from '../EdgeLabel';
 
 interface CanvasOverlaysProps {
   nodes: CanvasNode[];
@@ -39,6 +40,15 @@ interface CanvasOverlaysProps {
   transform: CanvasTransform;
   onUpdateEdge?: (id: string, patch: Partial<CanvasEdge>) => void;
   onRemoveEdge?: (id: string) => void;
+  /** All edges — needed for label rendering. Labels render as DOM
+   *  overlay elements (outside .canvas-transform) so text stays crisp
+   *  and editable regardless of zoom. */
+  edges?: CanvasEdge[];
+  /** Id of the edge whose label is currently in edit mode, or null. */
+  editingEdgeLabelId?: string | null;
+  onStartEditEdgeLabel?: (id: string) => void;
+  onCommitEditEdgeLabel?: (id: string, label: string) => void;
+  onCancelEditEdgeLabel?: () => void;
 }
 
 export const CanvasOverlays = ({
@@ -61,6 +71,11 @@ export const CanvasOverlays = ({
   transform,
   onUpdateEdge,
   onRemoveEdge,
+  edges,
+  editingEdgeLabelId,
+  onStartEditEdgeLabel,
+  onCommitEditEdgeLabel,
+  onCancelEditEdgeLabel,
 }: CanvasOverlaysProps) => (
   <>
     {nodes.length === 0 && !contextMenu && <CanvasEmptyHint />}
@@ -113,6 +128,26 @@ export const CanvasOverlays = ({
         onRemove={onRemoveEdge}
       />
     )}
+
+    {/* Edge labels. Rendered for every edge that either carries a
+        non-empty label or is currently in edit mode. The edit-mode check
+        lets us open the input on a freshly-dbl-clicked unlabeled edge
+        without first persisting an empty string. */}
+    {edges && onStartEditEdgeLabel && onCommitEditEdgeLabel && onCancelEditEdgeLabel &&
+      edges
+        .filter((edge) => (edge.label && edge.label.length > 0) || editingEdgeLabelId === edge.id)
+        .map((edge) => (
+          <EdgeLabel
+            key={edge.id}
+            edge={edge}
+            nodes={nodes}
+            transform={transform}
+            isEditing={editingEdgeLabelId === edge.id}
+            onStartEdit={onStartEditEdgeLabel}
+            onCommit={onCommitEditEdgeLabel}
+            onCancel={onCancelEditEdgeLabel}
+          />
+        ))}
 
     <ZoomIndicator scale={scale} onReset={onResetTransform} />
 

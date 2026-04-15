@@ -60,6 +60,8 @@ interface CanvasSurfaceProps {
   /** Mousedown on the edge body (not a handle). Starts a "translate
    *  the whole edge" drag. */
   onEdgeBodyMouseDown: (edgeId: string, e: React.MouseEvent) => void;
+  /** Double-click on the edge body. Opens the edge-label editor. */
+  onEdgeBodyDoubleClick: (edgeId: string, e: React.MouseEvent) => void;
 }
 
 export const CanvasSurface = ({
@@ -90,6 +92,7 @@ export const CanvasSurface = ({
   onSelectEdge,
   onEdgeHandleMouseDown,
   onEdgeBodyMouseDown,
+  onEdgeBodyDoubleClick,
 }: CanvasSurfaceProps) => (
   <div
     className={`canvas-transform${moving || animating ? ' canvas-transform--moving' : ''}`}
@@ -113,6 +116,7 @@ export const CanvasSurface = ({
       previewEndpoints={edgePreviewEndpoints}
       onHandleMouseDown={onEdgeHandleMouseDown}
       onBodyMouseDown={onEdgeBodyMouseDown}
+      onBodyDoubleClick={onEdgeBodyDoubleClick}
     />
     {sortedNodes.map((node) => (
       <CanvasNodeView

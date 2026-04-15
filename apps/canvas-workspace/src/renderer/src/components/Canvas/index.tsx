@@ -69,6 +69,11 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
   } = useNodes(canvasId, () => {});
 
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  // Which edge (if any) is in label-edit mode. Driven by dbl-click on
+  // the edge body; cleared on blur/Escape/Enter. Stored here (not inside
+  // EdgeLabel) so that selecting a different edge or deleting the edge
+  // can forcibly end the edit session.
+  const [editingEdgeLabelId, setEditingEdgeLabelId] = useState<string | null>(null);
 
   // Flush pending saves on window close or component unmount
   useEffect(() => {
@@ -234,6 +239,33 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
     [beginMoveEdge],
   );
 
+  const handleEdgeBodyDoubleClick = useCallback(
+    (edgeId: string) => {
+      // Ensure the edge is selected before editing so the style panel
+      // stays in sync with the edge the user is labeling.
+      setSelectedEdgeId(edgeId);
+      setSelectedNodeIds([]);
+      setEditingEdgeLabelId(edgeId);
+    },
+    [],
+  );
+
+  const handleCommitEditEdgeLabel = useCallback(
+    (edgeId: string, label: string) => {
+      // Normalize: empty or whitespace-only labels clear the field back
+      // to `undefined`, keeping the stored data clean (and making the
+      // label chip disappear from the overlay).
+      const trimmed = label.trim();
+      updateEdge(edgeId, { label: trimmed.length > 0 ? trimmed : undefined });
+      setEditingEdgeLabelId(null);
+    },
+    [updateEdge],
+  );
+
+  const handleCancelEditEdgeLabel = useCallback(() => {
+    setEditingEdgeLabelId(null);
+  }, []);
+
   const isBlankCanvasTarget = useCallback((target: EventTarget | null) => {
     if (!(target instanceof HTMLElement)) return false;
     return !target.closest(
@@ -395,6 +427,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
         }}
         onEdgeHandleMouseDown={handleEdgeHandleMouseDown}
         onEdgeBodyMouseDown={handleEdgeBodyMouseDown}
+        onEdgeBodyDoubleClick={handleEdgeBodyDoubleClick}
       />
 
       <CanvasOverlays
@@ -423,7 +456,13 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
         onRemoveEdge={(id) => {
           removeEdge(id);
           setSelectedEdgeId(null);
+          if (editingEdgeLabelId === id) setEditingEdgeLabelId(null);
         }}
+        edges={edges}
+        editingEdgeLabelId={editingEdgeLabelId}
+        onStartEditEdgeLabel={handleEdgeBodyDoubleClick}
+        onCommitEditEdgeLabel={handleCommitEditEdgeLabel}
+        onCancelEditEdgeLabel={handleCancelEditEdgeLabel}
       />
     </div>
   );

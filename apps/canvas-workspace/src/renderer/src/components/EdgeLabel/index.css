@@ -1,0 +1,66 @@
+/* Inline label chip shown on top of an edge.
+
+   Positioned via inline left/top (screen coords computed from the edge's
+   bend-handle point). `translate(-50%, -50%)` centers the chip exactly
+   on the line midpoint.
+
+   Sits in the overlay layer so the text isn't transformed with
+   .canvas-transform — font stays crisp at any zoom. */
+.edge-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  max-width: 240px;
+  padding: 2px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-float);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text);
+  /* Sit above the edge stroke (inside .canvas-transform) but below the
+     floating toolbar (zIndex 500) and below the EdgeStylePanel (zIndex
+     50) so clicks on the panel still register first when the two
+     overlap. */
+  z-index: 40;
+  cursor: text;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.edge-label--editing {
+  /* Accent ring while editing so it clearly reads as "active input".
+     Drops the default hover/cursor affordance — we're already focused. */
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-light), var(--shadow-float);
+  cursor: text;
+  overflow: visible;
+}
+
+.edge-label-text {
+  /* Explicit span so the view-mode layout matches the input's — keeps
+     the chip's height stable between view and edit. */
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edge-label-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  width: 160px;
+  min-width: 80px;
+}

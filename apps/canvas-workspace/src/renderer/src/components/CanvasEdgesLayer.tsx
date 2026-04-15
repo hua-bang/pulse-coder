@@ -34,6 +34,11 @@ interface Props {
    *  interaction hook translates free-point endpoints by the cursor
    *  delta while leaving node-bound endpoints anchored. */
   onBodyMouseDown?: (edgeId: string, e: React.MouseEvent) => void;
+  /** Double-click on the edge body. Used to enter edge-label edit mode.
+   *  The hit-proxy swallows the event so it doesn't bubble up to the
+   *  canvas-container's blank dbl-click handler (which spawns the
+   *  new-node context menu). */
+  onBodyDoubleClick?: (edgeId: string, e: React.MouseEvent) => void;
 }
 
 const DEFAULT_STROKE: Required<EdgeStroke> = {
@@ -220,6 +225,7 @@ export const CanvasEdgesLayer = ({
   previewEndpoints,
   onHandleMouseDown,
   onBodyMouseDown,
+  onBodyDoubleClick,
 }: Props) => {
   const nodesById = useMemo(() => {
     const m = new Map<string, CanvasNode>();
@@ -311,6 +317,13 @@ export const CanvasEdgesLayer = ({
                 e.stopPropagation();
                 onSelectEdge?.(edge.id);
                 onBodyMouseDown?.(edge.id, e);
+              }}
+              onDoubleClick={(e) => {
+                // Swallow so the canvas-container's blank-area dbl-click
+                // handler (which opens the new-node context menu) doesn't
+                // fire. The parent opens the edge-label editor instead.
+                e.stopPropagation();
+                onBodyDoubleClick?.(edge.id, e);
               }}
             />
             {/* Selection underlay: soft blue tint, rendered under the
