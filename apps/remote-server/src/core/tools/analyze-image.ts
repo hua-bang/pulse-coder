@@ -63,6 +63,7 @@ type ImageInlinePart = {
 export const analyzeImageTool: Tool<AnalyzeImageInput, AnalyzeImageResult> = {
   name: 'analyze_image',
   description: 'Analyze one or more local images with Gemini. If imagePaths are omitted, automatically uses runContext.latestAttachments from the latest image message.',
+  defer_loading: true,
   inputSchema: toolSchema,
   execute: async (input: AnalyzeImageInput, context?: AnalyzeImageToolContext): Promise<AnalyzeImageResult> => {
     const apiKey = process.env.GEMINI_API_KEY?.trim();

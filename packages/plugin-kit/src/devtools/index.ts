@@ -726,6 +726,7 @@ function createRunGetTool(store: DevtoolsStore, name: string): Tool {
   return {
     name,
     description: 'Fetch devtools run details by runId for diagnostics.',
+    defer_loading: true,
     inputSchema: schema,
     execute: async (input: { runId: string; includeUserText?: boolean }) => {
       const run = await store.getRun(input.runId);

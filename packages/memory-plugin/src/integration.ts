@@ -640,6 +640,7 @@ function buildMemoryGetDailyLogByDayTool(
   return {
     name: 'memory_get_daily_log_by_day',
     description: 'Get daily-log memory items for a specific day (YYYY-MM-DD) in current session.',
+    defer_loading: true,
     inputSchema: MEMORY_GET_DAILY_LOG_BY_DAY_INPUT_SCHEMA,
     execute: async ({ dayKey, limit, types }) => {
       const runContext = requireRunContext(getRunContext);
@@ -667,6 +668,7 @@ function buildMemoryRecordTool(
   return {
     name: 'memory_record',
     description: 'Persist an important preference/rule/fix/profile/soul into memory when explicitly useful.',
+    defer_loading: true,
     inputSchema: MEMORY_RECORD_INPUT_SCHEMA,
     execute: async ({ content, kind }) => {
       const runContext = requireRunContext(getRunContext);

@@ -634,6 +634,7 @@ function buildSoulListTool(service: BuiltInSoulService): Tool {
   return {
     name: 'soul_list',
     description: 'List available souls.',
+    defer_loading: true,
     inputSchema: SOUL_LIST_INPUT_SCHEMA,
     execute: async (input) => {
       const format = input.format ?? 'summary';
@@ -649,6 +650,7 @@ function buildSoulStatusTool(service: BuiltInSoulService): Tool {
   return {
     name: 'soul_status',
     description: 'Get soul state for the current session.',
+    defer_loading: true,
     inputSchema: SOUL_STATUS_INPUT_SCHEMA,
     execute: async (input, context) => {
       const sessionId = resolveSessionId(input, context?.runContext);
@@ -669,6 +671,7 @@ function buildSoulUseTool(service: BuiltInSoulService): Tool {
   return {
     name: 'soul_use',
     description: 'Replace active souls with the specified soul.',
+    defer_loading: true,
     inputSchema: SOUL_USE_INPUT_SCHEMA,
     execute: async (input, context) => {
       const sessionId = resolveSessionId(input, context?.runContext);
@@ -685,6 +688,7 @@ function buildSoulAddTool(service: BuiltInSoulService): Tool {
   return {
     name: 'soul_add',
     description: 'Add a soul to the active list for the current session.',
+    defer_loading: true,
     inputSchema: SOUL_ADD_INPUT_SCHEMA,
     execute: async (input, context) => {
       const sessionId = resolveSessionId(input, context?.runContext);
@@ -701,6 +705,7 @@ function buildSoulRemoveTool(service: BuiltInSoulService): Tool {
   return {
     name: 'soul_remove',
     description: 'Remove a soul from the active list for the current session.',
+    defer_loading: true,
     inputSchema: SOUL_REMOVE_INPUT_SCHEMA,
     execute: async (input, context) => {
       const sessionId = resolveSessionId(input, context?.runContext);
@@ -717,6 +722,7 @@ function buildSoulClearTool(service: BuiltInSoulService): Tool {
   return {
     name: 'soul_clear',
     description: 'Clear soul state for the current session.',
+    defer_loading: true,
     inputSchema: SOUL_CLEAR_INPUT_SCHEMA,
     execute: async (input, context) => {
       const sessionId = resolveSessionId(input, context?.runContext);
@@ -733,6 +739,7 @@ function buildSoulRegisterTool(service: BuiltInSoulService): Tool {
   return {
     name: 'soul_register',
     description: 'Register or replace a soul definition. Persists to ~/.pulse-coder/souls/<id>/SOUL.md when enabled.',
+    defer_loading: true,
     inputSchema: SOUL_REGISTER_INPUT_SCHEMA,
     execute: async (input) => {
       const soul = await service.registerSoul({

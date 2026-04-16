@@ -33,12 +33,14 @@ function buildDemoTool(
   description: string,
   note: string,
   allowedCallers?: string[],
+  deferLoading?: boolean,
 ): Tool<DemoInput, DemoResult> {
   return {
     name,
     description,
     inputSchema: toolSchema,
     allowed_callers: allowedCallers,
+    ...(deferLoading ? { defer_loading: true } : {}),
     execute: async (input, context) => {
       const callerSelectors = resolveSelectors(context);
       const caller = typeof context?.runContext?.caller === 'string' ? context.runContext.caller : undefined;
@@ -61,6 +63,8 @@ export const ptcDemoCallerProbeTool = buildDemoTool(
   'ptc_demo_caller_probe',
   'Inspect caller selectors in runContext for PTC demo.',
   'Unrestricted tool. Always callable if exposed by normal tool registration.',
+  undefined,
+  true,
 );
 
 export const ptcDemoCallerOnlyTool = buildDemoTool(

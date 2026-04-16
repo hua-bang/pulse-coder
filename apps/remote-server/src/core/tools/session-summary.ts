@@ -53,6 +53,7 @@ const DEFAULT_MAX_MESSAGES = 200;
 export const sessionSummaryTool: Tool<ToolInput, ToolResult> = {
   name: 'session_summary',
   description: 'Summarize recent sessions for the current user by reading stored session messages.',
+  defer_loading: true,
   inputSchema: toolSchema,
   execute: async (input, context) => {
     const runContext = context?.runContext || {};
