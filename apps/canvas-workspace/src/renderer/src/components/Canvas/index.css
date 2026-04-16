@@ -43,3 +43,17 @@
 .canvas-transform--moving {
   will-change: transform;
 }
+
+/* Drag-select (marquee) rectangle. Positioned in canvas-space so it moves
+ * with pan/zoom alongside the nodes it's hit-testing. The border and radius
+ * are divided by --canvas-scale so the outline stays a roughly constant
+ * visual thickness regardless of zoom level. pointer-events: none keeps
+ * the rectangle from intercepting the drag that's drawing it. */
+.canvas-marquee {
+  position: absolute;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--accent-border, #3b82f6) 12%, transparent);
+  border: calc(1px / var(--canvas-scale, 1)) solid var(--accent-border, #3b82f6);
+  border-radius: calc(2px / var(--canvas-scale, 1));
+  z-index: 2;
+}

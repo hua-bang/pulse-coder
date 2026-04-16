@@ -4,6 +4,7 @@ import { CanvasNodeView } from '../CanvasNodeView';
 import { CanvasEdgesLayer } from '../CanvasEdgesLayer';
 import type { ResizeEdge } from '../../hooks/useNodeResize';
 import type { EdgeInteractionState, Point } from '../../hooks/useEdgeInteraction';
+import type { MarqueeRect } from '../../hooks/useMarqueeSelect';
 
 interface CanvasSurfaceProps {
   transform: { x: number; y: number; scale: number };
@@ -36,6 +37,10 @@ interface CanvasSurfaceProps {
   /** Preview endpoints resolved by the interaction hook. Null when no
    *  connect/move-end drag is in flight. */
   edgePreviewEndpoints: { s: Point; t: Point } | null;
+  /** Live drag-select rectangle in canvas-space coords. Null when no marquee
+   *  is in flight. Rendered inside the transform layer so it stays aligned
+   *  with the underlying nodes under pan/zoom. */
+  marqueeRect: MarqueeRect | null;
   onDragStart: (e: React.MouseEvent, node: CanvasNode) => void;
   onResizeStart: (
     e: React.MouseEvent,
@@ -83,6 +88,7 @@ export const CanvasSurface = ({
   externallyEditedIds,
   edgeInteractionState,
   edgePreviewEndpoints,
+  marqueeRect,
   onDragStart,
   onResizeStart,
   onUpdate,
@@ -139,5 +145,20 @@ export const CanvasSurface = ({
         onFocus={onFocus}
       />
     ))}
+    {marqueeRect && (
+      // Rendered in canvas space so the rectangle tracks the content under
+      // pan/zoom. Border width is divided by the current scale so the outline
+      // reads as a constant ~1px regardless of zoom level. `pointer-events:
+      // none` keeps the rectangle from intercepting the ongoing drag.
+      <div
+        className="canvas-marquee"
+        style={{
+          left: marqueeRect.x,
+          top: marqueeRect.y,
+          width: marqueeRect.width,
+          height: marqueeRect.height,
+        }}
+      />
+    )}
   </div>
 );
