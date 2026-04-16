@@ -66,7 +66,7 @@ export const TextNodeBody = ({ node, onUpdate, isSelected, onSelect, onDragStart
         placeholder: "Double-click to edit",
         showOnlyWhenEditable: false,
       }),
-      Markdown.configure({ html: false, transformPastedText: true }),
+      Markdown.configure({ html: false, transformPastedText: true, breaks: true }),
     ],
     content: data.content || "",
     editable: false,
