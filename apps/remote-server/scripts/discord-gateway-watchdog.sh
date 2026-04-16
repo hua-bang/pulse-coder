@@ -39,7 +39,7 @@ status_json=$(curl -fsS \
   -H "Authorization: Bearer $SECRET" \
   "$BASE_URL/internal/discord/gateway/status")
 
-healthy=$(printf '%s' "$status_json" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.ok && j.gateway && j.gateway.healthy ? 'true' : 'false');});")
+healthy=$(printf '%s' "$status_json" | jq -r 'if (.ok == true) and (.gateway.healthy == true) then "true" else "false" end')
 
 if [[ "$healthy" == "true" ]]; then
   fail_count=0

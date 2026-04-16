@@ -1,6 +1,6 @@
 {
-  "current_model": "gpt-5.3-codex",
-  "provider_type": "openai",
+  "current_model": "claude-sonnet-4-6",
+  "provider_type": "claude",
   "options": [
     {
       "name": "gpt-5-codex",

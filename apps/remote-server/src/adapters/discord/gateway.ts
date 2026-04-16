@@ -20,6 +20,8 @@ interface ReadyPayload {
   user?: {
     id?: string;
   };
+  session_id?: string;
+  resume_gateway_url?: string;
 }
 
 interface MessageCreatePayload {
@@ -72,11 +74,15 @@ export interface DiscordGatewayStatus {
   lastAckAt: number | null;
   lastAckAgeMs: number | null;
   healthy: boolean;
+  hasSession: boolean;
+  sessionAgeMs: number | null;
 }
 
 const DEFAULT_GATEWAY_URL = 'wss://gateway.discord.gg/?v=10&encoding=json';
 const DISCORD_GATEWAY_INTENTS = 1 + 512 + 4096 + 32768;
 const MAX_RECONNECT_DELAY_MS = 30000;
+const MIN_CONNECT_INTERVAL_MS = 5500;
+const STABLE_CONNECTION_MS = 5 * 60 * 1000;
 const DEFAULT_ACK_STALE_THRESHOLD_MS = 90000;
 const DISCORD_CHANNEL_DIRECT_REPLY_MEMBER_COUNT = 2;
 
@@ -103,6 +109,10 @@ export class DiscordDmGateway {
   private lastDispatchAt: number | null = null;
   private lastAckAt: number | null = null;
   private readonly seenMessageIds = new Set<string>();
+  private sessionId: string | null = null;
+  private resumeGatewayUrl: string | null = null;
+  private stableTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastConnectAt = 0;
 
   start(): void {
     if (!this.enabled) {
@@ -135,9 +145,11 @@ export class DiscordDmGateway {
     this.isReconnecting = false;
     this.clearHeartbeat();
     this.clearReconnect();
+    this.clearStableTimer();
     this.heartbeatIntervalMs = null;
     this.selfUserId = null;
     this.lastAckAt = null;
+    this.invalidateSession();
 
     if (this.ws) {
       this.ws.close();
@@ -176,6 +188,8 @@ export class DiscordDmGateway {
       lastAckAt: this.lastAckAt,
       lastAckAgeMs,
       healthy,
+      hasSession: this.sessionId !== null,
+      sessionAgeMs: this.lastReadyAt ? Math.max(0, now - this.lastReadyAt) : null,
     };
   }
 
@@ -186,14 +200,37 @@ export class DiscordDmGateway {
 
     this.clearReconnect();
 
+    const now = Date.now();
+    const elapsed = now - this.lastConnectAt;
+    if (elapsed < MIN_CONNECT_INTERVAL_MS) {
+      const wait = MIN_CONNECT_INTERVAL_MS - elapsed;
+      console.log(`[discord-gateway] Rate limiting: waiting ${wait}ms before connecting`);
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.connectInternal();
+      }, wait);
+      return;
+    }
+
+    this.connectInternal();
+  }
+
+  private connectInternal(): void {
+    if (this.isStopped) {
+      return;
+    }
+
+    this.lastConnectAt = Date.now();
+
     try {
-      const ws = new WebSocket(this.gatewayUrl, {
+      const url = this.resumeGatewayUrl || this.gatewayUrl;
+      const ws = new WebSocket(url, {
         dispatcher: getDiscordProxyDispatcher(),
       });
       this.ws = ws;
 
       ws.addEventListener('open', () => {
-        console.log('[discord-gateway] Connected to Discord Gateway');
+        console.log(`[discord-gateway] Connected to Discord Gateway (resume=${Boolean(this.sessionId)})`);
       });
 
       ws.addEventListener('message', (event) => {
@@ -205,7 +242,7 @@ export class DiscordDmGateway {
       ws.addEventListener('close', (event) => {
         this.ws = null;
         this.clearHeartbeat();
-        this.selfUserId = null;
+        this.clearStableTimer();
         this.heartbeatIntervalMs = null;
 
         if (this.isStopped) {
@@ -217,6 +254,8 @@ export class DiscordDmGateway {
           this.isStopped = true;
           this.isStarted = false;
           this.clearReconnect();
+          this.invalidateSession();
+          this.selfUserId = null;
           return;
         }
 
@@ -225,7 +264,15 @@ export class DiscordDmGateway {
           this.isStopped = true;
           this.isStarted = false;
           this.clearReconnect();
+          this.invalidateSession();
+          this.selfUserId = null;
           return;
+        }
+
+        if (event.code === 4007 || event.code === 4009) {
+          console.warn(`[discord-gateway] Session invalidated by Discord (${event.code}); will IDENTIFY on reconnect`);
+          this.invalidateSession();
+          this.selfUserId = null;
         }
 
         console.warn(`[discord-gateway] Gateway closed (${event.code}): ${event.reason || 'no reason'}`);
@@ -277,10 +324,17 @@ export class DiscordDmGateway {
         console.log('[discord-gateway] Reconnect requested by Discord');
         this.forceReconnect();
         return;
-      case 9:
-        console.warn('[discord-gateway] Invalid session; reconnecting');
+      case 9: {
+        const resumable = payload.d === true;
+        if (resumable) {
+          console.warn('[discord-gateway] Invalid session (resumable); will retry RESUME');
+        } else {
+          console.warn('[discord-gateway] Invalid session (not resumable); clearing session, will IDENTIFY');
+          this.invalidateSession();
+        }
         this.forceReconnect();
         return;
+      }
       case 0:
         this.lastDispatchAt = Date.now();
         await this.handleDispatch(payload.t, payload.d);
@@ -294,16 +348,30 @@ export class DiscordDmGateway {
     const interval = Math.max(1000, hello.heartbeat_interval ?? 41250);
     this.heartbeatIntervalMs = interval;
     this.startHeartbeat(interval);
-    this.identify();
+
+    if (this.sessionId && this.sequence !== null) {
+      this.resume();
+    } else {
+      this.identify();
+    }
   }
 
   private async handleDispatch(type: string | undefined, data: unknown): Promise<void> {
     if (type === 'READY') {
       const ready = data as ReadyPayload;
       this.selfUserId = ready.user?.id ?? null;
+      this.sessionId = ready.session_id ?? null;
+      this.resumeGatewayUrl = ready.resume_gateway_url ?? null;
       this.lastReadyAt = Date.now();
-      this.reconnectAttempt = 0;
-      console.log('[discord-gateway] READY event received');
+      this.scheduleStableReset();
+      console.log(`[discord-gateway] READY event received (sessionId=${this.sessionId ?? 'none'})`);
+      return;
+    }
+
+    if (type === 'RESUMED') {
+      this.lastReadyAt = Date.now();
+      this.scheduleStableReset();
+      console.log('[discord-gateway] RESUMED successfully');
       return;
     }
 
@@ -459,6 +527,7 @@ export class DiscordDmGateway {
   }
 
   private identify(): void {
+    console.log('[discord-gateway] Sending IDENTIFY');
     this.send({
       op: 2,
       d: {
@@ -469,6 +538,18 @@ export class DiscordDmGateway {
           browser: 'pulse-remote-server',
           device: 'pulse-remote-server',
         },
+      },
+    });
+  }
+
+  private resume(): void {
+    console.log(`[discord-gateway] Sending RESUME (sessionId=${this.sessionId}, seq=${this.sequence})`);
+    this.send({
+      op: 6,
+      d: {
+        token: this.botToken,
+        session_id: this.sessionId,
+        seq: this.sequence,
       },
     });
   }
@@ -553,6 +634,30 @@ export class DiscordDmGateway {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+  }
+
+  private invalidateSession(): void {
+    this.sessionId = null;
+    this.resumeGatewayUrl = null;
+    this.sequence = null;
+  }
+
+  private scheduleStableReset(): void {
+    this.clearStableTimer();
+    this.stableTimer = setTimeout(() => {
+      this.stableTimer = null;
+      if (!this.isStopped && this.ws?.readyState === WebSocket.OPEN) {
+        this.reconnectAttempt = 0;
+        console.log('[discord-gateway] Connection stable; reset reconnect backoff');
+      }
+    }, STABLE_CONNECTION_MS);
+  }
+
+  private clearStableTimer(): void {
+    if (this.stableTimer) {
+      clearTimeout(this.stableTimer);
+      this.stableTimer = null;
     }
   }
 }
