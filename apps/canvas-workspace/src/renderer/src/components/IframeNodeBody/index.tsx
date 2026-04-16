@@ -10,13 +10,58 @@ interface Props {
   onUpdate: (id: string, patch: Partial<CanvasNode>) => void;
 }
 
-/**
- * Renders an external web page, user-supplied HTML, or AI-generated HTML.
- *
- * AI mode streams the LLM response progressively — the iframe's srcdoc is
- * updated as each chunk arrives, giving a Claude-Artifacts-style live
- * rendering experience.
- */
+// ── Streaming shell ──────────────────────────────────────────────────
+//
+// Loaded as srcdoc during AI streaming. Contains:
+//  - morphdom from CDN (with innerHTML fallback if CDN fails)
+//  - A postMessage listener that morphs the DOM on each update
+//
+// The parent sends `{ type: 'morph', html }` with accumulated HTML.
+// The shell extracts <style> → applies to <head>, extracts <body>
+// content → morphdom diffs it in, strips <script> during streaming.
+// When generation completes the parent swaps to the final srcdoc so
+// scripts run.
+
+const STREAMING_SHELL = `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>*,*::before,*::after{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,sans-serif}</style>
+<script src="https://cdn.jsdelivr.net/npm/morphdom@2/dist/morphdom-umd.min.js"
+  onerror="window.morphdom=function(f,t){if(typeof t==='string'){var d=document.createElement('div');d.innerHTML=t;while(f.firstChild)f.removeChild(f.firstChild);while(d.firstChild)f.appendChild(d.firstChild)}else if(f.parentNode){f.parentNode.replaceChild(t,f)}}"></script>
+</head><body>
+<div id="__mr__"></div>
+<script>
+var root=document.getElementById("__mr__"),styleEl=null,prevCss="";
+function applyUpdate(html){
+  // 1. Extract and apply <style> blocks
+  var css="";
+  html.replace(/<style[^>]*>([\\s\\S]*?)<\\/style>/gi,function(_,c){css+=c});
+  if(css&&css!==prevCss){
+    if(!styleEl){styleEl=document.createElement("style");styleEl.id="__sc__";document.head.appendChild(styleEl)}
+    styleEl.textContent=css;
+    prevCss=css
+  }
+  // 2. Extract body content
+  var body=html,m=html.match(/<body[^>]*>([\\s\\S]*?)(<\\/body>|$)/i);
+  if(m)body=m[1];
+  else{var i=Math.max(html.lastIndexOf("</style>")+8,html.lastIndexOf("</head>")+7,0);if(i>0)body=html.slice(i)}
+  // 3. Strip <script> during streaming — they run on final render
+  body=body.replace(/<script[\\s\\S]*?(<\\/script>|$)/gi,"").trim();
+  if(!body)return;
+  // 4. Morph — minimal DOM patches, no full-page flash
+  var nx=document.createElement("div");nx.id="__mr__";nx.innerHTML=body;
+  if(typeof morphdom==="function"){try{morphdom(root,nx)}catch(e){root.innerHTML=body}}
+  else root.innerHTML=body
+}
+window.addEventListener("message",function(e){
+  if(!e.data)return;
+  if(e.data.type==="morph")applyUpdate(e.data.html)
+});
+window.parent.postMessage({type:"morph-ready"},"*");
+</script>
+</body></html>`;
+
+// ── Component ────────────────────────────────────────────────────────
+
 export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
   const data = node.data as IframeNodeData;
   const mode = data.mode ?? "url";
@@ -33,18 +78,21 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
   const [draftMode, setDraftMode] = useState<EditMode>(mode === "ai" ? "ai" : mode === "html" ? "html" : "url");
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
-  /** Accumulated HTML during streaming — drives the live iframe preview. */
-  const [streamingHtml, setStreamingHtml] = useState<string | null>(null);
+  const [streamingActive, setStreamingActive] = useState(false);
   const [webviewKey, setWebviewKey] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const webviewRef = useRef<WebviewTag | null>(null);
-  /** Ref to accumulate HTML without re-render per token — we batch via rAF. */
+
+  // ── Streaming refs (avoid re-renders per token) ────────────────────
+  const streamIframeRef = useRef<HTMLIFrameElement>(null);
   const streamBuf = useRef("");
   const rafId = useRef(0);
+  const shellReady = useRef(false);
+  const pendingMorph = useRef<string | null>(null);
 
-  // Keep drafts in sync when data is changed externally (undo/redo, CLI edits).
+  // Keep drafts in sync when data is changed externally.
   useEffect(() => { setDraftUrl(url); }, [url]);
   useEffect(() => { setDraftHtml(html); }, [html]);
   useEffect(() => { setDraftPrompt(savedPrompt); }, [savedPrompt]);
@@ -60,6 +108,33 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
     }, 0);
     return () => clearTimeout(t);
   }, [editing, draftMode]);
+
+  // ── Listen for morph-ready from the streaming shell ────────────────
+  useEffect(() => {
+    if (!streamingActive) {
+      shellReady.current = false;
+      return;
+    }
+
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === "morph-ready") {
+        shellReady.current = true;
+        // Flush any HTML that arrived before the shell was ready
+        if (pendingMorph.current && streamIframeRef.current?.contentWindow) {
+          streamIframeRef.current.contentWindow.postMessage(
+            { type: "morph", html: pendingMorph.current }, "*",
+          );
+          pendingMorph.current = null;
+        }
+      }
+    };
+
+    window.addEventListener("message", handler);
+    return () => {
+      window.removeEventListener("message", handler);
+      shellReady.current = false;
+    };
+  }, [streamingActive]);
 
   // Register the webview's webContents with main (URL mode only).
   useEffect(() => {
@@ -110,6 +185,19 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
     };
   }, [workspaceId, node.id, editing, url, mode, webviewKey]);
 
+  // ── Send accumulated HTML to the streaming iframe via postMessage ──
+
+  const flushToIframe = useCallback(() => {
+    const currentHtml = streamBuf.current;
+    const win = streamIframeRef.current?.contentWindow;
+
+    if (win && shellReady.current) {
+      win.postMessage({ type: "morph", html: currentHtml }, "*");
+    } else {
+      pendingMorph.current = currentHtml;
+    }
+  }, []);
+
   // ── Commit (URL / HTML) ────────────────────────────────────────────
 
   const commit = useCallback(() => {
@@ -130,20 +218,18 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
 
   // ── Streaming AI generation ────────────────────────────────────────
 
-  /**
-   * Start a streaming generation. Immediately switches to the rendered view
-   * and updates the iframe srcdoc as tokens arrive — progressive rendering.
-   */
-  const handleGenerate = useCallback(async () => {
-    const prompt = draftPrompt.trim();
-    if (!prompt) return;
-
+  const startStream = useCallback(async (
+    prompt: string,
+    opts: { fromEditor?: boolean } = {},
+  ) => {
     setGenerating(true);
     setGenError(null);
-    setStreamingHtml("");
+    setStreamingActive(true);
     streamBuf.current = "";
-    // Switch to rendered view immediately so the user sees the iframe
-    setEditing(false);
+    shellReady.current = false;
+    pendingMorph.current = null;
+
+    if (opts.fromEditor) setEditing(false);
 
     try {
       const llm = window.canvasWorkspace.llm;
@@ -152,25 +238,23 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
       if (!startResult.ok || !startResult.requestId) {
         setGenError(startResult.error ?? "Failed to start generation");
         setGenerating(false);
-        setStreamingHtml(null);
-        setEditing(true);
+        setStreamingActive(false);
+        if (opts.fromEditor) setEditing(true);
         return;
       }
 
       const requestId = startResult.requestId;
 
-      // Subscribe to deltas — batch updates via rAF for performance
       const unsub = llm.onHTMLDelta(requestId, (delta) => {
         streamBuf.current += delta;
         if (!rafId.current) {
           rafId.current = requestAnimationFrame(() => {
             rafId.current = 0;
-            setStreamingHtml(streamBuf.current);
+            flushToIframe();
           });
         }
       });
 
-      // Subscribe to completion
       const unsubComplete = llm.onHTMLComplete(requestId, (result) => {
         unsub();
         unsubComplete();
@@ -186,73 +270,28 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
           });
         } else {
           setGenError(result.error ?? "Generation failed");
-          // Switch back to editing so the user can see the error and retry
-          setEditing(true);
+          if (opts.fromEditor) setEditing(true);
         }
-        setStreamingHtml(null);
+        setStreamingActive(false);
         setGenerating(false);
       });
     } catch (err) {
       setGenError(err instanceof Error ? err.message : String(err));
-      setStreamingHtml(null);
+      setStreamingActive(false);
       setGenerating(false);
-      setEditing(true);
+      if (opts.fromEditor) setEditing(true);
     }
-  }, [draftPrompt, onUpdate, node.id, node.title, data]);
+  }, [flushToIframe, onUpdate, node.id, node.title, data]);
 
-  // ── Regenerate from rendered state ─────────────────────────────────
+  const handleGenerate = useCallback(
+    () => startStream(draftPrompt.trim(), { fromEditor: true }),
+    [startStream, draftPrompt],
+  );
 
-  const handleRegenerate = useCallback(async () => {
-    const prompt = savedPrompt.trim();
-    if (!prompt) return;
-
-    setGenerating(true);
-    setStreamingHtml("");
-    streamBuf.current = "";
-
-    try {
-      const llm = window.canvasWorkspace.llm;
-      const startResult = await llm.streamHTML(prompt);
-
-      if (!startResult.ok || !startResult.requestId) {
-        setGenerating(false);
-        setStreamingHtml(null);
-        return;
-      }
-
-      const requestId = startResult.requestId;
-
-      const unsub = llm.onHTMLDelta(requestId, (delta) => {
-        streamBuf.current += delta;
-        if (!rafId.current) {
-          rafId.current = requestAnimationFrame(() => {
-            rafId.current = 0;
-            setStreamingHtml(streamBuf.current);
-          });
-        }
-      });
-
-      const unsubComplete = llm.onHTMLComplete(requestId, (result) => {
-        unsub();
-        unsubComplete();
-        if (rafId.current) {
-          cancelAnimationFrame(rafId.current);
-          rafId.current = 0;
-        }
-
-        if (result.ok && result.html) {
-          onUpdate(node.id, {
-            data: { ...data, html: result.html },
-          });
-        }
-        setStreamingHtml(null);
-        setGenerating(false);
-      });
-    } catch {
-      setStreamingHtml(null);
-      setGenerating(false);
-    }
-  }, [savedPrompt, onUpdate, node.id, data]);
+  const handleRegenerate = useCallback(
+    () => startStream(savedPrompt.trim()),
+    [startStream, savedPrompt],
+  );
 
   const cancel = useCallback(() => {
     setDraftUrl(url);
@@ -439,8 +478,6 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
 
   // ── Rendered state ─────────────────────────────────────────────────
 
-  // During streaming, use the live accumulated HTML; otherwise use saved html.
-  const displayHtml = streamingHtml !== null ? streamingHtml : html;
   const renderMode = mode === "url" ? "url" : "html";
 
   return (
@@ -541,11 +578,22 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
           src={url}
           allowpopups={true as unknown as undefined}
         />
-      ) : (
+      ) : streamingActive ? (
+        /* During streaming: shell page + morphdom for smooth progressive rendering */
         <iframe
-          key={generating ? "streaming" : webviewKey}
+          ref={streamIframeRef}
+          key="stream-shell"
           className="iframe-frame"
-          srcDoc={displayHtml}
+          srcDoc={STREAMING_SHELL}
+          sandbox="allow-scripts"
+          title="Generating…"
+        />
+      ) : (
+        /* Static: final HTML with scripts */
+        <iframe
+          key={webviewKey}
+          className="iframe-frame"
+          srcDoc={html}
           sandbox="allow-scripts"
           title={mode === "ai" ? "AI-generated preview" : "HTML preview"}
         />

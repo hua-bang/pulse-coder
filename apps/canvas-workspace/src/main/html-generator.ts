@@ -26,7 +26,13 @@ Your job:
 - If the user asks for charts/diagrams, use SVG or Canvas API (or a CDN library like Chart.js / D3 if needed).
 - The HTML will be rendered inside a sandboxed iframe, so it must be fully self-contained.
 - Respond with ONLY the raw HTML. No markdown fences, no explanation, no commentary.
-- Start your response with <!DOCTYPE html> or <html>.`;
+- Start your response with <!DOCTYPE html> or <html>.
+
+IMPORTANT — Structure for progressive rendering:
+- Put <style> tags in <head> FIRST so styles apply before content appears.
+- Put content HTML in <body> NEXT so the layout renders progressively.
+- Put <script> tags at the VERY END of <body> so they execute after content is visible.
+This order lets the page build up visually: styles → structure → interactivity.`;
 
 function getProvider() {
   return createOpenAI({
