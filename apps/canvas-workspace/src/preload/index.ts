@@ -144,6 +144,23 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
   llm: {
     generateHTML: (prompt: string) =>
       ipcRenderer.invoke("llm:generate-html", { prompt }) as Promise<{ ok: boolean; html?: string; error?: string }>,
+
+    streamHTML: (prompt: string) =>
+      ipcRenderer.invoke("llm:stream-html", { prompt }) as Promise<{ ok: boolean; requestId?: string; error?: string }>,
+
+    onHTMLDelta: (requestId: string, callback: (delta: string) => void) => {
+      const channel = `llm:html-delta:${requestId}`;
+      const handler = (_event: Electron.IpcRendererEvent, delta: string) => callback(delta);
+      ipcRenderer.on(channel, handler);
+      return () => { ipcRenderer.removeListener(channel, handler); };
+    },
+
+    onHTMLComplete: (requestId: string, callback: (result: { ok: boolean; html?: string; error?: string }) => void) => {
+      const channel = `llm:html-complete:${requestId}`;
+      const handler = (_event: Electron.IpcRendererEvent, result: { ok: boolean; html?: string; error?: string }) => callback(result);
+      ipcRenderer.on(channel, handler);
+      return () => { ipcRenderer.removeListener(channel, handler); };
+    },
   },
 
   agent: {

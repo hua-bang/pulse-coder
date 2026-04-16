@@ -11,20 +11,11 @@ interface Props {
 }
 
 /**
- * Renders an external web page in an Electron `<webview>` tag, renders
- * user-supplied HTML in a sandboxed `<iframe srcdoc>`, or generates HTML
- * from a natural-language prompt via the configured LLM.
+ * Renders an external web page, user-supplied HTML, or AI-generated HTML.
  *
- * URL mode (`mode: 'url'`, default):
- *   Uses Electron `<webview>` to embed a remote page.
- *
- * HTML mode (`mode: 'html'`):
- *   Renders raw HTML the user typed via `<iframe srcdoc>`.
- *
- * AI mode (`mode: 'ai'`):
- *   The user types a prompt, the LLM generates self-contained HTML, and
- *   the result is rendered the same way as HTML mode. The prompt is
- *   persisted so the user can regenerate or refine later.
+ * AI mode streams the LLM response progressively — the iframe's srcdoc is
+ * updated as each chunk arrives, giving a Claude-Artifacts-style live
+ * rendering experience.
  */
 export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
   const data = node.data as IframeNodeData;
@@ -42,11 +33,16 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
   const [draftMode, setDraftMode] = useState<EditMode>(mode === "ai" ? "ai" : mode === "html" ? "html" : "url");
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+  /** Accumulated HTML during streaming — drives the live iframe preview. */
+  const [streamingHtml, setStreamingHtml] = useState<string | null>(null);
   const [webviewKey, setWebviewKey] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const webviewRef = useRef<WebviewTag | null>(null);
+  /** Ref to accumulate HTML without re-render per token — we batch via rAF. */
+  const streamBuf = useRef("");
+  const rafId = useRef(0);
 
   // Keep drafts in sync when data is changed externally (undo/redo, CLI edits).
   useEffect(() => { setDraftUrl(url); }, [url]);
@@ -132,51 +128,128 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
     setEditing(false);
   }, [draftMode, draftUrl, draftHtml, onUpdate, node.id, node.title, data]);
 
-  // ── Generate (AI mode) ─────────────────────────────────────────────
+  // ── Streaming AI generation ────────────────────────────────────────
 
+  /**
+   * Start a streaming generation. Immediately switches to the rendered view
+   * and updates the iframe srcdoc as tokens arrive — progressive rendering.
+   */
   const handleGenerate = useCallback(async () => {
     const prompt = draftPrompt.trim();
     if (!prompt) return;
 
     setGenerating(true);
     setGenError(null);
+    setStreamingHtml("");
+    streamBuf.current = "";
+    // Switch to rendered view immediately so the user sees the iframe
+    setEditing(false);
 
     try {
-      const result = await window.canvasWorkspace.llm.generateHTML(prompt);
-      if (result.ok && result.html) {
-        onUpdate(node.id, {
-          data: { ...data, html: result.html, prompt, mode: "ai" },
-          title: node.title === "Web" ? "AI Visual" : node.title,
-        });
-        setEditing(false);
-      } else {
-        setGenError(result.error ?? "Failed to generate HTML");
+      const llm = window.canvasWorkspace.llm;
+      const startResult = await llm.streamHTML(prompt);
+
+      if (!startResult.ok || !startResult.requestId) {
+        setGenError(startResult.error ?? "Failed to start generation");
+        setGenerating(false);
+        setStreamingHtml(null);
+        setEditing(true);
+        return;
       }
+
+      const requestId = startResult.requestId;
+
+      // Subscribe to deltas — batch updates via rAF for performance
+      const unsub = llm.onHTMLDelta(requestId, (delta) => {
+        streamBuf.current += delta;
+        if (!rafId.current) {
+          rafId.current = requestAnimationFrame(() => {
+            rafId.current = 0;
+            setStreamingHtml(streamBuf.current);
+          });
+        }
+      });
+
+      // Subscribe to completion
+      const unsubComplete = llm.onHTMLComplete(requestId, (result) => {
+        unsub();
+        unsubComplete();
+        if (rafId.current) {
+          cancelAnimationFrame(rafId.current);
+          rafId.current = 0;
+        }
+
+        if (result.ok && result.html) {
+          onUpdate(node.id, {
+            data: { ...data, html: result.html, prompt, mode: "ai" },
+            title: node.title === "Web" ? "AI Visual" : node.title,
+          });
+        } else {
+          setGenError(result.error ?? "Generation failed");
+          // Switch back to editing so the user can see the error and retry
+          setEditing(true);
+        }
+        setStreamingHtml(null);
+        setGenerating(false);
+      });
     } catch (err) {
       setGenError(err instanceof Error ? err.message : String(err));
-    } finally {
+      setStreamingHtml(null);
       setGenerating(false);
+      setEditing(true);
     }
   }, [draftPrompt, onUpdate, node.id, node.title, data]);
 
   // ── Regenerate from rendered state ─────────────────────────────────
 
   const handleRegenerate = useCallback(async () => {
-    if (!savedPrompt.trim()) return;
+    const prompt = savedPrompt.trim();
+    if (!prompt) return;
+
     setGenerating(true);
-    setGenError(null);
+    setStreamingHtml("");
+    streamBuf.current = "";
 
     try {
-      const result = await window.canvasWorkspace.llm.generateHTML(savedPrompt.trim());
-      if (result.ok && result.html) {
-        onUpdate(node.id, {
-          data: { ...data, html: result.html },
-        });
-        setWebviewKey((k) => k + 1);
+      const llm = window.canvasWorkspace.llm;
+      const startResult = await llm.streamHTML(prompt);
+
+      if (!startResult.ok || !startResult.requestId) {
+        setGenerating(false);
+        setStreamingHtml(null);
+        return;
       }
+
+      const requestId = startResult.requestId;
+
+      const unsub = llm.onHTMLDelta(requestId, (delta) => {
+        streamBuf.current += delta;
+        if (!rafId.current) {
+          rafId.current = requestAnimationFrame(() => {
+            rafId.current = 0;
+            setStreamingHtml(streamBuf.current);
+          });
+        }
+      });
+
+      const unsubComplete = llm.onHTMLComplete(requestId, (result) => {
+        unsub();
+        unsubComplete();
+        if (rafId.current) {
+          cancelAnimationFrame(rafId.current);
+          rafId.current = 0;
+        }
+
+        if (result.ok && result.html) {
+          onUpdate(node.id, {
+            data: { ...data, html: result.html },
+          });
+        }
+        setStreamingHtml(null);
+        setGenerating(false);
+      });
     } catch {
-      // silent — the user can click edit to see what went wrong
-    } finally {
+      setStreamingHtml(null);
       setGenerating(false);
     }
   }, [savedPrompt, onUpdate, node.id, data]);
@@ -245,7 +318,6 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
     return (
       <div className="iframe-body iframe-body--empty">
         <div className="iframe-empty-inner">
-          {/* Tab switcher */}
           <div className="iframe-mode-tabs">
             <button
               className={`iframe-mode-tab${draftMode === "url" ? " iframe-mode-tab--active" : ""}`}
@@ -367,7 +439,9 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
 
   // ── Rendered state ─────────────────────────────────────────────────
 
-  const renderMode = mode === "url" ? "url" : "html"; // ai also renders as html
+  // During streaming, use the live accumulated HTML; otherwise use saved html.
+  const displayHtml = streamingHtml !== null ? streamingHtml : html;
+  const renderMode = mode === "url" ? "url" : "html";
 
   return (
     <div className="iframe-body">
@@ -376,6 +450,7 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
           className="iframe-bar-btn"
           onClick={handleReload}
           title="Reload"
+          disabled={generating}
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <path
@@ -399,13 +474,20 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
         ) : mode === "ai" ? (
           <button
             className="iframe-bar-url iframe-bar-url--html"
-            onClick={() => setEditing(true)}
-            title="Edit prompt"
+            onClick={() => !generating && setEditing(true)}
+            title={generating ? "Generating…" : "Edit prompt"}
           >
             <span className="iframe-bar-badge iframe-bar-badge--ai">AI</span>
-            <span className="iframe-bar-url-text">
-              {savedPrompt.length > 80 ? savedPrompt.slice(0, 80) + "…" : savedPrompt}
-            </span>
+            {generating ? (
+              <span className="iframe-bar-streaming">
+                <span className="iframe-spinner iframe-spinner--small" />
+                <span className="iframe-bar-url-text">Generating…</span>
+              </span>
+            ) : (
+              <span className="iframe-bar-url-text">
+                {savedPrompt.length > 80 ? savedPrompt.slice(0, 80) + "…" : savedPrompt}
+              </span>
+            )}
           </button>
         ) : (
           <button
@@ -420,20 +502,15 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
           </button>
         )}
 
-        {mode === "ai" && (
+        {mode === "ai" && !generating && (
           <button
             className="iframe-bar-btn"
             onClick={() => void handleRegenerate()}
             title="Regenerate"
-            disabled={generating}
           >
-            {generating ? (
-              <span className="iframe-spinner iframe-spinner--small" />
-            ) : (
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                <path d="M8 1.5l1.85 4.15L14 7.5l-4.15 1.85L8 13.5l-1.85-4.15L2 7.5l4.15-1.85L8 1.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-              </svg>
-            )}
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+              <path d="M8 1.5l1.85 4.15L14 7.5l-4.15 1.85L8 13.5l-1.85-4.15L2 7.5l4.15-1.85L8 1.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+            </svg>
           </button>
         )}
 
@@ -466,9 +543,9 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
         />
       ) : (
         <iframe
-          key={webviewKey}
+          key={generating ? "streaming" : webviewKey}
           className="iframe-frame"
-          srcDoc={html}
+          srcDoc={displayHtml}
           sandbox="allow-scripts"
           title={mode === "ai" ? "AI-generated preview" : "HTML preview"}
         />

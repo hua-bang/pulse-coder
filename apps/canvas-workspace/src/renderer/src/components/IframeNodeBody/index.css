@@ -298,3 +298,12 @@
 @keyframes iframe-spin {
   to { transform: rotate(360deg); }
 }
+
+/* ── Streaming indicator in address bar ────────────────────────────── */
+
+.iframe-bar-streaming {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
