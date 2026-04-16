@@ -20,8 +20,12 @@ interface Props {
  *
  * Design:
  *  - Tiptap gives true WYSIWYG, robust IME handling, and all the markdown
- *    keyboard shortcuts for free. Content is stored as markdown in
- *    node.data.content via the `tiptap-markdown` bridge.
+ *    keyboard shortcuts for free. Content is stored as HTML in
+ *    node.data.content so that line breaks, paragraphs, and formatting
+ *    survive a save/reload cycle without lossy markdown round-trips.
+ *  - The tiptap-markdown extension is still loaded so keyboard shortcuts
+ *    (e.g. `# ` for heading) and paste-as-markdown keep working — we
+ *    just bypass its serializer for persistence.
  *  - Idle state: editor is non-editable. Clicks hit our outer wrapper and
  *    start a drag; the node feels like a label.
  *  - Editing: double-click flips the editor to editable and focuses it.
@@ -35,6 +39,7 @@ interface Props {
  *    node.width/height becomes a fixed frame; text wraps inside and the
  *    .node-body clips overflow.
  * ------------------------------------------------------------------------- */
+
 export const TextNodeBody = ({ node, onUpdate, isSelected, onSelect, onDragStart }: Props) => {
   const data = node.data as TextNodeData;
   const autoSize = data.autoSize !== false;
@@ -66,17 +71,22 @@ export const TextNodeBody = ({ node, onUpdate, isSelected, onSelect, onDragStart
         placeholder: "Double-click to edit",
         showOnlyWhenEditable: false,
       }),
-      Markdown.configure({ html: false, transformPastedText: true, breaks: true }),
+      // Markdown extension kept for keyboard shortcuts (`# `, `- `, etc.)
+      // and paste-as-markdown. We persist via getHTML() instead of
+      // getMarkdown() to avoid lossy round-trips.  `html: true` lets the
+      // parser handle both saved HTML and legacy markdown content.
+      Markdown.configure({ html: true, transformPastedText: true, breaks: true }),
     ],
     content: data.content || "",
     editable: false,
     onUpdate: ({ editor }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const md = ((editor.storage as any)?.markdown?.getMarkdown() as string | undefined) ?? "";
-      if (md === dataRef.current.content) return;
-      prevContentRef.current = md;
+      // Persist as HTML so line breaks survive reload without a lossy
+      // markdown round-trip.
+      const html = editor.getHTML();
+      if (html === dataRef.current.content) return;
+      prevContentRef.current = html;
       onUpdateRef.current(nodeIdRef.current, {
-        data: { ...dataRef.current, content: md },
+        data: { ...dataRef.current, content: html },
       });
     },
     onBlur: () => {
@@ -91,19 +101,11 @@ export const TextNodeBody = ({ node, onUpdate, isSelected, onSelect, onDragStart
     editor.setEditable(editing);
   }, [editor, editing]);
 
-  // Ensure content is correctly loaded on mount and handle external content
-  // changes (undo/redo, CLI edit, duplicate-paste). On first mount we always
-  // re-apply via setContent to guarantee line breaks survive — the Markdown
-  // extension's onBeforeCreate hook (which parses initial `content`) can be
-  // bypassed by tiptap-react's EditorInstanceManager lifecycle (e.g. when
-  // scheduleDestroy re-creates the editor with raw options).  On subsequent
-  // renders we only call setContent when data.content actually changed.
-  const mountedRef = useRef(false);
+  // External content change (undo/redo, CLI edit, duplicate-paste) — reset
+  // the editor so it mirrors node.data without clobbering user typing.
   useEffect(() => {
     if (!editor) return;
-    const isMount = !mountedRef.current;
-    if (isMount) mountedRef.current = true;
-    if (!isMount && data.content === prevContentRef.current) return;
+    if (data.content === prevContentRef.current) return;
     prevContentRef.current = data.content;
     // `emitUpdate: false` avoids firing our onUpdate → onUpdate loop.
     editor.commands.setContent(data.content || "", { emitUpdate: false });
