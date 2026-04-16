@@ -76,13 +76,22 @@ export interface TextNodeData {
 }
 
 /**
- * Embeds an external web page via an <iframe>. Some sites block embedding
- * via X-Frame-Options / CSP frame-ancestors — those will fail to render and
- * the user can click "Open externally" to escape into the system browser.
+ * Embeds an external web page or renders raw HTML.
+ *
+ * `mode: 'url'` (default) loads a remote page via Electron `<webview>`.
+ * `mode: 'html'` renders user-supplied HTML in a sandboxed `<iframe srcdoc>`.
+ *
+ * Some sites block embedding via X-Frame-Options / CSP frame-ancestors —
+ * those will fail to render and the user can click "Open externally" to
+ * escape into the system browser.
  */
 export interface IframeNodeData {
   /** Full URL (including protocol) to load in the iframe. Empty = show URL input. */
   url: string;
+  /** Raw HTML content to render when `mode` is `'html'`. */
+  html?: string;
+  /** `'url'` embeds a remote page; `'html'` renders raw HTML locally. */
+  mode?: 'url' | 'html';
 }
 
 export interface CanvasTransform {

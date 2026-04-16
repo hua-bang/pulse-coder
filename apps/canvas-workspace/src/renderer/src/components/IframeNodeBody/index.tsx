@@ -9,50 +9,63 @@ interface Props {
 }
 
 /**
- * Renders an external web page in an Electron `<webview>` tag.
+ * Renders an external web page in an Electron `<webview>` tag, **or** renders
+ * user-supplied HTML in a sandboxed `<iframe srcdoc>`.
  *
- * A `<webview>` hosts its own `webContents` (like an isolated mini-browser),
- * which lets us do two things a plain iframe can't:
+ * URL mode (`mode: 'url'`, default):
+ *   A `<webview>` hosts its own `webContents` (like an isolated mini-browser),
+ *   which lets us do two things a plain iframe can't:
+ *    1. **Read the rendered DOM.** When the webview attaches we register its
+ *       `webContentsId` with main. The Canvas Agent's `canvas_read_node` tool
+ *       then pulls the post-JS DOM text directly out of that webContents — so
+ *       SPAs, pages that require auth cookies, etc. all become readable.
+ *    2. **Bypass X-Frame-Options / CSP frame-ancestors.** A `<webview>` isn't
+ *       subject to those directives the way a nested browsing context is, so a
+ *       lot of sites that refuse to embed in `<iframe>` render normally here.
  *
- *  1. **Read the rendered DOM.** When the webview attaches we register its
- *     `webContentsId` with main. The Canvas Agent's `canvas_read_node` tool
- *     then pulls the post-JS DOM text directly out of that webContents — so
- *     SPAs, pages that require auth cookies, etc. all become readable.
- *  2. **Bypass X-Frame-Options / CSP frame-ancestors.** A `<webview>` isn't
- *     subject to those directives the way a nested browsing context is, so a
- *     lot of sites that refuse to embed in `<iframe>` render normally here.
+ * HTML mode (`mode: 'html'`):
+ *   Renders raw HTML the user typed into the editor via `<iframe srcdoc>`.
+ *   The iframe is sandboxed — scripts are allowed so interactive demos work,
+ *   but it cannot navigate the parent or access its origin.
  *
- * Empty URL → show a URL input. Non-empty → show an address bar + webview.
+ * Empty URL/HTML → show an input. Non-empty → show the content.
  */
 export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
   const data = node.data as IframeNodeData;
+  const mode = data.mode ?? "url";
   const url = data.url ?? "";
-  const [editing, setEditing] = useState(!url);
-  const [draft, setDraft] = useState(url);
+  const html = data.html ?? "";
+
+  const hasContent = mode === "url" ? !!url : !!html;
+
+  const [editing, setEditing] = useState(!hasContent);
+  const [draftUrl, setDraftUrl] = useState(url);
+  const [draftHtml, setDraftHtml] = useState(html);
+  const [draftMode, setDraftMode] = useState<"url" | "html">(mode);
   const [webviewKey, setWebviewKey] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const webviewRef = useRef<WebviewTag | null>(null);
 
-  // Keep the draft in sync when the URL is changed externally (undo/redo,
-  // CLI edits, etc.) so the address bar doesn't show stale text.
-  useEffect(() => {
-    setDraft(url);
-  }, [url]);
+  // Keep drafts in sync when data is changed externally (undo/redo, CLI edits).
+  useEffect(() => { setDraftUrl(url); }, [url]);
+  useEffect(() => { setDraftHtml(html); }, [html]);
+  useEffect(() => { setDraftMode(mode); }, [mode]);
 
-  // Autofocus the input whenever we enter editing mode.
+  // Autofocus the relevant input whenever we enter editing mode.
   useEffect(() => {
-    if (editing) {
-      const t = setTimeout(() => inputRef.current?.select(), 0);
-      return () => clearTimeout(t);
-    }
-    return undefined;
-  }, [editing]);
+    if (!editing) return undefined;
+    const t = setTimeout(() => {
+      if (draftMode === "url") inputRef.current?.select();
+      else textareaRef.current?.focus();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [editing, draftMode]);
 
   // Register the webview's webContents with main so the Canvas Agent can
-  // pull rendered text out of it. We re-register on each load / remount so
-  // the ID is always fresh.
+  // pull rendered text out of it (URL mode only).
   useEffect(() => {
-    if (editing) return;
+    if (editing || mode !== "url") return;
     if (!workspaceId) return;
     const el = webviewRef.current;
     if (!el) return;
@@ -74,9 +87,6 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
           );
         }
       } catch (err) {
-        // If `webviewTag` is off or the guest hasn't attached yet,
-        // `getWebContentsId` throws. The event listeners below will retry;
-        // only the final mount-time error is useful, so log it quietly.
         if (via === "mount") {
           // eslint-disable-next-line no-console
           console.debug(
@@ -88,14 +98,8 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
       }
     };
 
-    // 1) Attempt synchronously. If the canvas was reloaded and the webview
-    //    had already attached by the time this effect runs, both `did-attach`
-    //    and `dom-ready` have fired and won't fire again — so this sync call
-    //    is the only chance we'd have to register.
     tryRegister("mount");
 
-    // 2) Subscribe anyway. On a fresh node insert, `did-attach` fires after
-    //    we mount; `dom-ready` catches us on manual reloads / src changes.
     const onAttach = () => tryRegister("did-attach");
     const onDomReady = () => tryRegister("dom-ready");
     el.addEventListener("did-attach", onAttach);
@@ -108,25 +112,30 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
         void api.unregisterWebview(workspaceId, node.id);
       }
     };
-  }, [workspaceId, node.id, editing, url, webviewKey]);
+  }, [workspaceId, node.id, editing, url, mode, webviewKey]);
 
   const commit = useCallback(() => {
-    const next = normalizeUrl(draft.trim());
-    if (next === url) {
-      setEditing(false);
-      return;
+    if (draftMode === "url") {
+      const next = normalizeUrl(draftUrl.trim());
+      onUpdate(node.id, {
+        data: { ...data, url: next, mode: "url" },
+        title: next ? prettyTitle(next) : node.title,
+      });
+    } else {
+      onUpdate(node.id, {
+        data: { ...data, html: draftHtml, mode: "html" },
+        title: node.title === "Web" ? "HTML" : node.title,
+      });
     }
-    onUpdate(node.id, {
-      data: { ...data, url: next },
-      title: next ? prettyTitle(next) : node.title,
-    });
     setEditing(false);
-  }, [draft, url, onUpdate, node.id, node.title, data]);
+  }, [draftMode, draftUrl, draftHtml, onUpdate, node.id, node.title, data]);
 
   const cancel = useCallback(() => {
-    setDraft(url);
+    setDraftUrl(url);
+    setDraftHtml(html);
+    setDraftMode(mode);
     setEditing(false);
-  }, [url]);
+  }, [url, html, mode]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -141,12 +150,32 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
     [commit, cancel],
   );
 
+  const handleTextareaKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Cmd/Ctrl+Enter to confirm HTML
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        commit();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancel();
+      }
+    },
+    [commit, cancel],
+  );
+
   const handleOpenExternal = useCallback(() => {
-    if (!url) return;
-    window.open(url, "_blank", "noopener,noreferrer");
-  }, [url]);
+    if (mode === "url" && url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  }, [mode, url]);
 
   const handleReload = useCallback(() => {
+    if (mode === "html") {
+      // Force re-render the srcdoc iframe
+      setWebviewKey((k) => k + 1);
+      return;
+    }
     const el = webviewRef.current;
     if (el && typeof el.reload === "function") {
       try {
@@ -157,25 +186,63 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
       }
     }
     setWebviewKey((k) => k + 1);
-  }, []);
+  }, [mode]);
+
+  // ── Editing state ──────────────────────────────────────────────────────
 
   if (editing) {
+    const canCommit = draftMode === "url" ? !!draftUrl.trim() : !!draftHtml.trim();
+
     return (
       <div className="iframe-body iframe-body--empty">
         <div className="iframe-empty-inner">
-          <div className="iframe-empty-label">Embed a web page</div>
-          <input
-            ref={inputRef}
-            className="iframe-empty-input"
-            type="url"
-            value={draft}
-            placeholder="https://example.com"
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={handleKeyDown}
-            spellCheck={false}
-          />
+          {/* Tab switcher */}
+          <div className="iframe-mode-tabs">
+            <button
+              className={`iframe-mode-tab${draftMode === "url" ? " iframe-mode-tab--active" : ""}`}
+              onClick={() => setDraftMode("url")}
+            >
+              URL
+            </button>
+            <button
+              className={`iframe-mode-tab${draftMode === "html" ? " iframe-mode-tab--active" : ""}`}
+              onClick={() => setDraftMode("html")}
+            >
+              HTML
+            </button>
+          </div>
+
+          {draftMode === "url" ? (
+            <>
+              <div className="iframe-empty-label">Embed a web page</div>
+              <input
+                ref={inputRef}
+                className="iframe-empty-input"
+                type="url"
+                value={draftUrl}
+                placeholder="https://example.com"
+                onChange={(e) => setDraftUrl(e.target.value)}
+                onKeyDown={handleKeyDown}
+                spellCheck={false}
+              />
+            </>
+          ) : (
+            <>
+              <div className="iframe-empty-label">Render HTML</div>
+              <textarea
+                ref={textareaRef}
+                className="iframe-empty-textarea"
+                value={draftHtml}
+                placeholder={'<h1>Hello</h1>\n<p>Type your HTML here…</p>'}
+                onChange={(e) => setDraftHtml(e.target.value)}
+                onKeyDown={handleTextareaKeyDown}
+                spellCheck={false}
+              />
+            </>
+          )}
+
           <div className="iframe-empty-actions">
-            {url && (
+            {hasContent && (
               <button className="iframe-empty-btn" onClick={cancel}>
                 Cancel
               </button>
@@ -183,18 +250,23 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
             <button
               className="iframe-empty-btn iframe-empty-btn--primary"
               onClick={commit}
-              disabled={!draft.trim()}
+              disabled={!canCommit}
             >
-              Load
+              {draftMode === "url" ? "Load" : "Render"}
             </button>
           </div>
+
           <div className="iframe-empty-hint">
-            Some sites block embedding — use "Open externally" to fall back to a browser.
+            {draftMode === "url"
+              ? 'Some sites block embedding — use "Open externally" to fall back to a browser.'
+              : "Cmd/Ctrl+Enter to confirm. Scripts are sandboxed."}
           </div>
         </div>
       </div>
     );
   }
+
+  // ── Rendered state ─────────────────────────────────────────────────────
 
   return (
     <div className="iframe-body">
@@ -214,40 +286,64 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
             />
           </svg>
         </button>
-        <button
-          className="iframe-bar-url"
-          onClick={() => setEditing(true)}
-          title="Edit URL"
-        >
-          <span className="iframe-bar-url-text">{url}</span>
-        </button>
-        <button
-          className="iframe-bar-btn"
-          onClick={handleOpenExternal}
-          title="Open externally"
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path
-              d="M5 2H2.5A.5.5 0 002 2.5v7A.5.5 0 002.5 10h7a.5.5 0 00.5-.5V7M7 2h3v3M5.5 6.5L10 2"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
+
+        {mode === "url" ? (
+          <button
+            className="iframe-bar-url"
+            onClick={() => setEditing(true)}
+            title="Edit URL"
+          >
+            <span className="iframe-bar-url-text">{url}</span>
+          </button>
+        ) : (
+          <button
+            className="iframe-bar-url iframe-bar-url--html"
+            onClick={() => setEditing(true)}
+            title="Edit HTML"
+          >
+            <span className="iframe-bar-badge">HTML</span>
+            <span className="iframe-bar-url-text">
+              {html.length > 80 ? html.slice(0, 80) + "…" : html}
+            </span>
+          </button>
+        )}
+
+        {mode === "url" && (
+          <button
+            className="iframe-bar-btn"
+            onClick={handleOpenExternal}
+            title="Open externally"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path
+                d="M5 2H2.5A.5.5 0 002 2.5v7A.5.5 0 002.5 10h7a.5.5 0 00.5-.5V7M7 2h3v3M5.5 6.5L10 2"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        )}
       </div>
-      <webview
-        // React's built-in types model <webview> as HTMLWebViewElement; we
-        // narrow that to our Electron-only shape via the ref.
-        ref={webviewRef as unknown as React.Ref<HTMLWebViewElement>}
-        key={webviewKey}
-        className="iframe-frame"
-        src={url}
-        // `allowpopups` lets target="_blank" links inside the webview open
-        // externally (they'd be dropped silently otherwise).
-        allowpopups={true as unknown as undefined}
-      />
+
+      {mode === "url" ? (
+        <webview
+          ref={webviewRef as unknown as React.Ref<HTMLWebViewElement>}
+          key={webviewKey}
+          className="iframe-frame"
+          src={url}
+          allowpopups={true as unknown as undefined}
+        />
+      ) : (
+        <iframe
+          key={webviewKey}
+          className="iframe-frame"
+          srcDoc={html}
+          sandbox="allow-scripts"
+          title="HTML preview"
+        />
+      )}
     </div>
   );
 };

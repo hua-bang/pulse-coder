@@ -392,8 +392,10 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
         'Optional `data.agentArgs` overrides the auto-generated CLI arguments.\n' +
         '- **text**: Creates a free-form text label (TLDRAW-style). Use `content` for the text body, ' +
         'and `data.textColor` / `data.backgroundColor` (hex or "transparent") for styling. Optional `data.fontSize`.\n' +
-        '- **iframe**: Embeds an external web page on the canvas. Pass `data.url` with the full URL (including protocol). ' +
-        'Note: some sites block embedding via X-Frame-Options / CSP.',
+        '- **iframe**: Embeds an external web page or renders raw HTML on the canvas. ' +
+        'Pass `data.url` with the full URL (including protocol) for URL mode, or ' +
+        'pass `data.html` with raw HTML content and `data.mode: "html"` for HTML mode. ' +
+        'Note: some sites block URL embedding via X-Frame-Options / CSP.',
       inputSchema: z.object({
         type: z.enum(['file', 'terminal', 'frame', 'agent', 'text', 'iframe']).describe('Node type.'),
         title: z.string().optional().describe('Node title.'),
@@ -406,7 +408,7 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
           '- agent: { agentType?: "claude-code"|"codex"|"pulse-coder", cwd?: string, status?: "idle"|"running", prompt?: string, agentArgs?: string }\n' +
           '- frame: { color?: string, label?: string }\n' +
           '- text: { textColor?: string, backgroundColor?: string, fontSize?: number }\n' +
-          '- iframe: { url: string }',
+          '- iframe: { url?: string, html?: string, mode?: "url"|"html" }',
         ),
       }),
       execute: async (input) => {
@@ -480,11 +482,15 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
               fontSize: (extraData.fontSize as number) ?? 18,
             };
             break;
-          case 'iframe':
+          case 'iframe': {
+            const iframeMode = (extraData.mode as string) === 'html' ? 'html' : 'url';
             nodeData = {
               url: (extraData.url as string) ?? '',
+              html: (extraData.html as string) ?? '',
+              mode: iframeMode,
             };
             break;
+          }
         }
 
         // For file nodes, create a backing notes file

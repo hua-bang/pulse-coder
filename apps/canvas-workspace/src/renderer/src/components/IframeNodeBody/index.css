@@ -159,3 +159,80 @@
   font-size: 11px;
   color: var(--text-muted);
 }
+
+/* ── Mode tabs (URL / HTML) ────────────────────────────────────────── */
+
+.iframe-mode-tabs {
+  display: flex;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.iframe-mode-tab {
+  flex: 1;
+  height: 26px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.iframe-mode-tab:hover {
+  color: var(--text);
+}
+
+.iframe-mode-tab--active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+/* ── HTML textarea ─────────────────────────────────────────────────── */
+
+.iframe-empty-textarea {
+  width: 100%;
+  min-height: 120px;
+  max-height: 260px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  color: var(--text);
+  background: var(--surface);
+  outline: none;
+  resize: vertical;
+  tab-size: 2;
+  line-height: 1.5;
+  transition: border-color 0.1s, box-shadow 0.1s;
+}
+
+.iframe-empty-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(35, 131, 226, 0.15);
+}
+
+/* ── HTML badge in the address bar ─────────────────────────────────── */
+
+.iframe-bar-badge {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(35, 131, 226, 0.12);
+  color: var(--accent);
+  margin-right: 6px;
+}
+
+.iframe-bar-url--html {
+  gap: 0;
+}

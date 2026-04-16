@@ -265,9 +265,15 @@ function summarizeNode(node: CanvasNode): NodeSummary {
       summary.color = (node.data.color as string) || undefined;
       summary.label = (node.data.label as string) || undefined;
       break;
-    case 'iframe':
-      summary.url = (node.data.url as string) || undefined;
+    case 'iframe': {
+      const iframeMode = (node.data.mode as string) || 'url';
+      if (iframeMode === 'html') {
+        summary.url = undefined;
+      } else {
+        summary.url = (node.data.url as string) || undefined;
+      }
       break;
+    }
     case 'text':
       // Text nodes don't have titles — fall back to a content preview so
       // the agent can refer to them by something meaningful.
@@ -403,8 +409,13 @@ export async function buildDetailedContext(workspaceId: string): Promise<Detaile
         detailed.cwd = (node.data.cwd as string) ?? '';
         break;
       case 'iframe': {
-        const url = (node.data.url as string) || '';
-        detailed.content = await readIframeContent(workspaceId, node.id, url);
+        const iframeMode = (node.data.mode as string) || 'url';
+        if (iframeMode === 'html') {
+          detailed.content = (node.data.html as string) ?? '';
+        } else {
+          const url = (node.data.url as string) || '';
+          detailed.content = await readIframeContent(workspaceId, node.id, url);
+        }
         break;
       }
       case 'text':
@@ -464,12 +475,17 @@ export async function readNodeDetail(workspaceId: string, nodeId: string): Promi
       // nothing extra beyond summary
       break;
     case 'iframe': {
-      // Use the same live-webview-first path as buildDetailedContext so a
-      // single-node read (the common case for `@Link 总结`) can see the
-      // post-JS DOM — otherwise SPAs like Lark wiki come back as empty-ish
-      // shell HTML and the agent gets `content: ""`.
-      const url = (node.data.url as string) || '';
-      detailed.content = await readIframeContent(workspaceId, node.id, url);
+      const iframeMode = (node.data.mode as string) || 'url';
+      if (iframeMode === 'html') {
+        detailed.content = (node.data.html as string) ?? '';
+      } else {
+        // Use the same live-webview-first path as buildDetailedContext so a
+        // single-node read (the common case for `@Link 总结`) can see the
+        // post-JS DOM — otherwise SPAs like Lark wiki come back as empty-ish
+        // shell HTML and the agent gets `content: ""`.
+        const url = (node.data.url as string) || '';
+        detailed.content = await readIframeContent(workspaceId, node.id, url);
+      }
       break;
     }
     case 'text':
@@ -536,8 +552,8 @@ export function formatSummaryForPrompt(summary: WorkspaceSummary): string {
   if (byType.iframe?.length) {
     lines.push('## Link Nodes');
     for (const n of byType.iframe) {
-      const urlHint = n.url ? ` — ${n.url}` : ' (empty)';
-      lines.push(`- [${n.id}] **${n.title}**${urlHint}`);
+      const hint = n.url ? ` — ${n.url}` : ' (HTML)';
+      lines.push(`- [${n.id}] **${n.title}**${hint}`);
     }
     lines.push('');
   }
