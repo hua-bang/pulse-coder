@@ -39,6 +39,7 @@ interface AgentRunBody {
   caller?: string;
   callerSelectors?: string[];
   notify?: NotifyConfig;
+  model?: string;
 }
 
 interface NotifyResult {
@@ -142,6 +143,7 @@ internalRouter.post('/agent/run', async (c) => {
       source: 'internal',
       caller: body.caller,
       callerSelectors: body.callerSelectors,
+      model: body.model,
       callbacks: {
         onToolCall: (toolCall) => {
           const name = toolCall.toolName ?? toolCall.name ?? 'unknown';

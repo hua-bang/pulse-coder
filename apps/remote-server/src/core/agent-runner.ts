@@ -46,6 +46,7 @@ export interface ExecuteAgentTurnInput {
   callerSelectors?: string[];
   abortSignal?: AbortSignal;
   callbacks?: AgentTurnCallbacks;
+  model?: string;
 }
 
 export interface ExecuteAgentTurnResult {
@@ -282,7 +283,8 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
   const context = session.context;
   const callbacks = input.callbacks ?? {};
   const compactions: CompactionSnapshot[] = [];
-  const { model: modelOverride, modelType } = await resolveModelForRun(input.platformKey);
+  const { model: resolvedModel, modelType } = await resolveModelForRun(input.platformKey);
+  const modelOverride = input.model?.trim() || resolvedModel;
   const providerOverride = resolveRunProvider(modelType, sessionId);
 
   let latestAttachments = session.latestAttachments ?? [];

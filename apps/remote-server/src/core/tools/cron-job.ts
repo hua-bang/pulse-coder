@@ -15,6 +15,7 @@ const DEFAULT_SCHEDULE = '5 9 * * *';
 const DEFAULT_ASK_POLICY: AskPolicy = 'never';
 const DEFAULT_FORCE_NEW_SESSION = true;
 const DEFAULT_SKILL_PROMPT = 'Please execute this skill and return the final result.';
+const DEFAULT_MODEL = 'gpt-5.3-codex';
 
 const CRON_BEGIN_PREFIX = '# BEGIN pulse-cron:';
 const CRON_END_PREFIX = '# END pulse-cron:';
@@ -29,6 +30,7 @@ const toolSchema = z.object({
   askPolicy: z.enum(['never', 'default']).optional().describe('Clarification policy for agent run.'),
   forceNewSession: z.boolean().optional().describe('Whether to force a new session per run.'),
   timezone: z.string().optional().describe('Optional CRON_TZ value, for example "Asia/Shanghai".'),
+  model: z.string().optional().describe('Model name override for this job, e.g. "claude-opus-4-5". Defaults to "gpt-5.3-codex". Overrides the global model config.'),
   notify: z
     .object({
       feishu: z
@@ -137,6 +139,7 @@ export const cronJobTool: Tool<CronJobInput, CronJobResult> = {
       askPolicy: normalized.askPolicy,
       forceNewSession: normalized.forceNewSession,
       notify: normalized.notify,
+      model: normalized.model,
     });
 
     await fs.writeFile(scriptPath, scriptContents, { encoding: 'utf8', mode: 0o700 });
@@ -212,6 +215,7 @@ interface NormalizedInput {
   notify?: NotifyTarget;
   notifyRequested: boolean;
   dryRun: boolean;
+  model?: string;
 }
 
 interface RunContextInput {
@@ -231,6 +235,7 @@ function normalizeInput(input: CronJobInput, runContext?: RunContextInput): Norm
   const notifyRequested = Boolean(input.notify) || isNotifyRequested(prompt);
   const notify = normalizeNotify(input.notify, platformKey, notifyRequested ? prompt : undefined);
   const dryRun = input.dryRun === true;
+  const model = input.model?.trim() || DEFAULT_MODEL;
 
   return {
     schedule,
@@ -244,6 +249,7 @@ function normalizeInput(input: CronJobInput, runContext?: RunContextInput): Norm
     notify,
     notifyRequested,
     dryRun,
+    model,
   };
 }
 
@@ -406,6 +412,7 @@ function buildRunnerScript(input: {
   askPolicy: AskPolicy;
   forceNewSession: boolean;
   notify?: NotifyTarget;
+  model?: string;
 }): string {
   const prompt = oneLine(input.prompt);
   const payload = {
@@ -415,6 +422,7 @@ function buildRunnerScript(input: {
     askPolicy: input.askPolicy,
     forceNewSession: input.forceNewSession,
     notify: input.notify,
+    ...(input.model ? { model: input.model } : {}),
   };
 
   const jsonPayload = JSON.stringify(payload);
