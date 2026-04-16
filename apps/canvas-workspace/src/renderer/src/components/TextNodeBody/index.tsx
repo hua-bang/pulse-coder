@@ -91,11 +91,19 @@ export const TextNodeBody = ({ node, onUpdate, isSelected, onSelect, onDragStart
     editor.setEditable(editing);
   }, [editor, editing]);
 
-  // External content change (undo/redo, CLI edit, duplicate-paste) — reset
-  // the editor so it mirrors node.data without clobbering user typing.
+  // Ensure content is correctly loaded on mount and handle external content
+  // changes (undo/redo, CLI edit, duplicate-paste). On first mount we always
+  // re-apply via setContent to guarantee line breaks survive — the Markdown
+  // extension's onBeforeCreate hook (which parses initial `content`) can be
+  // bypassed by tiptap-react's EditorInstanceManager lifecycle (e.g. when
+  // scheduleDestroy re-creates the editor with raw options).  On subsequent
+  // renders we only call setContent when data.content actually changed.
+  const mountedRef = useRef(false);
   useEffect(() => {
     if (!editor) return;
-    if (data.content === prevContentRef.current) return;
+    const isMount = !mountedRef.current;
+    if (isMount) mountedRef.current = true;
+    if (!isMount && data.content === prevContentRef.current) return;
     prevContentRef.current = data.content;
     // `emitUpdate: false` avoids firing our onUpdate → onUpdate loop.
     editor.commands.setContent(data.content || "", { emitUpdate: false });
