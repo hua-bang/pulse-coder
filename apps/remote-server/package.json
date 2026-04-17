@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "prebuild": "pnpm --filter pulse-coder-orchestrator build && pnpm --filter pulse-coder-engine build && SKIP_DTS=1 pnpm --filter pulse-coder-acp --filter pulse-coder-memory-plugin --filter pulse-coder-plugin-kit build",
+    "prebuild": "pnpm --filter pulse-coder-orchestrator build && pnpm --filter pulse-coder-engine build && SKIP_DTS=1 pnpm --filter pulse-coder-acp --filter pulse-coder-memory-plugin --filter pulse-coder-plugin-kit --filter pulse-coder-langfuse-plugin build",
     "dev": "tsx watch src/index.ts",
     "build": "tsup",
     "start": "node dist/index.cjs",
@@ -21,6 +21,7 @@
     "hono": "^4.6.0",
     "pulse-coder-acp": "workspace:*",
     "pulse-coder-engine": "workspace:*",
+    "pulse-coder-langfuse-plugin": "workspace:*",
     "pulse-coder-memory-plugin": "workspace:*",
     "pulse-coder-plugin-kit": "workspace:*",
     "undici": "^6.23.0",

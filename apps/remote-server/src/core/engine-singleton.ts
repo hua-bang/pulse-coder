@@ -12,6 +12,7 @@ import { twitterListTweetsTool } from './tools/twitter-list-tweets.js';
 import { ptcDemoTools } from './tools/ptc-demo.js';
 import { larkCliTool } from './tools/lark-cli.js';
 import { devtoolsPlugin } from './devtools.js';
+import { langfusePlugin } from './langfuse.js';
 
 /**
  * Single Engine instance shared across all platform adapters.
@@ -25,6 +26,7 @@ export const engine = new Engine({
       worktreeIntegration.enginePlugin,
       vaultIntegration.enginePlugin,
       devtoolsPlugin,
+      langfusePlugin,
     ],
   },
   tools: {
