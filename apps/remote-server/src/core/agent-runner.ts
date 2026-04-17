@@ -233,7 +233,7 @@ function buildChannelSystemPrompt(platformKey: string): string | null {
 
 function resolveRunProvider(
   modelType: 'openai' | 'claude' | undefined,
-  sessionId: string,
+  platformKey: string,
 ): LLMProviderFactory | undefined {
   if (modelType !== 'claude') {
     return undefined;
@@ -241,7 +241,7 @@ function resolveRunProvider(
 
   return buildProvider('claude', {
     headers: {
-      'x-session-id': sessionId,
+      'x-session-id': platformKey,
     },
   });
 }
@@ -283,7 +283,7 @@ export async function executeAgentTurn(input: ExecuteAgentTurnInput): Promise<Ex
   const callbacks = input.callbacks ?? {};
   const compactions: CompactionSnapshot[] = [];
   const { model: modelOverride, modelType } = await resolveModelForRun(input.platformKey);
-  const providerOverride = resolveRunProvider(modelType, sessionId);
+  const providerOverride = resolveRunProvider(modelType, input.platformKey);
 
   let latestAttachments = session.latestAttachments ?? [];
   if (input.attachments?.length) {
