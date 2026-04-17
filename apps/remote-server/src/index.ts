@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
 import { serve } from '@hono/node-server';
 import { createApp } from './server.js';
 import { engine } from './core/engine-singleton.js';
