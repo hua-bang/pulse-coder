@@ -24,7 +24,7 @@ interface Props {
 
 const STREAMING_SHELL = `<!DOCTYPE html>
 <html><head><meta charset="utf-8">
-<style>*,*::before,*::after{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,sans-serif}</style>
+<style>*,*::before,*::after{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#fff}</style>
 <script src="https://cdn.jsdelivr.net/npm/morphdom@2/dist/morphdom-umd.min.js"
   onerror="window.morphdom=function(f,t){if(typeof t==='string'){var d=document.createElement('div');d.innerHTML=t;while(f.firstChild)f.removeChild(f.firstChild);while(d.firstChild)f.appendChild(d.firstChild)}else if(f.parentNode){f.parentNode.replaceChild(t,f)}}"></script>
 </head><body>
@@ -32,29 +32,29 @@ const STREAMING_SHELL = `<!DOCTYPE html>
 <script>
 var root=document.getElementById("__mr__"),styleEl=null,prevCss="";
 function applyUpdate(html){
-  // 1. Extract and apply <style> blocks
   var css="";
   html.replace(/<style[^>]*>([\\s\\S]*?)<\\/style>/gi,function(_,c){css+=c});
   if(css&&css!==prevCss){
     if(!styleEl){styleEl=document.createElement("style");styleEl.id="__sc__";document.head.appendChild(styleEl)}
-    styleEl.textContent=css;
-    prevCss=css
+    styleEl.textContent=css;prevCss=css
   }
-  // 2. Extract body content
-  var body=html,m=html.match(/<body[^>]*>([\\s\\S]*?)(<\\/body>|$)/i);
-  if(m)body=m[1];
-  else{var i=Math.max(html.lastIndexOf("</style>")+8,html.lastIndexOf("</head>")+7,0);if(i>0)body=html.slice(i)}
-  // 3. Strip <script> during streaming — they run on final render
+  var body,bm=html.match(/<body[^>]*>([\\s\\S]*?)(<\\/body>|$)/i);
+  if(bm){body=bm[1]}
+  else{
+    var bi=html.indexOf("<body");
+    if(bi===-1)return;
+    var gt=html.indexOf(">",bi);
+    if(gt===-1)return;
+    body=html.slice(gt+1)
+  }
   body=body.replace(/<script[\\s\\S]*?(<\\/script>|$)/gi,"").trim();
   if(!body)return;
-  // 4. Morph — minimal DOM patches, no full-page flash
   var nx=document.createElement("div");nx.id="__mr__";nx.innerHTML=body;
   if(typeof morphdom==="function"){try{morphdom(root,nx)}catch(e){root.innerHTML=body}}
   else root.innerHTML=body
 }
 window.addEventListener("message",function(e){
-  if(!e.data)return;
-  if(e.data.type==="morph")applyUpdate(e.data.html)
+  if(e.data&&e.data.type==="morph")applyUpdate(e.data.html)
 });
 window.parent.postMessage({type:"morph-ready"},"*");
 </script>
@@ -570,34 +570,35 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
         )}
       </div>
 
-      {renderMode === "url" ? (
-        <webview
-          ref={webviewRef as unknown as React.Ref<HTMLWebViewElement>}
-          key={webviewKey}
-          className="iframe-frame"
-          src={url}
-          allowpopups={true as unknown as undefined}
-        />
-      ) : streamingActive ? (
-        /* During streaming: shell page + morphdom for smooth progressive rendering */
-        <iframe
-          ref={streamIframeRef}
-          key="stream-shell"
-          className="iframe-frame"
-          srcDoc={STREAMING_SHELL}
-          sandbox="allow-scripts"
-          title="Generating…"
-        />
-      ) : (
-        /* Static: final HTML with scripts */
-        <iframe
-          key={webviewKey}
-          className="iframe-frame"
-          srcDoc={html}
-          sandbox="allow-scripts"
-          title={mode === "ai" ? "AI-generated preview" : "HTML preview"}
-        />
-      )}
+      <div className={`iframe-frame-wrapper${streamingActive ? " iframe-frame-wrapper--streaming" : ""}`}>
+        {streamingActive && <div className="iframe-shimmer-bar" />}
+        {renderMode === "url" ? (
+          <webview
+            ref={webviewRef as unknown as React.Ref<HTMLWebViewElement>}
+            key={webviewKey}
+            className="iframe-frame"
+            src={url}
+            allowpopups={true as unknown as undefined}
+          />
+        ) : streamingActive ? (
+          <iframe
+            ref={streamIframeRef}
+            key="stream-shell"
+            className="iframe-frame"
+            srcDoc={STREAMING_SHELL}
+            sandbox="allow-scripts"
+            title="Generating…"
+          />
+        ) : (
+          <iframe
+            key={webviewKey}
+            className="iframe-frame"
+            srcDoc={html}
+            sandbox="allow-scripts"
+            title={mode === "ai" ? "AI-generated preview" : "HTML preview"}
+          />
+        )}
+      </div>
     </div>
   );
 };

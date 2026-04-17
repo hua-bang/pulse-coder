@@ -66,15 +66,71 @@
   text-overflow: ellipsis;
 }
 
+/* ── Frame wrapper (holds the iframe + streaming effects) ──────────── */
+
+.iframe-frame-wrapper {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+  overflow: hidden;
+}
+
+.iframe-frame-wrapper--streaming {
+  padding: 2px;
+  background: linear-gradient(
+    270deg,
+    #8b5cf6, #6366f1, #3b82f6, #06b6d4, #8b5cf6
+  );
+  background-size: 400% 400%;
+  animation: iframe-gradient-flow 4s ease infinite;
+}
+
+@keyframes iframe-gradient-flow {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* ── Shimmer bar at the top during streaming ───────────────────────── */
+
+.iframe-shimmer-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 2;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(139, 92, 246, 0.8) 30%,
+    rgba(59, 130, 246, 0.9) 50%,
+    rgba(139, 92, 246, 0.8) 70%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: iframe-shimmer-slide 1.5s ease-in-out infinite;
+}
+
+@keyframes iframe-shimmer-slide {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ── The iframe/webview itself ──────────────────────────────────────── */
+
 .iframe-frame {
   flex: 1;
   width: 100%;
   border: none;
   background: #fff;
-  /* Electron's <webview> defaults to inline-block; force it to occupy the
-     remaining flex space so the page fills the node body. */
   display: flex;
   min-height: 0;
+}
+
+.iframe-frame-wrapper--streaming .iframe-frame {
+  border-radius: 2px;
 }
 
 /* Empty state — URL input */
