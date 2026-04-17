@@ -134,126 +134,160 @@ const knownNodeIds = new Map<string, Set<string>>();
 const isEnoent = (err: unknown): boolean =>
   !!err && typeof err === 'object' && (err as { code?: string }).code === 'ENOENT';
 
+/**
+ * Sentinel returned by `mergeExternalNodes` when we can't verify the
+ * on-disk canvas AND the renderer is asking us to write an empty one.
+ * The save handler treats this as a silent skip instead of a failed save
+ * so the tried-and-true "refuse to clobber" guard doesn't surface as an
+ * unhandledRejection when the outer lock chain hasn't attached a catch yet.
+ */
+const SKIP_WRITE = Symbol('canvas-store:skip-write');
+type MergeResult = CanvasSaveData | typeof SKIP_WRITE;
+
+type DiskReadOutcome =
+  | { kind: 'ok'; nodes: CanvasNode[] }
+  | { kind: 'missing' }
+  | { kind: 'unparseable'; err: unknown }
+  | { kind: 'ioerror'; err: unknown };
+
+/**
+ * Read and parse the workspace's canvas.json, retrying a few times when
+ * the read lands on an in-progress write from canvas-cli or another
+ * writer. A truncated/half-written file surfaces as a JSON.parse error
+ * (typically "Unexpected end of JSON input"); a brief backoff almost
+ * always catches the completed write on the next attempt.
+ */
+const readDiskCanvas = async (
+  id: string,
+  attempts = 3,
+  delayMs = 30,
+): Promise<DiskReadOutcome> => {
+  let lastParseErr: unknown = null;
+  for (let i = 0; i < attempts; i++) {
+    let raw: string;
+    try {
+      raw = await fs.readFile(getFilePath(id), 'utf-8');
+    } catch (err) {
+      if (isEnoent(err)) return { kind: 'missing' };
+      return { kind: 'ioerror', err };
+    }
+    try {
+      const diskData = JSON.parse(raw) as CanvasSaveData;
+      const nodes = Array.isArray(diskData.nodes) ? diskData.nodes : [];
+      return { kind: 'ok', nodes };
+    } catch (err) {
+      lastParseErr = err;
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  return { kind: 'unparseable', err: lastParseErr };
+};
+
 const mergeExternalNodes = async (
   id: string,
   inMemoryData: CanvasSaveData,
-): Promise<CanvasSaveData> => {
+): Promise<MergeResult> => {
   const known = knownNodeIds.get(id) ?? new Set<string>();
+  const memoryNodes = Array.isArray(inMemoryData.nodes) ? inMemoryData.nodes : [];
 
-  let raw: string | null = null;
-  try {
-    raw = await fs.readFile(getFilePath(id), 'utf-8');
-  } catch (err) {
-    if (isEnoent(err)) {
-      // Fresh canvas on disk — nothing to merge against; in-memory wins.
-      return inMemoryData;
-    }
-    // Transient I/O failure. If the renderer is asking us to write an
-    // empty canvas and we can't verify the disk is also empty, refuse
-    // rather than risk clobbering real data.
-    const memNodes = Array.isArray(inMemoryData.nodes) ? inMemoryData.nodes : [];
-    if (memNodes.length === 0) {
-      throw new Error(
-        `[canvas-store] cannot verify on-disk canvas for ${id} before empty write: ${String(err)}`,
-      );
-    }
+  const disk = await readDiskCanvas(id);
+
+  if (disk.kind === 'missing') {
+    // Fresh canvas on disk — nothing to merge against; in-memory wins.
     return inMemoryData;
   }
 
-  let diskNodes: CanvasNode[];
-  try {
-    const diskData = JSON.parse(raw) as CanvasSaveData;
-    diskNodes = Array.isArray(diskData.nodes) ? diskData.nodes : [];
-  } catch (err) {
-    // Caught another writer mid-flush. If memory is empty, we have no
-    // safe way to tell whether disk was empty too — refuse. Otherwise
-    // fall back to the memory snapshot we were given (the save handler's
-    // second-pass merge narrows this race further).
-    const memNodes = Array.isArray(inMemoryData.nodes) ? inMemoryData.nodes : [];
-    if (memNodes.length === 0) {
-      throw new Error(
-        `[canvas-store] canvas.json for ${id} was unparseable while guarding empty write: ${String(err)}`,
-      );
-    }
-    return inMemoryData;
-  }
-
-  try {
-    const memoryNodes = Array.isArray(inMemoryData.nodes) ? inMemoryData.nodes : [];
-
-    const memoryNodesRaw = Array.isArray(inMemoryData.nodes) ? inMemoryData.nodes : [];
-
-    // Hard safety: never let a save with an empty node list clobber a
-    // non-empty on-disk canvas. This shields against early-lifecycle
-    // flushSave calls that fire before the renderer has finished loading
-    // (e.g. on window close / StrictMode double-invoke / HMR reload),
-    // which would otherwise wipe the canvas because every disk id is
-    // already in the `known` set.
-    if (memoryNodesRaw.length === 0 && diskNodes.length > 0) {
+  if (disk.kind === 'ioerror' || disk.kind === 'unparseable') {
+    // Transient read failure or caught another writer mid-flush (even
+    // after retries). If memory is empty, we can't verify the disk is
+    // also empty — skip the write rather than risk clobbering real data.
+    // Memory-has-data case falls back to the memory snapshot; the save
+    // handler's second-pass merge narrows the race further.
+    if (memoryNodes.length === 0) {
+      const reason =
+        disk.kind === 'unparseable'
+          ? 'canvas.json was unparseable (likely mid-flush)'
+          : 'canvas.json read failed';
       console.warn(
-        `[canvas-store] refusing to overwrite ${diskNodes.length} on-disk nodes with empty memory for ${id}`,
+        `[canvas-store] skipping empty write for ${id}: ${reason} — ${String(disk.err)}`,
       );
-      return { ...inMemoryData, nodes: diskNodes };
+      return SKIP_WRITE;
     }
-
-    const diskById = new Map<string, CanvasNode>();
-    for (const n of diskNodes) {
-      if (n.id) diskById.set(n.id, n);
-    }
-
-    // Rule 1: reconcile nodes that are in memory.
-    //   - Both disk and memory have it → pick the newer `updatedAt`.
-    //     A memory node without updatedAt is treated as "older than any
-    //     timestamped disk version" — the common case where the CLI
-    //     just wrote the disk copy with a timestamp.
-    //   - Only memory has it:
-    //       * id is in `known` → CLI deleted it between the renderer's
-    //         last load and this save. Drop it so the save doesn't
-    //         resurrect the deletion.
-    //       * id is not in `known` → user just created it in memory
-    //         and this is the first save that will persist it. Keep.
-    const mergedExisting: CanvasNode[] = [];
-    for (const memNode of memoryNodes) {
-      if (!memNode.id) {
-        mergedExisting.push(memNode);
-        continue;
-      }
-      const diskNode = diskById.get(memNode.id);
-      if (!diskNode) {
-        if (known.has(memNode.id)) {
-          // CLI-deleted; drop.
-          continue;
-        }
-        mergedExisting.push(memNode);
-        continue;
-      }
-      const memTs = typeof memNode.updatedAt === 'number' ? memNode.updatedAt : 0;
-      const diskTs = typeof diskNode.updatedAt === 'number' ? diskNode.updatedAt : 0;
-      mergedExisting.push(diskTs > memTs ? diskNode : memNode);
-    }
-
-    // Rule 2: nodes only on disk and never-seen → CLI creates, add them.
-    const memoryIds = new Set(memoryNodes.map((n) => n.id).filter(Boolean) as string[]);
-    const externalNewNodes = diskNodes.filter(
-      (n) => n.id && !memoryIds.has(n.id) && !known.has(n.id),
-    );
-
-    // NOTE: we intentionally do NOT mutate `knownNodeIds` here. The save
-    // handler calls `mergeExternalNodes` twice back-to-back (to narrow a
-    // race with concurrent canvas-cli writes). If this function added
-    // freshly-merged ids to `known` on the first call, the second call
-    // would then see the in-memory new node's id as "known" but still
-    // absent from disk — and Rule 1's "CLI deleted; drop" branch would
-    // silently strip the node the user just created. The save handler
-    // is responsible for updating `knownNodeIds` once, after writeFile.
-
-    return {
-      ...inMemoryData,
-      nodes: [...mergedExisting, ...externalNewNodes],
-    };
-  } catch {
     return inMemoryData;
   }
+
+  const diskNodes = disk.nodes;
+
+  // Hard safety: never let a save with an empty node list clobber a
+  // non-empty on-disk canvas. This shields against early-lifecycle
+  // flushSave calls that fire before the renderer has finished loading
+  // (e.g. on window close / StrictMode double-invoke / HMR reload),
+  // which would otherwise wipe the canvas because every disk id is
+  // already in the `known` set.
+  if (memoryNodes.length === 0 && diskNodes.length > 0) {
+    console.warn(
+      `[canvas-store] refusing to overwrite ${diskNodes.length} on-disk nodes with empty memory for ${id}`,
+    );
+    return { ...inMemoryData, nodes: diskNodes };
+  }
+
+  const diskById = new Map<string, CanvasNode>();
+  for (const n of diskNodes) {
+    if (n.id) diskById.set(n.id, n);
+  }
+
+  // Rule 1: reconcile nodes that are in memory.
+  //   - Both disk and memory have it → pick the newer `updatedAt`.
+  //     A memory node without updatedAt is treated as "older than any
+  //     timestamped disk version" — the common case where the CLI
+  //     just wrote the disk copy with a timestamp.
+  //   - Only memory has it:
+  //       * id is in `known` → CLI deleted it between the renderer's
+  //         last load and this save. Drop it so the save doesn't
+  //         resurrect the deletion.
+  //       * id is not in `known` → user just created it in memory
+  //         and this is the first save that will persist it. Keep.
+  const mergedExisting: CanvasNode[] = [];
+  for (const memNode of memoryNodes) {
+    if (!memNode.id) {
+      mergedExisting.push(memNode);
+      continue;
+    }
+    const diskNode = diskById.get(memNode.id);
+    if (!diskNode) {
+      if (known.has(memNode.id)) {
+        // CLI-deleted; drop.
+        continue;
+      }
+      mergedExisting.push(memNode);
+      continue;
+    }
+    const memTs = typeof memNode.updatedAt === 'number' ? memNode.updatedAt : 0;
+    const diskTs = typeof diskNode.updatedAt === 'number' ? diskNode.updatedAt : 0;
+    mergedExisting.push(diskTs > memTs ? diskNode : memNode);
+  }
+
+  // Rule 2: nodes only on disk and never-seen → CLI creates, add them.
+  const memoryIds = new Set(memoryNodes.map((n) => n.id).filter(Boolean) as string[]);
+  const externalNewNodes = diskNodes.filter(
+    (n) => n.id && !memoryIds.has(n.id) && !known.has(n.id),
+  );
+
+  // NOTE: we intentionally do NOT mutate `knownNodeIds` here. The save
+  // handler calls `mergeExternalNodes` twice back-to-back (to narrow a
+  // race with concurrent canvas-cli writes). If this function added
+  // freshly-merged ids to `known` on the first call, the second call
+  // would then see the in-memory new node's id as "known" but still
+  // absent from disk — and Rule 1's "CLI deleted; drop" branch would
+  // silently strip the node the user just created. The save handler
+  // is responsible for updating `knownNodeIds` once, after writeFile.
+
+  return {
+    ...inMemoryData,
+    nodes: [...mergedExisting, ...externalNewNodes],
+  };
 };
 
 /**
@@ -271,6 +305,12 @@ const withSaveLock = async <T>(id: string, fn: () => Promise<T>): Promise<T> => 
   const tracked = next.finally(() => {
     if (saveLocks.get(id) === tracked) saveLocks.delete(id);
   });
+  // The chain promise stored in `saveLocks` only exists to sequence the
+  // NEXT save via `prev.then(fn, fn)`. If `fn` rejects and no subsequent
+  // save arrives before the microtask queue checks, `tracked` would
+  // surface as an unhandledRejection. The caller still sees the real
+  // error via `next`; swallow it here.
+  tracked.catch(() => undefined);
   saveLocks.set(id, tracked);
   return next;
 };
@@ -441,6 +481,7 @@ export const setupCanvasStoreIpc = () => {
               payload.id,
               payload.data as CanvasSaveData,
             );
+            if (firstPass === SKIP_WRITE) return;
             // Second merge, immediately before the write. Narrows the
             // window where a canvas-cli write could land between our
             // initial read and the writeFile below and be silently
@@ -448,6 +489,7 @@ export const setupCanvasStoreIpc = () => {
             // changes seen in the first read are preserved even if the
             // second read somehow fails to include them.
             const merged = await mergeExternalNodes(payload.id, firstPass);
+            if (merged === SKIP_WRITE) return;
             await fs.writeFile(
               getFilePath(payload.id),
               JSON.stringify(merged, null, 2),
