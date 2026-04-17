@@ -1,6 +1,6 @@
 export interface CanvasNode {
   id: string;
-  type: "file" | "terminal" | "frame" | "agent" | "text" | "iframe";
+  type: "file" | "terminal" | "frame" | "agent" | "text" | "iframe" | "image";
   title: string;
   x: number;
   y: number;
@@ -12,7 +12,8 @@ export interface CanvasNode {
     | FrameNodeData
     | AgentNodeData
     | TextNodeData
-    | IframeNodeData;
+    | IframeNodeData
+    | ImageNodeData;
   /** Epoch millis of last mutation; used for cross-process merge. */
   updatedAt?: number;
 }
@@ -94,6 +95,19 @@ export interface IframeNodeData {
   mode?: 'url' | 'html' | 'ai';
   /** The prompt used to generate HTML when `mode` is `'ai'`. */
   prompt?: string;
+}
+
+/**
+ * A free-form image pinned to the canvas. Created by pasting (Ctrl/Cmd+V)
+ * image data onto the canvas; the bytes are persisted to the workspace
+ * images directory via `file:saveImage` and referenced by absolute path.
+ *
+ * Rendered with no header/border chrome so the picture is the whole node.
+ * The entire body acts as the drag handle (mirroring TextNodeBody).
+ */
+export interface ImageNodeData {
+  /** Absolute path on disk to the saved image file. */
+  filePath: string;
 }
 
 export interface CanvasTransform {

@@ -219,6 +219,45 @@
   opacity: 0.5;
 }
 
+/* Image nodes render chromeless — no border, no background, no shadow —
+ * so the picture is the whole node. A faint outline appears on hover /
+ * selection so users can still tell where the hit box is. The body
+ * captures mouseDown and starts a drag, matching tldraw's feel. */
+.canvas-node--image {
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+.canvas-node--image:hover {
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: none;
+}
+
+.canvas-node--image.canvas-node--selected {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 2px rgba(35, 131, 226, 0.12);
+}
+
+.canvas-node--image.canvas-node--dragging,
+.canvas-node--image.canvas-node--resizing {
+  box-shadow: var(--shadow-drag);
+}
+
+.node-body--image {
+  padding: 0;
+  height: 100%;
+}
+
+.node-close--floating {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  z-index: 5;
+}
+
 .canvas-node--highlighted {
   animation: nodeHighlight 1.5s ease-out;
 }
