@@ -1,6 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { promises as fs } from 'fs';
-import { join } from 'path';
+import { join, dirname, basename } from 'path';
 import { homedir } from 'os';
 import { execInSession, hasSession } from './pty-manager';
 
@@ -150,7 +150,41 @@ async function saveCanvas(
     }
   }
 
-  await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  await atomicWriteCanvasJson(filePath, JSON.stringify(data, null, 2));
+}
+
+/**
+ * Atomically persist canvas.json (or any JSON file) with a rolling
+ * `.bak` snapshot. Mirrors the helpers in canvas-store.ts and
+ * canvas-cli's store.ts — see those files for the full rationale.
+ */
+async function atomicWriteCanvasJson(
+  finalPath: string,
+  serialized: string,
+): Promise<void> {
+  const dir = dirname(finalPath);
+  const base = basename(finalPath);
+  const tmpPath = join(dir, `${base}.tmp`);
+  const bakPath = join(dir, `${base}.bak`);
+
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(tmpPath, serialized, 'utf-8');
+
+  try {
+    const currentRaw = await fs.readFile(finalPath, 'utf-8');
+    try {
+      const current = JSON.parse(currentRaw) as { nodes?: unknown[] };
+      if (Array.isArray(current.nodes) && current.nodes.length > 0) {
+        await fs.copyFile(finalPath, bakPath).catch(() => undefined);
+      }
+    } catch {
+      // Current file corrupt — keep the last-known-good .bak intact.
+    }
+  } catch {
+    // No current file; nothing to back up.
+  }
+
+  await fs.rename(tmpPath, finalPath);
 }
 
 async function loadWorkspaceManifest(): Promise<WorkspaceManifest> {

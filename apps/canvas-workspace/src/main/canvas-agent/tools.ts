@@ -9,7 +9,7 @@
  */
 
 import { promises as fs } from 'fs';
-import { join } from 'path';
+import { join, dirname, basename } from 'path';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import { BrowserWindow } from 'electron';
@@ -186,7 +186,42 @@ async function saveCanvas(
     }
   }
 
-  await fs.writeFile(canvasPath(workspaceId), JSON.stringify(data, null, 2), 'utf-8');
+  await atomicWriteCanvasJson(canvasPath(workspaceId), JSON.stringify(data, null, 2));
+}
+
+/**
+ * Atomically persist a canvas.json update with a rolling `.bak` backup.
+ * Mirrors the helper in `apps/canvas-workspace/src/main/canvas-store.ts`
+ * and `packages/canvas-cli/src/core/store.ts` so every writer uses the
+ * same safe rename-based write; see those files for the full rationale.
+ */
+async function atomicWriteCanvasJson(
+  finalPath: string,
+  serialized: string,
+): Promise<void> {
+  const dir = dirname(finalPath);
+  const base = basename(finalPath);
+  const tmpPath = join(dir, `${base}.tmp`);
+  const bakPath = join(dir, `${base}.bak`);
+
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(tmpPath, serialized, 'utf-8');
+
+  try {
+    const currentRaw = await fs.readFile(finalPath, 'utf-8');
+    try {
+      const current = JSON.parse(currentRaw) as { nodes?: unknown[] };
+      if (Array.isArray(current.nodes) && current.nodes.length > 0) {
+        await fs.copyFile(finalPath, bakPath).catch(() => undefined);
+      }
+    } catch {
+      // Current file already corrupt — leave existing .bak alone.
+    }
+  } catch {
+    // No current file; nothing to back up.
+  }
+
+  await fs.rename(tmpPath, finalPath);
 }
 
 function broadcastUpdate(workspaceId: string, nodeIds: string[]): void {
