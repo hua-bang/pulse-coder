@@ -7,6 +7,7 @@ import { useNodeResize } from '../../hooks/useNodeResize';
 import { useCanvasContext } from '../../hooks/useCanvasContext';
 import { useCanvasFit } from '../../hooks/useCanvasFit';
 import { useCanvasKeyboard } from '../../hooks/useCanvasKeyboard';
+import { useCanvasImagePaste } from '../../hooks/useCanvasImagePaste';
 import { useEdgeInteraction } from '../../hooks/useEdgeInteraction';
 import type { CanvasNode } from '../../types';
 import { computeFrameDepths } from '../../utils/frameHierarchy';
@@ -135,6 +136,16 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
     duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, removeNodes,
     searchOpen, setSearchOpen, contextMenu, setContextMenu,
     setHighlightedId, handleFocusNode,
+  });
+
+  useCanvasImagePaste({
+    canvasId,
+    active: !hidden,
+    containerRef,
+    screenToCanvas,
+    addNode,
+    updateNode,
+    onCreated: (node) => setSelectedNodeIds([node.id]),
   });
 
   // Clear highlight after animation

@@ -1,4 +1,4 @@
-import type { CanvasNode, FileNodeData, TerminalNodeData, FrameNodeData, AgentNodeData, TextNodeData, IframeNodeData } from '../types';
+import type { CanvasNode, FileNodeData, TerminalNodeData, FrameNodeData, AgentNodeData, TextNodeData, IframeNodeData, ImageNodeData } from '../types';
 
 let nodeIdCounter = 0;
 export const genId = (): string => `node-${Date.now()}-${++nodeIdCounter}`;
@@ -10,9 +10,10 @@ const NODE_DEFAULTS: Record<CanvasNode['type'], { title: string; width: number; 
   agent:    { title: 'Agent',    width: 520, height: 380 },
   text:     { title: 'Text',     width: 260, height: 120 },
   iframe:   { title: 'Web',      width: 520, height: 400 },
+  image:    { title: 'Image',    width: 320, height: 240 },
 };
 
-export const createNodeData = (type: CanvasNode['type']): FileNodeData | TerminalNodeData | FrameNodeData | AgentNodeData | TextNodeData | IframeNodeData => {
+export const createNodeData = (type: CanvasNode['type']): FileNodeData | TerminalNodeData | FrameNodeData | AgentNodeData | TextNodeData | IframeNodeData | ImageNodeData => {
   switch (type) {
     case 'file':     return { filePath: '', content: '', saved: false, modified: false };
     case 'terminal': return { sessionId: '' };
@@ -20,6 +21,7 @@ export const createNodeData = (type: CanvasNode['type']): FileNodeData | Termina
     case 'agent':    return { sessionId: '', agentType: 'claude-code', status: 'idle' };
     case 'text':     return { content: '', textColor: '#1f2328', backgroundColor: 'transparent', fontSize: 18, autoSize: true };
     case 'iframe':   return { url: '', html: '', mode: 'url', prompt: '' };
+    case 'image':    return { filePath: '' };
   }
 };
 

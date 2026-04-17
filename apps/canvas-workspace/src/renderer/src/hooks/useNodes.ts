@@ -6,6 +6,7 @@ import type {
   CanvasTransform,
   FileNodeData,
   FrameNodeData,
+  ImageNodeData,
   TextNodeData,
 } from '../types';
 import { createDefaultNode, createNodeData, genId } from '../utils/nodeFactory';
@@ -423,7 +424,9 @@ export const useNodes = (
           ? { ...(source.data as FrameNodeData) }
           : source.type === 'text'
             ? { ...(source.data as TextNodeData) }
-            : createNodeData(source.type),
+            : source.type === 'image'
+              ? { ...(source.data as ImageNodeData) }
+              : createNodeData(source.type),
         updatedAt: Date.now(),
       };
       if (newNode.type === 'file') {
@@ -464,7 +467,9 @@ export const useNodes = (
           ? { ...(source.data as FrameNodeData) }
           : source.type === 'text'
             ? { ...(source.data as TextNodeData) }
-            : createNodeData(source.type),
+            : source.type === 'image'
+              ? { ...(source.data as ImageNodeData) }
+              : createNodeData(source.type),
         updatedAt: now,
       }));
       newNodes.forEach((newNode) => {
