@@ -1,5 +1,5 @@
 import { promises as fs } from 'fs';
-import { join } from 'path';
+import { join, dirname, basename } from 'path';
 import { DEFAULT_STORE_DIR, AGENTS_MD_TEMPLATE } from './constants';
 import type { CanvasNode, CanvasEdge, CanvasSaveData, WorkspaceManifest, Result } from './types';
 
@@ -19,6 +19,58 @@ export function getWorkspaceDir(workspaceId: string, storeDir?: string): string 
   return join(resolveDir(storeDir), workspaceId);
 }
 
+/**
+ * Atomically write canvas JSON with a rolling `.bak` backup.
+ *
+ * `fs.writeFile` is non-atomic — it truncates first, then streams bytes.
+ * A crash or a concurrent reader hitting that window leaves the file
+ * empty/partial, producing "Unexpected end of JSON input" on next load.
+ * With multiple writers racing on the same file (canvas-workspace,
+ * canvas-cli, canvas-agent, MCP server), the truncate window is wide
+ * enough to corrupt data in practice. This helper:
+ *   1. Writes the new content to `<path>.tmp`.
+ *   2. Copies the current `<path>` to `<path>.bak` iff it parses and has
+ *      at least one node (rolling last-known-good snapshot).
+ *   3. Renames `<path>.tmp` → `<path>`. Rename is atomic on the same
+ *      filesystem, so concurrent readers see either the old or the new
+ *      file — never a truncated one.
+ *
+ * The matching `loadCanvas` below falls back to `<path>.bak` if the
+ * primary file can't be read, giving self-healing recovery from any
+ * pre-existing corruption left by older non-atomic writes.
+ */
+export async function atomicWriteCanvasJson(
+  finalPath: string,
+  serialized: string,
+): Promise<void> {
+  const dir = dirname(finalPath);
+  const base = basename(finalPath);
+  const tmpPath = join(dir, `${base}.tmp`);
+  const bakPath = join(dir, `${base}.bak`);
+
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(tmpPath, serialized, 'utf-8');
+
+  // Rotate last-known-good into .bak BEFORE overwriting, but only if
+  // the current file is actually a good snapshot. Otherwise a single
+  // corrupt save would poison the backup.
+  try {
+    const currentRaw = await fs.readFile(finalPath, 'utf-8');
+    try {
+      const current = JSON.parse(currentRaw) as { nodes?: unknown[] };
+      if (Array.isArray(current.nodes) && current.nodes.length > 0) {
+        await fs.copyFile(finalPath, bakPath).catch(() => undefined);
+      }
+    } catch {
+      // Current file is already corrupt — leave the existing .bak alone.
+    }
+  } catch {
+    // No current file yet; nothing to back up.
+  }
+
+  await fs.rename(tmpPath, finalPath);
+}
+
 export async function loadWorkspaceManifest(storeDir?: string): Promise<WorkspaceManifest> {
   try {
     const raw = await fs.readFile(manifestPath(storeDir), 'utf-8');
@@ -34,7 +86,7 @@ export async function loadWorkspaceManifest(storeDir?: string): Promise<Workspac
 export async function saveWorkspaceManifest(manifest: WorkspaceManifest, storeDir?: string): Promise<void> {
   const dir = resolveDir(storeDir);
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(manifestPath(storeDir), JSON.stringify(manifest, null, 2), 'utf-8');
+  await atomicWriteCanvasJson(manifestPath(storeDir), JSON.stringify(manifest, null, 2));
 }
 
 export async function listWorkspaceIds(storeDir?: string): Promise<string[]> {
@@ -89,29 +141,55 @@ function isEnoent(err: unknown): boolean {
 }
 
 export async function loadCanvas(workspaceId: string, storeDir?: string): Promise<CanvasSaveData | null> {
-  let raw: string;
+  const primary = canvasPath(workspaceId, storeDir);
+  const backup = `${primary}.bak`;
+
+  let primaryErr: unknown = null;
+  let raw: string | null = null;
   try {
-    raw = await fs.readFile(canvasPath(workspaceId, storeDir), 'utf-8');
+    raw = await fs.readFile(primary, 'utf-8');
   } catch (err) {
-    // File genuinely doesn't exist — legitimate "no canvas yet" signal.
-    if (isEnoent(err)) return null;
-    // Any other read error (EACCES, EBUSY, etc.) is a transient failure.
-    // Surface it so callers don't confuse it with "no canvas" and bootstrap
-    // an empty one on top of real data.
-    throw new CanvasReadError(workspaceId, err);
+    if (isEnoent(err)) {
+      // Primary genuinely absent — fall through to the backup check so a
+      // corruption that deleted the primary can still self-heal.
+      raw = null;
+    } else {
+      primaryErr = err;
+    }
   }
 
+  if (raw !== null) {
+    try {
+      const parsed = JSON.parse(raw) as CanvasSaveData;
+      parsed.nodes = parsed.nodes ?? [];
+      return parsed;
+    } catch (err) {
+      primaryErr = err;
+      raw = null;
+    }
+  }
+
+  // Primary unreadable or unparseable: try the rolling .bak snapshot so
+  // one bad write doesn't permanently destroy the workspace's nodes.
   try {
-    const parsed = JSON.parse(raw) as CanvasSaveData;
-    // Normalize: ensure nodes is always an array
+    const bakRaw = await fs.readFile(backup, 'utf-8');
+    const parsed = JSON.parse(bakRaw) as CanvasSaveData;
     parsed.nodes = parsed.nodes ?? [];
+    if (primaryErr) {
+      console.warn(
+        `[canvas-cli] canvas.json for "${workspaceId}" unreadable (${String(primaryErr)}); recovered from canvas.json.bak`,
+      );
+    }
     return parsed;
-  } catch (err) {
-    // Parse failure almost always means we caught another writer mid-flush.
-    // Returning null here would let `createNode`'s bootstrap overwrite real
-    // on-disk data with `{ nodes: [] }` via `{ allowEmpty: true }` — the
-    // exact wipe-data-without-warning bug we're defending against.
-    throw new CanvasReadError(workspaceId, err);
+  } catch (bakErr) {
+    if (isEnoent(bakErr) && !primaryErr) {
+      // Neither file exists — legitimate "no canvas yet".
+      return null;
+    }
+    // Primary failed AND backup is missing/bad, OR primary missing and
+    // backup corrupt. Surface the primary's failure so callers don't
+    // confuse it with "no canvas" and bootstrap an empty one on top.
+    throw new CanvasReadError(workspaceId, primaryErr ?? bakErr);
   }
 }
 
@@ -190,7 +268,7 @@ export async function saveCanvas(
     }
   }
 
-  await fs.writeFile(canvasPath(workspaceId, storeDir), JSON.stringify(data, null, 2), 'utf-8');
+  await atomicWriteCanvasJson(canvasPath(workspaceId, storeDir), JSON.stringify(data, null, 2));
 }
 
 /**

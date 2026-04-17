@@ -1,10 +1,111 @@
 import { ipcMain, BrowserWindow } from "electron";
 import { promises as fs, watch as fsWatch, FSWatcher } from "fs";
-import { join } from "path";
+import { join, basename, dirname } from "path";
 import { homedir } from "os";
 
 const STORE_DIR = join(homedir(), ".pulse-coder", "canvas");
 const MANIFEST_ID = '__workspaces__';
+
+/**
+ * Atomically write canvas JSON to disk with a rolling backup.
+ *
+ * Node's `fs.writeFile` is NOT atomic — it truncates first, then streams
+ * the bytes. If the process crashes mid-write, or if another reader
+ * catches the truncate window, the file is left empty/partial and future
+ * loads fail with `Unexpected end of JSON input`. With multiple writers
+ * (canvas-workspace + canvas-cli + canvas-agent + MCP server) racing on
+ * the same file, this is a real data-loss path.
+ *
+ * This helper:
+ *   1. Writes the new content to `<path>.tmp`.
+ *   2. If the current `<path>` parses and contains at least one node,
+ *      copies it to `<path>.bak` (rolling last-known-good snapshot).
+ *   3. `rename()`s `<path>.tmp` → `<path>`. Rename is atomic on the same
+ *      filesystem: any concurrent reader sees either the old file or the
+ *      new one, never a truncated one.
+ *
+ * Recovery: `canvas:load` falls back to `<path>.bak` when the primary
+ * file fails to parse, so even a pre-existing corruption from an older
+ * non-atomic write path can self-heal on next load.
+ */
+const atomicWriteCanvasJson = async (
+  finalPath: string,
+  serialized: string,
+): Promise<void> => {
+  const dir = dirname(finalPath);
+  const base = basename(finalPath);
+  const tmpPath = join(dir, `${base}.tmp`);
+  const bakPath = join(dir, `${base}.bak`);
+
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(tmpPath, serialized, 'utf-8');
+
+  // Rotate last-known-good into .bak BEFORE overwriting. Only rotate if
+  // the current file is actually a good snapshot — parses and has at
+  // least one node. That prevents a single corrupt save from poisoning
+  // the backup.
+  try {
+    const currentRaw = await fs.readFile(finalPath, 'utf-8');
+    try {
+      const current = JSON.parse(currentRaw) as { nodes?: unknown[] };
+      if (Array.isArray(current.nodes) && current.nodes.length > 0) {
+        await fs.copyFile(finalPath, bakPath).catch(() => undefined);
+      }
+    } catch {
+      // Current file is already corrupt — don't overwrite the good .bak.
+    }
+  } catch {
+    // No current file yet (first write for this workspace) — nothing to back up.
+  }
+
+  await fs.rename(tmpPath, finalPath);
+};
+
+/**
+ * Read canvas JSON with transparent fallback to the rolling `.bak` if
+ * the primary file is missing or unparseable. Returns the parsed data
+ * plus a `recoveredFromBackup` flag so callers can log / re-persist.
+ */
+const readCanvasJsonWithRecovery = async (
+  finalPath: string,
+): Promise<
+  | { kind: 'ok'; data: unknown; recoveredFromBackup: boolean }
+  | { kind: 'missing' }
+  | { kind: 'unrecoverable'; err: unknown }
+> => {
+  const bakPath = `${finalPath}.bak`;
+  let primaryErr: unknown = null;
+  try {
+    const raw = await fs.readFile(finalPath, 'utf-8');
+    try {
+      const data = JSON.parse(raw);
+      return { kind: 'ok', data, recoveredFromBackup: false };
+    } catch (err) {
+      primaryErr = err;
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      // Primary file missing. Try backup; if that's also missing,
+      // treat the whole workspace as fresh.
+    } else {
+      primaryErr = err;
+    }
+  }
+
+  try {
+    const bakRaw = await fs.readFile(bakPath, 'utf-8');
+    const data = JSON.parse(bakRaw);
+    console.warn(
+      `[canvas-store] primary canvas.json unreadable (${String(primaryErr ?? 'missing')}); recovered from ${basename(bakPath)}`,
+    );
+    return { kind: 'ok', data, recoveredFromBackup: true };
+  } catch (bakErr) {
+    if ((bakErr as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return primaryErr ? { kind: 'unrecoverable', err: primaryErr } : { kind: 'missing' };
+    }
+    return { kind: 'unrecoverable', err: primaryErr ?? bakErr };
+  }
+};
 
 const AGENTS_MD_TEMPLATE = `# Canvas Agent Config
 
@@ -275,6 +376,41 @@ const mergeExternalNodes = async (
     (n) => n.id && !memoryIds.has(n.id) && !known.has(n.id),
   );
 
+  // Rule 3 (partial-memory safety net): if the renderer's memory snapshot
+  // is suspiciously smaller than what we've already persisted, refuse to
+  // drop the missing-from-memory disk nodes. This catches the wipe path
+  // where Rule 1 treats every disk-known-but-memory-absent id as a
+  // "user delete" — legitimate when memory is a complete snapshot, but
+  // catastrophic when memory is a partial/half-loaded snapshot (React
+  // StrictMode double-mount, HMR, beforeunload fired mid-load, an
+  // unmount during a state update, etc).
+  //
+  // Heuristic: only trigger when a lot of known nodes went missing AND
+  // memory is much smaller than disk. This stays conservative so ordinary
+  // "user deleted a couple of nodes" saves still propagate the deletion.
+  const missingKnownDiskNodes = diskNodes.filter(
+    (n) => !!n.id && known.has(n.id) && !memoryIds.has(n.id),
+  );
+  const knownDiskCount = diskNodes.reduce(
+    (count, n) => (n.id && known.has(n.id) ? count + 1 : count),
+    0,
+  );
+  const suspiciousShrink =
+    missingKnownDiskNodes.length >= 5 &&
+    knownDiskCount > 0 &&
+    missingKnownDiskNodes.length / knownDiskCount >= 0.5 &&
+    memoryNodes.length < missingKnownDiskNodes.length;
+
+  let preservedMissing: CanvasNode[] = [];
+  if (suspiciousShrink) {
+    console.warn(
+      `[canvas-store] suspicious shrink for ${id}: memory has ${memoryNodes.length} nodes ` +
+      `but ${missingKnownDiskNodes.length}/${knownDiskCount} previously-persisted disk nodes are absent. ` +
+      `Preserving them in case this is a partial snapshot (load race / HMR / double-mount).`,
+    );
+    preservedMissing = missingKnownDiskNodes;
+  }
+
   // NOTE: we intentionally do NOT mutate `knownNodeIds` here. The save
   // handler calls `mergeExternalNodes` twice back-to-back (to narrow a
   // race with concurrent canvas-cli writes). If this function added
@@ -286,7 +422,7 @@ const mergeExternalNodes = async (
 
   return {
     ...inMemoryData,
-    nodes: [...mergedExisting, ...externalNewNodes],
+    nodes: [...mergedExisting, ...externalNewNodes, ...preservedMissing],
   };
 };
 
@@ -459,10 +595,9 @@ export const setupCanvasStoreIpc = () => {
       try {
         await fs.mkdir(STORE_DIR, { recursive: true });
         if (payload.id === MANIFEST_ID) {
-          await fs.writeFile(
+          await atomicWriteCanvasJson(
             getFilePath(MANIFEST_ID),
             JSON.stringify(payload.data, null, 2),
-            'utf-8'
           );
         } else {
           await ensureWorkspaceDir(payload.id);
@@ -490,10 +625,9 @@ export const setupCanvasStoreIpc = () => {
             // second read somehow fails to include them.
             const merged = await mergeExternalNodes(payload.id, firstPass);
             if (merged === SKIP_WRITE) return;
-            await fs.writeFile(
+            await atomicWriteCanvasJson(
               getFilePath(payload.id),
               JSON.stringify(merged, null, 2),
-              'utf-8'
             );
             // Update the watcher's last-known snapshot to match what we
             // just wrote. The debounced fs.watch callback will see an
@@ -545,12 +679,21 @@ export const setupCanvasStoreIpc = () => {
           await ensureWorkspaceDir(payload.id);
         }
         const filePath = getFilePath(payload.id);
-        const raw = await fs.readFile(filePath, 'utf-8');
-        const data: CanvasSaveData = JSON.parse(raw);
+        const readResult = await readCanvasJsonWithRecovery(filePath);
+        if (readResult.kind === 'missing') {
+          return { ok: true, data: null };
+        }
+        if (readResult.kind === 'unrecoverable') {
+          return { ok: false, error: String(readResult.err) };
+        }
+        const data: CanvasSaveData = readResult.data as CanvasSaveData;
         if (payload.id !== MANIFEST_ID) {
           const dirty = await migrateNotePaths(payload.id, data);
-          if (dirty) {
-            await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+          // Re-persist if migration rewrote note paths OR if we recovered
+          // from the rolling backup (the primary file was corrupt; writing
+          // the recovered data back heals it).
+          if (dirty || readResult.recoveredFromBackup) {
+            await atomicWriteCanvasJson(filePath, JSON.stringify(data, null, 2));
           }
           // Seed the known-id set the first time we load this workspace in
           // this app session. Do NOT re-seed on subsequent loads — the
