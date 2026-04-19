@@ -35,7 +35,7 @@ export const generateTextAI = (
   return generateText({
     model: provider(model),
     system: resolveSystemPrompt(options?.systemPrompt),
-    messages,
+    messages: stripTrailingAssistantMessages(messages),
     tools,
     providerOptions,
   }) as unknown as ReturnType<typeof generateText> & { steps: StepResult<any>[]; finishReason: string };
@@ -78,6 +78,21 @@ export const wrapToolsWithContext = (
   return wrappedTools;
 };
 
+/**
+ * Strip trailing assistant messages so the conversation ends with a user (or tool) message.
+ * Some providers (e.g. claude-opus-4.7 via copilot-api) do not support assistant message
+ * prefill and will reject requests where the last message has role "assistant".
+ */
+function stripTrailingAssistantMessages(messages: ModelMessage[]): ModelMessage[] {
+  let end = messages.length;
+  while (end > 0 && messages[end - 1].role === 'assistant') {
+    end--;
+  }
+  // Safety: never return an empty array — keep at least the original messages
+  if (end === 0) return messages;
+  return end === messages.length ? messages : messages.slice(0, end);
+}
+
 export const streamTextAI = (messages: ModelMessage[], tools: Record<string, CoderTool>, options?: StreamOptions) => {
   const provider = options?.provider ?? CoderAI;
   const model = options?.model ?? DEFAULT_MODEL;
@@ -110,10 +125,14 @@ export const streamTextAI = (messages: ModelMessage[], tools: Record<string, Cod
     ? `${baseSystemPrompt}${gptExtra}\n\n${extraSystemParts.join('\n\n')}`
     : `${baseSystemPrompt}${gptExtra}`;
 
+  // Strip trailing assistant messages to avoid "assistant message prefill not supported" errors.
+  // Some models (e.g. claude-opus-4.7 via copilot-api) reject requests ending with assistant role.
+  const sanitizedMessages = stripTrailingAssistantMessages(filteredMessages);
+
   return streamText({
     model: provider(model),
     system: finalSystemPrompt,
-    messages: filteredMessages,
+    messages: sanitizedMessages,
     tools: wrappedTools as Record<string, Tool>,
     providerOptions,
     abortSignal: options?.abortSignal,
