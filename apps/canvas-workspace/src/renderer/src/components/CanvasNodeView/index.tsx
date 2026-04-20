@@ -9,6 +9,7 @@ import { AgentNodeBody } from "../AgentNodeBody";
 import { TextNodeBody, TextColorPicker } from "../TextNodeBody";
 import { IframeNodeBody } from "../IframeNodeBody";
 import { ImageNodeBody } from "../ImageNodeBody";
+import { ShapeNodeBody, ShapeStylePicker } from "../ShapeNodeBody";
 
 interface Props {
   node: CanvasNode;
@@ -147,6 +148,42 @@ export const CanvasNodeView = ({
         <div className="node-body node-body--image" onMouseDown={(e) => e.stopPropagation()}>
           <ImageNodeBody node={node} onSelect={onSelect} onDragStart={onDragStart} />
         </div>
+        <button className="node-close node-close--floating" onClick={handleClose} title="Remove">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+          </svg>
+        </button>
+        <div
+          className="resize-handle resize-handle--right"
+          onMouseDown={makeResizeHandler("right")}
+        />
+        <div
+          className="resize-handle resize-handle--bottom"
+          onMouseDown={makeResizeHandler("bottom")}
+        />
+        <div
+          className="resize-handle resize-handle--corner"
+          onMouseDown={makeResizeHandler("bottom-right")}
+        />
+      </div>
+    );
+  }
+
+  if (node.type === "shape") {
+    return (
+      <div
+        className={classes}
+        style={{
+          transform: `translate(${node.x}px, ${node.y}px)`,
+          width: node.width,
+          height: node.height,
+        }}
+        onClick={handleNodeClick}
+      >
+        <div className="node-body node-body--shape" onMouseDown={(e) => e.stopPropagation()}>
+          <ShapeNodeBody node={node} onSelect={onSelect} onDragStart={onDragStart} />
+        </div>
+        {isSelected && <ShapeStylePicker node={node} onUpdate={onUpdate} />}
         <button className="node-close node-close--floating" onClick={handleClose} title="Remove">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />

@@ -1,4 +1,4 @@
-import type { CanvasNode, FileNodeData, TerminalNodeData, FrameNodeData, AgentNodeData, TextNodeData, IframeNodeData, ImageNodeData } from '../types';
+import type { CanvasNode, FileNodeData, TerminalNodeData, FrameNodeData, AgentNodeData, TextNodeData, IframeNodeData, ImageNodeData, ShapeNodeData } from '../types';
 
 let nodeIdCounter = 0;
 export const genId = (): string => `node-${Date.now()}-${++nodeIdCounter}`;
@@ -11,9 +11,10 @@ const NODE_DEFAULTS: Record<CanvasNode['type'], { title: string; width: number; 
   text:     { title: 'Text',     width: 260, height: 120 },
   iframe:   { title: 'Web',      width: 520, height: 400 },
   image:    { title: 'Image',    width: 320, height: 240 },
+  shape:    { title: 'Shape',    width: 200, height: 140 },
 };
 
-export const createNodeData = (type: CanvasNode['type']): FileNodeData | TerminalNodeData | FrameNodeData | AgentNodeData | TextNodeData | IframeNodeData | ImageNodeData => {
+export const createNodeData = (type: CanvasNode['type']): FileNodeData | TerminalNodeData | FrameNodeData | AgentNodeData | TextNodeData | IframeNodeData | ImageNodeData | ShapeNodeData => {
   switch (type) {
     case 'file':     return { filePath: '', content: '', saved: false, modified: false };
     case 'terminal': return { sessionId: '' };
@@ -22,6 +23,7 @@ export const createNodeData = (type: CanvasNode['type']): FileNodeData | Termina
     case 'text':     return { content: '', textColor: '#1f2328', backgroundColor: 'transparent', fontSize: 18, autoSize: true };
     case 'iframe':   return { url: '', html: '', mode: 'url', prompt: '' };
     case 'image':    return { filePath: '' };
+    case 'shape':    return { kind: 'rect', fill: '#E8EEF7', stroke: '#5B7CBF', strokeWidth: 2 };
   }
 };
 

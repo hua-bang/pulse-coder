@@ -9,6 +9,7 @@ import { useCanvasFit } from '../../hooks/useCanvasFit';
 import { useCanvasKeyboard } from '../../hooks/useCanvasKeyboard';
 import { useCanvasImagePaste } from '../../hooks/useCanvasImagePaste';
 import { useEdgeInteraction } from '../../hooks/useEdgeInteraction';
+import { useShapeDraw } from '../../hooks/useShapeDraw';
 import type { CanvasNode } from '../../types';
 import { computeFrameDepths } from '../../utils/frameHierarchy';
 import { CanvasSurface } from './CanvasSurface';
@@ -242,6 +243,25 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
     [beginConnect],
   );
 
+  const {
+    draft: shapeDraft,
+    handleOverlayMouseDown: handleShapeOverlayMouseDown,
+    isActive: shapeToolActive,
+  } = useShapeDraw({
+    activeTool,
+    screenToCanvas,
+    getContainer,
+    addNode,
+    updateNode,
+    // Drop back to the select tool and select the committed shape so the
+    // user can immediately restyle it via the ShapeStylePicker.
+    onCommitted: (node) => {
+      setActiveTool('select');
+      setSelectedNodeIds([node.id]);
+      setSelectedEdgeId(null);
+    },
+  });
+
   const handleEdgeBodyMouseDown = useCallback(
     (edgeId: string, e: React.MouseEvent) => {
       if (e.button !== 0) return;
@@ -280,7 +300,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
   const isBlankCanvasTarget = useCallback((target: EventTarget | null) => {
     if (!(target instanceof HTMLElement)) return false;
     return !target.closest(
-      '.canvas-node, .floating-toolbar, .zoom-indicator, .context-menu, .canvas-edges, .canvas-connect-overlay, .edge-style-panel',
+      '.canvas-node, .floating-toolbar, .zoom-indicator, .context-menu, .canvas-edges, .canvas-connect-overlay, .canvas-shape-overlay, .edge-style-panel',
     );
   }, []);
 
@@ -376,6 +396,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
 
   const cursorClass = activeTool === 'hand'
     ? ' canvas-container--hand'
+    : shapeToolActive ? ' canvas-container--shape'
     : resizingId ? ' canvas-container--resizing' : '';
 
   if (!loaded) {
@@ -423,6 +444,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
         externallyEditedIds={externallyEditedIds}
         edgeInteractionState={edgeInteractionState}
         edgePreviewEndpoints={getPreviewEndpoints()}
+        shapeDraft={shapeDraft}
         onDragStart={onDragStart}
         onResizeStart={onResizeStart}
         onUpdate={updateNode}
@@ -457,6 +479,8 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
         onSearchSelect={handleSearchSelect}
         onCloseSearch={() => setSearchOpen(false)}
         onConnectMouseDown={handleConnectOverlayMouseDown}
+        shapeToolActive={shapeToolActive}
+        onShapeMouseDown={handleShapeOverlayMouseDown}
         selectedEdge={edges.find((e) => e.id === selectedEdgeId) ?? null}
         transform={transform}
         onUpdateEdge={(id, patch) => {

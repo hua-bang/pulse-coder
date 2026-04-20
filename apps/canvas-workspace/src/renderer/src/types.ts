@@ -1,6 +1,6 @@
 export interface CanvasNode {
   id: string;
-  type: "file" | "terminal" | "frame" | "agent" | "text" | "iframe" | "image";
+  type: "file" | "terminal" | "frame" | "agent" | "text" | "iframe" | "image" | "shape";
   title: string;
   x: number;
   y: number;
@@ -13,7 +13,8 @@ export interface CanvasNode {
     | AgentNodeData
     | TextNodeData
     | IframeNodeData
-    | ImageNodeData;
+    | ImageNodeData
+    | ShapeNodeData;
   /** Epoch millis of last mutation; used for cross-process merge. */
   updatedAt?: number;
 }
@@ -108,6 +109,19 @@ export interface IframeNodeData {
 export interface ImageNodeData {
   /** Absolute path on disk to the saved image file. */
   filePath: string;
+}
+
+/**
+ * A primitive geometric shape drawn on the canvas. Rendered as an inline
+ * SVG that fills the node box, so the same storage powers both rect and
+ * ellipse (and any future primitives). Colors are stored as hex strings
+ * or "transparent"; stroke width is in CSS pixels at scale=1.
+ */
+export interface ShapeNodeData {
+  kind: "rect" | "ellipse";
+  fill: string;
+  stroke: string;
+  strokeWidth: number;
 }
 
 export interface CanvasTransform {

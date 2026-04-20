@@ -18,6 +18,10 @@
   cursor: nwse-resize;
 }
 
+.canvas-container--shape {
+  cursor: crosshair;
+}
+
 .canvas-grid {
   position: absolute;
   inset: 0;
