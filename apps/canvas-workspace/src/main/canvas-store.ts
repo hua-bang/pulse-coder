@@ -264,7 +264,7 @@ const SKIP_WRITE = Symbol('canvas-store:skip-write');
 type MergeResult = CanvasSaveData | typeof SKIP_WRITE;
 
 type DiskReadOutcome =
-  | { kind: 'ok'; nodes: CanvasNode[] }
+  | { kind: 'ok'; nodes: CanvasNode[]; recoveredFromBackup?: boolean }
   | { kind: 'missing' }
   | { kind: 'unparseable'; err: unknown }
   | { kind: 'ioerror'; err: unknown };
@@ -275,17 +275,26 @@ type DiskReadOutcome =
  * writer. A truncated/half-written file surfaces as a JSON.parse error
  * (typically "Unexpected end of JSON input"); a brief backoff almost
  * always catches the completed write on the next attempt.
+ *
+ * If every retry still fails to parse, fall back to the rolling `.bak`
+ * snapshot that `atomicWriteCanvasJson` maintains. This matches the
+ * recovery path in `canvas:load` (`readCanvasJsonWithRecovery`) so the
+ * save handler no longer indefinitely skips writes on a workspace whose
+ * primary file was corrupted by a pre-atomic-writes-era crash. When the
+ * backup rescues us, the caller's subsequent `atomicWriteCanvasJson`
+ * will naturally heal the primary as part of the same save.
  */
 const readDiskCanvas = async (
   id: string,
   attempts = 3,
   delayMs = 30,
 ): Promise<DiskReadOutcome> => {
+  const primaryPath = getFilePath(id);
   let lastParseErr: unknown = null;
   for (let i = 0; i < attempts; i++) {
     let raw: string;
     try {
-      raw = await fs.readFile(getFilePath(id), 'utf-8');
+      raw = await fs.readFile(primaryPath, 'utf-8');
     } catch (err) {
       if (isEnoent(err)) return { kind: 'missing' };
       return { kind: 'ioerror', err };
@@ -301,7 +310,24 @@ const readDiskCanvas = async (
       }
     }
   }
-  return { kind: 'unparseable', err: lastParseErr };
+
+  // Primary unparseable after retries. Try the rolling backup — a
+  // genuinely concurrent mid-flush would have been caught by one of the
+  // retries above, so persistent parse errors almost always mean the
+  // primary is stuck in a corrupt state from an older non-atomic write.
+  try {
+    const bakRaw = await fs.readFile(`${primaryPath}.bak`, 'utf-8');
+    const bakData = JSON.parse(bakRaw) as CanvasSaveData;
+    const nodes = Array.isArray(bakData.nodes) ? bakData.nodes : [];
+    console.warn(
+      `[canvas-store] canvas.json for ${id} unparseable (${String(lastParseErr)}); ` +
+      `recovered ${nodes.length} nodes from canvas.json.bak`,
+    );
+    return { kind: 'ok', nodes, recoveredFromBackup: true };
+  } catch {
+    // Backup missing or also bad — surface the original parse failure.
+    return { kind: 'unparseable', err: lastParseErr };
+  }
 };
 
 const mergeExternalNodes = async (
