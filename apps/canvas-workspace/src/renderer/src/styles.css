@@ -52,6 +52,13 @@ body {
   font-size: 14px;
 }
 
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
