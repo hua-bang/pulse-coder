@@ -53,6 +53,27 @@ const tools = [
         />
       </svg>
     )
+  },
+  {
+    id: "shape-rect",
+    label: "Rectangle (drag to draw)",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <rect
+          x="3" y="4" width="12" height="10" rx="1"
+          stroke="currentColor" strokeWidth="1.4"
+        />
+      </svg>
+    )
+  },
+  {
+    id: "shape-ellipse",
+    label: "Ellipse (drag to draw)",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <ellipse cx="9" cy="9" rx="6" ry="4.5" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    )
   }
 ];
 

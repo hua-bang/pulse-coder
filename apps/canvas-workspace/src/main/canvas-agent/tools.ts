@@ -27,7 +27,7 @@ const STORE_DIR = join(homedir(), '.pulse-coder', 'canvas');
 
 // ─── Types mirrored from canvas-cli ────────────────────────────────
 
-type NodeType = 'file' | 'terminal' | 'frame' | 'agent' | 'text' | 'iframe';
+type NodeType = 'file' | 'terminal' | 'frame' | 'agent' | 'text' | 'iframe' | 'shape';
 
 interface CanvasNode {
   id: string;
@@ -83,6 +83,7 @@ const DEFAULT_DIMENSIONS: Record<NodeType, { title: string; width: number; heigh
   agent: { title: 'Agent', width: 520, height: 380 },
   text: { title: 'Text', width: 260, height: 120 },
   iframe: { title: 'Web', width: 520, height: 400 },
+  shape: { title: 'Shape', width: 200, height: 140 },
 };
 
 // ─── Helpers ───────────────────────────────────────────────────────
@@ -433,9 +434,13 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
         'For HTML mode: pass `data.html` with raw HTML content and `data.mode: "html"`. ' +
         'For AI mode: pass `data.prompt` with a description and `data.mode: "ai"` — ' +
         'the LLM will generate self-contained HTML. ' +
-        'Note: some sites block URL embedding via X-Frame-Options / CSP.',
+        'Note: some sites block URL embedding via X-Frame-Options / CSP.\n' +
+        '- **shape**: Draws a primitive geometric shape (rectangle or ellipse). ' +
+        'Use `data.kind` ("rect" | "ellipse"), `data.fill` / `data.stroke` (hex or "transparent"), ' +
+        'and `data.strokeWidth` (px). For precise sizing pass explicit `x`, `y`, and set width/height ' +
+        'via the dedicated `canvas_create_shape` tool — this generic one uses default dimensions.',
       inputSchema: z.object({
-        type: z.enum(['file', 'terminal', 'frame', 'agent', 'text', 'iframe']).describe('Node type.'),
+        type: z.enum(['file', 'terminal', 'frame', 'agent', 'text', 'iframe', 'shape']).describe('Node type.'),
         title: z.string().optional().describe('Node title.'),
         content: z.string().optional().describe('Initial content (for file and text nodes).'),
         x: z.number().optional().describe('X position (auto-placed if omitted).'),
@@ -446,7 +451,8 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
           '- agent: { agentType?: "claude-code"|"codex"|"pulse-coder", cwd?: string, status?: "idle"|"running", prompt?: string, agentArgs?: string }\n' +
           '- frame: { color?: string, label?: string }\n' +
           '- text: { textColor?: string, backgroundColor?: string, fontSize?: number }\n' +
-          '- iframe: { url?: string, html?: string, prompt?: string, mode?: "url"|"html"|"ai" }',
+          '- iframe: { url?: string, html?: string, prompt?: string, mode?: "url"|"html"|"ai" }\n' +
+          '- shape: { kind?: "rect"|"ellipse", fill?: string, stroke?: string, strokeWidth?: number, text?: string, textColor?: string, fontSize?: number }',
         ),
       }),
       execute: async (input) => {
@@ -542,6 +548,20 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
                 mode: iframeMode,
               };
             }
+            break;
+          }
+          case 'shape': {
+            const rawKind = extraData.kind as string | undefined;
+            const shapeKind = rawKind === 'ellipse' ? 'ellipse' : 'rect';
+            nodeData = {
+              kind: shapeKind,
+              fill: (extraData.fill as string) ?? '#E8EEF7',
+              stroke: (extraData.stroke as string) ?? '#5B7CBF',
+              strokeWidth: (extraData.strokeWidth as number) ?? 2,
+              text: (extraData.text as string) ?? (content || ''),
+              textColor: extraData.textColor as string | undefined,
+              fontSize: extraData.fontSize as number | undefined,
+            };
             break;
           }
         }
@@ -928,6 +948,74 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
         broadcastUpdate(workspaceId, [nodeId]);
 
         return JSON.stringify({ ok: true, nodeId, title });
+      },
+    },
+
+    // ─── Dedicated shape node creation ──────────────────────────────
+
+    canvas_create_shape: {
+      name: 'canvas_create_shape',
+      description:
+        'Create a primitive geometric shape (rectangle or ellipse) on the canvas. ' +
+        'Shapes are visual-only annotations — they render as SVG primitives with configurable ' +
+        'fill, stroke, and stroke width. Use this for diagramming, highlighting regions, or ' +
+        'building simple layouts. ' +
+        'Pass explicit width/height for precise sizing; otherwise defaults to 200×140. ' +
+        'Colors accept hex strings (e.g. "#E8EEF7") or the literal string "transparent".',
+      inputSchema: z.object({
+        kind: z.enum(['rect', 'ellipse']).optional().describe('Shape primitive. Defaults to "rect".'),
+        title: z.string().optional().describe('Node title (used in the layers panel). Defaults to "Shape".'),
+        x: z.number().optional().describe('X position (canvas coords). Auto-placed if omitted.'),
+        y: z.number().optional().describe('Y position (canvas coords). Auto-placed if omitted.'),
+        width: z.number().optional().describe('Width in canvas-px. Default 200.'),
+        height: z.number().optional().describe('Height in canvas-px. Default 140.'),
+        fill: z.string().optional().describe('Fill color (hex or "transparent"). Default "#E8EEF7".'),
+        stroke: z.string().optional().describe('Stroke color (hex or "transparent"). Default "#5B7CBF".'),
+        strokeWidth: z.number().optional().describe('Stroke width in px. Default 2. Set 0 for no stroke.'),
+        text: z.string().optional().describe('Optional label rendered centered inside the shape.'),
+        textColor: z.string().optional().describe('Text color (hex). Defaults to the stroke color when present.'),
+        fontSize: z.number().optional().describe('Text font size in px. Default 16.'),
+      }),
+      execute: async (input) => {
+        const canvas = await loadCanvas(workspaceId);
+        if (!canvas) return 'Error: workspace not found';
+
+        const kind = (input.kind as 'rect' | 'ellipse' | undefined) ?? 'rect';
+        const title = (input.title as string) ?? DEFAULT_DIMENSIONS.shape.title;
+        const width = (input.width as number | undefined) ?? DEFAULT_DIMENSIONS.shape.width;
+        const height = (input.height as number | undefined) ?? DEFAULT_DIMENSIONS.shape.height;
+
+        const nodeId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const pos = (input.x != null && input.y != null)
+          ? { x: input.x as number, y: input.y as number }
+          : autoPlace(canvas.nodes);
+
+        const newNode: CanvasNode = {
+          id: nodeId,
+          type: 'shape',
+          title,
+          x: pos.x,
+          y: pos.y,
+          width,
+          height,
+          data: {
+            kind,
+            fill: (input.fill as string | undefined) ?? '#E8EEF7',
+            stroke: (input.stroke as string | undefined) ?? '#5B7CBF',
+            strokeWidth: (input.strokeWidth as number | undefined) ?? 2,
+            text: (input.text as string | undefined) ?? '',
+            textColor: input.textColor as string | undefined,
+            fontSize: input.fontSize as number | undefined,
+          },
+          updatedAt: Date.now(),
+        };
+
+        const fresh = (await loadCanvas(workspaceId)) ?? canvas;
+        fresh.nodes.push(newNode);
+        await saveCanvas(workspaceId, fresh);
+        broadcastUpdate(workspaceId, [nodeId]);
+
+        return JSON.stringify({ ok: true, nodeId, kind, title });
       },
     },
 

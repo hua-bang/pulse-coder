@@ -249,6 +249,36 @@
   height: 100%;
 }
 
+/* Shape nodes: chromeless like images, but we do keep the hover/selection
+ * outline so the user can still see the hit box for a transparent shape. */
+.canvas-node--shape {
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
+  overflow: visible; /* let the ShapeStylePicker poke out above */
+}
+
+.canvas-node--shape:hover {
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: none;
+}
+
+.canvas-node--shape.canvas-node--selected {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 2px rgba(35, 131, 226, 0.12);
+}
+
+.canvas-node--shape.canvas-node--dragging,
+.canvas-node--shape.canvas-node--resizing {
+  box-shadow: var(--shadow-drag);
+}
+
+.node-body--shape {
+  padding: 0;
+  height: 100%;
+  overflow: visible;
+}
+
 .node-close--floating {
   position: absolute;
   top: 4px;

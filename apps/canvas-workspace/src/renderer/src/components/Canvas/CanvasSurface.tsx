@@ -4,6 +4,7 @@ import { CanvasNodeView } from '../CanvasNodeView';
 import { CanvasEdgesLayer } from '../CanvasEdgesLayer';
 import type { ResizeEdge } from '../../hooks/useNodeResize';
 import type { EdgeInteractionState, Point } from '../../hooks/useEdgeInteraction';
+import type { ShapeDraft } from '../../hooks/useShapeDraw';
 
 interface CanvasSurfaceProps {
   transform: { x: number; y: number; scale: number };
@@ -36,6 +37,9 @@ interface CanvasSurfaceProps {
   /** Preview endpoints resolved by the interaction hook. Null when no
    *  connect/move-end drag is in flight. */
   edgePreviewEndpoints: { s: Point; t: Point } | null;
+  /** Live shape-draw draft. Null unless the user is currently dragging
+   *  out a new shape. */
+  shapeDraft?: ShapeDraft | null;
   onDragStart: (e: React.MouseEvent, node: CanvasNode) => void;
   onResizeStart: (
     e: React.MouseEvent,
@@ -83,6 +87,7 @@ export const CanvasSurface = ({
   externallyEditedIds,
   edgeInteractionState,
   edgePreviewEndpoints,
+  shapeDraft,
   onDragStart,
   onResizeStart,
   onUpdate,
@@ -139,5 +144,34 @@ export const CanvasSurface = ({
         onFocus={onFocus}
       />
     ))}
+    {shapeDraft && <ShapeDraftPreview draft={shapeDraft} />}
   </div>
 );
+
+/**
+ * Dashed outline shown while the user drags out a new shape. Lives inside
+ * `.canvas-transform`, so canvas coords render correctly at any zoom/pan.
+ * Pointer events are disabled so the overlay above it still receives the
+ * ongoing mousemove/mouseup.
+ */
+const ShapeDraftPreview = ({ draft }: { draft: ShapeDraft }) => {
+  const x = Math.min(draft.start.x, draft.current.x);
+  const y = Math.min(draft.start.y, draft.current.y);
+  const w = Math.abs(draft.current.x - draft.start.x);
+  const h = Math.abs(draft.current.y - draft.start.y);
+  const common: React.CSSProperties = {
+    position: 'absolute',
+    left: x,
+    top: y,
+    width: w,
+    height: h,
+    border: '1.5px dashed #5B7CBF',
+    background: 'rgba(91, 124, 191, 0.08)',
+    pointerEvents: 'none',
+    boxSizing: 'border-box',
+  };
+  if (draft.kind === 'ellipse') {
+    common.borderRadius = '50%';
+  }
+  return <div className="shape-draft-preview" style={common} />;
+};

@@ -31,6 +31,11 @@ interface CanvasOverlaysProps {
   /** Mousedown handler for the connect-mode overlay. Wired by the
    *  parent Canvas component to the edge interaction hook. */
   onConnectMouseDown?: (e: React.MouseEvent) => void;
+  /** True whenever the user has picked one of the shape-draw tools
+   *  (shape-rect / shape-ellipse). Drives the draw overlay. */
+  shapeToolActive?: boolean;
+  /** Mousedown handler for the shape-draw overlay. */
+  onShapeMouseDown?: (e: React.MouseEvent) => void;
   /** Currently-selected edge (full object) — null when none or the
    *  selection refers to a node. The overlays layer uses it to render
    *  the floating EdgeStylePanel. */
@@ -67,6 +72,8 @@ export const CanvasOverlays = ({
   onSearchSelect,
   onCloseSearch,
   onConnectMouseDown,
+  shapeToolActive,
+  onShapeMouseDown,
   selectedEdge,
   transform,
   onUpdateEdge,
@@ -108,6 +115,22 @@ export const CanvasOverlays = ({
           zIndex: 5,
         }}
         onMouseDown={onConnectMouseDown}
+      />
+    )}
+
+    {/* Drag-to-draw overlay for shape tools. Same layering trick as the
+        connect overlay so a drag that starts over an existing node still
+        creates a shape rather than selecting the node underneath. */}
+    {shapeToolActive && (
+      <div
+        className="canvas-shape-overlay"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          cursor: 'crosshair',
+          zIndex: 5,
+        }}
+        onMouseDown={onShapeMouseDown}
       />
     )}
 

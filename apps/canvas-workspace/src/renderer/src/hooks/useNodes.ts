@@ -7,6 +7,7 @@ import type {
   FileNodeData,
   FrameNodeData,
   ImageNodeData,
+  ShapeNodeData,
   TextNodeData,
 } from '../types';
 import { createDefaultNode, createNodeData, genId } from '../utils/nodeFactory';
@@ -426,7 +427,9 @@ export const useNodes = (
             ? { ...(source.data as TextNodeData) }
             : source.type === 'image'
               ? { ...(source.data as ImageNodeData) }
-              : createNodeData(source.type),
+              : source.type === 'shape'
+                ? { ...(source.data as ShapeNodeData) }
+                : createNodeData(source.type),
         updatedAt: Date.now(),
       };
       if (newNode.type === 'file') {
@@ -469,7 +472,9 @@ export const useNodes = (
             ? { ...(source.data as TextNodeData) }
             : source.type === 'image'
               ? { ...(source.data as ImageNodeData) }
-              : createNodeData(source.type),
+              : source.type === 'shape'
+                ? { ...(source.data as ShapeNodeData) }
+                : createNodeData(source.type),
         updatedAt: now,
       }));
       newNodes.forEach((newNode) => {
