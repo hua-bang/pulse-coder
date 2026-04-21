@@ -23,6 +23,44 @@ export interface DevtoolsRunSummary {
   llmCalls: number;
   toolCalls: number;
   compactions: number;
+  totalInputTokens?: number;
+  totalOutputTokens?: number;
+  totalCacheReadTokens?: number;
+  totalCacheWriteTokens?: number;
+}
+
+export type TokenStatsGranularity = 'hour' | 'day' | 'week';
+
+export interface TokenStatsBucket {
+  ts: number;
+  label: string;
+  runCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+}
+
+export interface TokenStatsSummary {
+  totalRuns: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+}
+
+export interface TokenStatsResult {
+  summary: TokenStatsSummary;
+  buckets: TokenStatsBucket[];
+}
+
+export interface TokenStatsOptions {
+  from: number;
+  to: number;
+  granularity?: TokenStatsGranularity;
+  sessionId?: string;
 }
 
 export interface DevtoolsLlmSpan {
@@ -111,6 +149,9 @@ interface DevtoolsRunCreateInput {
 interface DevtoolsRunListOptions {
   status?: RunStatus;
   limit?: number;
+  from?: number;
+  to?: number;
+  sessionId?: string;
 }
 
 interface DevtoolsRunUpdate {
@@ -315,8 +356,17 @@ export class DevtoolsStore {
 
   listRuns(options: DevtoolsRunListOptions = {}): DevtoolsRunSummary[] {
     const limit = Math.min(options.limit ?? 50, this.maxEntries);
-    const status = options.status;
-    const runs = status ? this.index.filter((item) => item.status === status) : this.index;
+    const { status, from, to, sessionId } = options;
+    let runs = status ? this.index.filter((item) => item.status === status) : this.index;
+    if (from !== undefined) {
+      runs = runs.filter((item) => item.startedAt >= from);
+    }
+    if (to !== undefined) {
+      runs = runs.filter((item) => item.startedAt <= to);
+    }
+    if (sessionId) {
+      runs = runs.filter((item) => item.sessionId === sessionId);
+    }
     return runs.slice(0, limit);
   }
 
@@ -578,6 +628,11 @@ export class DevtoolsStore {
   }
 
   private upsertSummary(record: DevtoolsRunRecord): void {
+    const totalInputTokens = record.llmSpans.reduce((s, x) => s + (x.inputTokens ?? 0), 0);
+    const totalOutputTokens = record.llmSpans.reduce((s, x) => s + (x.outputTokens ?? 0), 0);
+    const totalCacheReadTokens = record.llmSpans.reduce((s, x) => s + (x.cacheReadTokens ?? 0), 0);
+    const totalCacheWriteTokens = record.llmSpans.reduce((s, x) => s + (x.cacheWriteTokens ?? 0), 0);
+
     const summary: DevtoolsRunSummary = {
       runId: record.runId,
       status: record.status,
@@ -594,6 +649,10 @@ export class DevtoolsStore {
       llmCalls: record.llmCalls,
       toolCalls: record.toolCalls,
       compactions: record.compactions,
+      totalInputTokens: totalInputTokens > 0 ? totalInputTokens : undefined,
+      totalOutputTokens: totalOutputTokens > 0 ? totalOutputTokens : undefined,
+      totalCacheReadTokens: totalCacheReadTokens > 0 ? totalCacheReadTokens : undefined,
+      totalCacheWriteTokens: totalCacheWriteTokens > 0 ? totalCacheWriteTokens : undefined,
     };
 
     const existingIndex = this.index.findIndex((item) => item.runId === record.runId);
@@ -649,6 +708,127 @@ export class DevtoolsStore {
       JSON.stringify({ updatedAt: now(), runs: this.index }, null, 2),
       'utf-8',
     );
+  }
+
+  getTokenStats(options: TokenStatsOptions): TokenStatsResult {
+    const { from, to, granularity = 'day', sessionId } = options;
+
+    // Filter runs within the time range
+    let runs = this.index.filter((r) => r.startedAt >= from && r.startedAt <= to);
+    if (sessionId) {
+      runs = runs.filter((r) => r.sessionId === sessionId);
+    }
+
+    // Build bucket boundaries
+    const bucketMap = new Map<number, TokenStatsBucket>();
+
+    const getBucketTs = (ts: number): number => {
+      const d = new Date(ts);
+      if (granularity === 'hour') {
+        return new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours()).getTime();
+      }
+      if (granularity === 'week') {
+        const day = d.getDay(); // 0=Sun
+        const diff = day === 0 ? -6 : 1 - day; // align to Monday
+        const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() + diff);
+        return monday.getTime();
+      }
+      // default: day
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    };
+
+    const formatBucketLabel = (ts: number): string => {
+      const d = new Date(ts);
+      if (granularity === 'hour') {
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        const hh = String(d.getHours()).padStart(2, '0');
+        return `${d.getFullYear()}-${mm}-${dd} ${hh}:00`;
+      }
+      if (granularity === 'week') {
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${d.getFullYear()}-${mm}-${dd}`;
+      }
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${d.getFullYear()}-${mm}-${dd}`;
+    };
+
+    // Pre-fill all bucket slots so gaps show as zero
+    let cursor = getBucketTs(from);
+    const endTs = getBucketTs(to);
+    while (cursor <= endTs) {
+      bucketMap.set(cursor, {
+        ts: cursor,
+        label: formatBucketLabel(cursor),
+        runCount: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 0,
+      });
+      // Advance by granularity
+      if (granularity === 'hour') {
+        cursor += 60 * 60 * 1000;
+      } else if (granularity === 'week') {
+        cursor += 7 * 24 * 60 * 60 * 1000;
+      } else {
+        cursor += 24 * 60 * 60 * 1000;
+      }
+    }
+
+    // Accumulate per run into buckets
+    const summary: TokenStatsSummary = {
+      totalRuns: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 0,
+    };
+
+    for (const run of runs) {
+      const bucketTs = getBucketTs(run.startedAt);
+      let bucket = bucketMap.get(bucketTs);
+      if (!bucket) {
+        bucket = {
+          ts: bucketTs,
+          label: formatBucketLabel(bucketTs),
+          runCount: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalTokens: 0,
+        };
+        bucketMap.set(bucketTs, bucket);
+      }
+      const inp = run.totalInputTokens ?? 0;
+      const out = run.totalOutputTokens ?? 0;
+      const cr = run.totalCacheReadTokens ?? 0;
+      const cw = run.totalCacheWriteTokens ?? 0;
+      const total = inp + out;
+
+      bucket.runCount += 1;
+      bucket.inputTokens += inp;
+      bucket.outputTokens += out;
+      bucket.cacheReadTokens += cr;
+      bucket.cacheWriteTokens += cw;
+      bucket.totalTokens += total;
+
+      summary.totalRuns += 1;
+      summary.inputTokens += inp;
+      summary.outputTokens += out;
+      summary.cacheReadTokens += cr;
+      summary.cacheWriteTokens += cw;
+      summary.totalTokens += total;
+    }
+
+    const buckets = [...bucketMap.values()].sort((a, b) => a.ts - b.ts);
+
+    return { summary, buckets };
   }
 }
 

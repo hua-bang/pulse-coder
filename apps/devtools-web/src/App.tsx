@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 
 type RunStatus = 'running' | 'finished';
+type PageView = 'runs' | 'stats';
+type StatsRange = 'today' | 'week' | 'month' | 'custom';
+type StatsGranularity = 'hour' | 'day' | 'week';
 
 interface RunSummary {
   runId: string;
@@ -18,6 +21,57 @@ interface RunSummary {
   llmCalls: number;
   toolCalls: number;
   compactions: number;
+  totalInputTokens?: number;
+  totalOutputTokens?: number;
+  totalCacheReadTokens?: number;
+  totalCacheWriteTokens?: number;
+}
+
+interface TokenStatsBucket {
+  ts: number;
+  label: string;
+  runCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+}
+
+interface TokenStatsSummary {
+  totalRuns: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+}
+
+interface TokenStatsResponse {
+  ok: boolean;
+  from: number;
+  to: number;
+  granularity: StatsGranularity;
+  summary: TokenStatsSummary;
+  buckets: TokenStatsBucket[];
+}
+
+interface SessionBreakdown {
+  sessionId: string;
+  runCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  lastRunAt: number;
+}
+
+interface SessionStatsResponse {
+  ok: boolean;
+  from: number;
+  to: number;
+  sessions: SessionBreakdown[];
 }
 
 interface LlmSpan {
@@ -137,6 +191,7 @@ export default function App() {
   const initialBaseUrl = sanitizeBaseUrl(localStorage.getItem('devtoolsBaseUrl') || DEFAULT_BASE_URL);
   const [baseUrl, setBaseUrl] = useState(initialBaseUrl);
   const [baseUrlInput, setBaseUrlInput] = useState(initialBaseUrl);
+  const [page, setPage] = useState<PageView>('runs');
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<RunDetail | null>(null);
@@ -1285,6 +1340,21 @@ export default function App() {
         </div>
       </header>
 
+      <div className="page-nav">
+        {(['runs', 'stats'] as const).map((p) => (
+          <button
+            key={p}
+            className={`page-nav-btn ${page === p ? 'active' : ''}`}
+            onClick={() => setPage(p)}
+          >
+            {p === 'runs' ? '⚡ Runs' : '📊 Stats'}
+          </button>
+        ))}
+      </div>
+
+      {page === 'stats' ? (
+        <StatsView apiBase={apiBase} />
+      ) : (
       <main>
         <section className="panel">
           <div className="panel-header">
@@ -1402,6 +1472,7 @@ export default function App() {
           {renderDetail()}
         </section>
       </main>
+      )}
     </div>
   );
 }
@@ -1445,5 +1516,299 @@ function CopyButton({ value }: { value: string }) {
     <button className={`copy-button ${copied ? 'copied' : ''}`} onClick={copy} type="button">
       {copied ? 'Copied' : 'Copy'}
     </button>
+  );
+}
+
+// ── StatsView ─────────────────────────────────────────────────────────────────
+
+function formatK(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+function formatDate(ts: number): string {
+  return new Date(ts).toLocaleDateString();
+}
+
+function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="stat-card">
+      <div className="stat-label">{label}</div>
+      <div className="stat-value">{value}</div>
+      {sub ? <div className="stat-sub">{sub}</div> : null}
+    </div>
+  );
+}
+
+function BarChart({ buckets, height = 140 }: { buckets: TokenStatsBucket[]; height?: number }) {
+  if (!buckets.length) return <div className="empty">No data in this range.</div>;
+
+  const maxVal = Math.max(...buckets.map((b) => b.totalTokens), 1);
+  const barW = Math.max(14, Math.min(48, Math.floor(560 / buckets.length) - 4));
+  const gap = 4;
+  const totalW = buckets.length * (barW + gap) - gap;
+  const chartH = height;
+  const paddingTop = 20;
+  const labelH = 38;
+  const svgH = chartH + paddingTop + labelH;
+
+  return (
+    <div className="bar-chart-wrap">
+      <svg
+        viewBox={`0 0 ${Math.max(totalW, 300)} ${svgH}`}
+        style={{ width: '100%', height: svgH, display: 'block' }}
+        aria-label="Token usage bar chart"
+      >
+        {buckets.map((b, i) => {
+          const x = i * (barW + gap);
+          const inH = b.inputTokens > 0 ? Math.max(3, Math.round((b.inputTokens / maxVal) * chartH)) : 0;
+          const outH = b.outputTokens > 0 ? Math.max(3, Math.round((b.outputTokens / maxVal) * chartH)) : 0;
+          const stackH = inH + outH;
+          const y = paddingTop + chartH - stackH;
+          const labelText = b.label.length > 8 ? b.label.slice(5) : b.label; // trim year for day/week
+
+          return (
+            <g key={b.ts}>
+              <title>{`${b.label}\nInput: ${formatK(b.inputTokens)}\nOutput: ${formatK(b.outputTokens)}\nTotal: ${formatK(b.totalTokens)}\nRuns: ${b.runCount}`}</title>
+              {/* Output (top) */}
+              {outH > 0 && (
+                <rect
+                  x={x}
+                  y={y}
+                  width={barW}
+                  height={outH}
+                  rx={3}
+                  fill="rgba(33,105,185,0.55)"
+                />
+              )}
+              {/* Input (bottom) */}
+              {inH > 0 && (
+                <rect
+                  x={x}
+                  y={y + outH}
+                  width={barW}
+                  height={inH}
+                  rx={3}
+                  fill="rgba(15,123,108,0.55)"
+                />
+              )}
+              {/* Empty bar placeholder */}
+              {stackH === 0 && (
+                <rect x={x} y={paddingTop + chartH - 3} width={barW} height={3} rx={2} fill="#e8e7e3" />
+              )}
+              {/* Label */}
+              <text
+                x={x + barW / 2}
+                y={paddingTop + chartH + 14}
+                textAnchor="middle"
+                fontSize={9}
+                fill="#9b9690"
+              >
+                {labelText}
+              </text>
+              {/* Run count */}
+              {b.runCount > 0 && (
+                <text
+                  x={x + barW / 2}
+                  y={paddingTop + chartH + 26}
+                  textAnchor="middle"
+                  fontSize={8}
+                  fill="#bbb9b4"
+                >
+                  {b.runCount}r
+                </text>
+              )}
+            </g>
+          );
+        })}
+        {/* Baseline */}
+        <line
+          x1={0}
+          y1={paddingTop + chartH}
+          x2={Math.max(totalW, 300)}
+          y2={paddingTop + chartH}
+          stroke="#e8e7e3"
+          strokeWidth={1}
+        />
+      </svg>
+      <div className="chart-legend">
+        <span className="legend-item"><span className="legend-swatch" style={{ background: 'rgba(15,123,108,0.55)' }} />Input</span>
+        <span className="legend-item"><span className="legend-swatch" style={{ background: 'rgba(33,105,185,0.55)' }} />Output</span>
+      </div>
+    </div>
+  );
+}
+
+function StatsView({ apiBase }: { apiBase: string }) {
+  const [range, setRange] = useState<StatsRange>('week');
+  const [granularity, setGranularity] = useState<StatsGranularity>('day');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [tokenStats, setTokenStats] = useState<TokenStatsResponse | null>(null);
+  const [sessionStats, setSessionStats] = useState<SessionStatsResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const buildQuery = () => {
+    const params = new URLSearchParams({ range, granularity });
+    if (range === 'custom') {
+      if (customFrom) params.set('from', String(new Date(customFrom).getTime()));
+      if (customTo) params.set('to', String(new Date(customTo).getTime()));
+    }
+    return params.toString();
+  };
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const q = buildQuery();
+      const [tRes, sRes] = await Promise.all([
+        fetch(`${apiBase}/stats/tokens?${q}`),
+        fetch(`${apiBase}/stats/sessions?${q}`),
+      ]);
+      if (!tRes.ok || !sRes.ok) throw new Error('Request failed');
+      const [tData, sData] = await Promise.all([tRes.json(), sRes.json()]) as [TokenStatsResponse, SessionStatsResponse];
+      setTokenStats(tData);
+      setSessionStats(sData);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, [range, granularity, apiBase]);
+
+  const summary = tokenStats?.summary;
+  const buckets = tokenStats?.buckets ?? [];
+  const sessions = sessionStats?.sessions ?? [];
+  const maxSessionTokens = Math.max(...sessions.map((s) => s.totalTokens), 1);
+
+  return (
+    <div className="stats-view">
+      {/* Controls */}
+      <div className="stats-controls">
+        <div className="stats-range-tabs">
+          {(['today', 'week', 'month', 'custom'] as const).map((r) => (
+            <button
+              key={r}
+              className={`tab-button ${range === r ? 'active' : ''}`}
+              onClick={() => setRange(r)}
+            >
+              {r === 'today' ? 'Today' : r === 'week' ? '7 Days' : r === 'month' ? '30 Days' : 'Custom'}
+            </button>
+          ))}
+        </div>
+        <div className="stats-granularity">
+          <span className="stats-ctrl-label">Granularity</span>
+          <select
+            className="filter-select"
+            value={granularity}
+            onChange={(e) => setGranularity(e.target.value as StatsGranularity)}
+          >
+            <option value="hour">Hour</option>
+            <option value="day">Day</option>
+            <option value="week">Week</option>
+          </select>
+        </div>
+        {range === 'custom' && (
+          <div className="stats-custom-range">
+            <input
+              type="date"
+              className="filter-input"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+            />
+            <span>→</span>
+            <input
+              type="date"
+              className="filter-input"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+            />
+            <button className="button" onClick={load}>Apply</button>
+          </div>
+        )}
+        {loading && <span className="stats-loading">Loading…</span>}
+      </div>
+
+      {error && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
+
+      {/* Summary Cards */}
+      {summary && (
+        <div className="stats-cards">
+          <StatCard label="Total Runs" value={String(summary.totalRuns)} />
+          <StatCard
+            label="Input Tokens"
+            value={formatK(summary.inputTokens)}
+            sub={`+${formatK(summary.cacheReadTokens)} cache hit`}
+          />
+          <StatCard label="Output Tokens" value={formatK(summary.outputTokens)} />
+          <StatCard label="Total Tokens" value={formatK(summary.totalTokens)} />
+          {summary.cacheReadTokens > 0 && (
+            <StatCard
+              label="Cache Read"
+              value={formatK(summary.cacheReadTokens)}
+              sub={`${Math.round((summary.cacheReadTokens / Math.max(summary.inputTokens, 1)) * 100)}% hit rate`}
+            />
+          )}
+          {summary.cacheWriteTokens > 0 && (
+            <StatCard label="Cache Write" value={formatK(summary.cacheWriteTokens)} />
+          )}
+        </div>
+      )}
+
+      {/* Time range label */}
+      {tokenStats && (
+        <div className="stats-range-label">
+          {formatDate(tokenStats.from)} – {formatDate(tokenStats.to)}
+          <span className="stats-grain-pill">{granularity}</span>
+        </div>
+      )}
+
+      {/* Bar Chart */}
+      <div className="stats-section">
+        <h3 className="stats-section-title">Token Usage Over Time</h3>
+        <BarChart buckets={buckets} />
+      </div>
+
+      {/* Session Breakdown */}
+      <div className="stats-section">
+        <h3 className="stats-section-title">Session Breakdown</h3>
+        {sessions.length > 0 ? (
+          <div className="stats-session-list">
+            {sessions.map((s) => {
+              const pct = Math.round((s.totalTokens / maxSessionTokens) * 100);
+              return (
+                <div key={s.sessionId} className="stats-session-row">
+                  <div className="stats-session-meta">
+                    <span className="stats-session-id" title={s.sessionId}>
+                      {s.sessionId === 'unknown' ? '(unknown)' : s.sessionId.slice(0, 24)}
+                    </span>
+                    <span className="stats-session-runs">{s.runCount} runs</span>
+                    <span className="stats-session-last">last {formatDate(s.lastRunAt)}</span>
+                  </div>
+                  <div className="stats-session-bar-row">
+                    <div className="bar-track" style={{ flex: 1 }}>
+                      <div className="bar-fill" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="bar-value">{formatK(s.totalTokens)}</span>
+                  </div>
+                  <div className="stats-session-tokens">
+                    <span>In: {formatK(s.inputTokens)}</span>
+                    <span>Out: {formatK(s.outputTokens)}</span>
+                    {s.cacheReadTokens > 0 && <span>Cache: {formatK(s.cacheReadTokens)}</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="empty">No session data in this range.</div>
+        )}
+      </div>
+    </div>
   );
 }
