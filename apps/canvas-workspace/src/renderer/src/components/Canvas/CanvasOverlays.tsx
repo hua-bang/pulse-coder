@@ -21,10 +21,10 @@ interface CanvasOverlaysProps {
   scale: number;
   chatPanelOpen?: boolean;
   onChatToggle?: () => void;
-  onCreateNode: (type: 'file' | 'terminal' | 'frame' | 'agent' | 'text' | 'iframe') => void;
+  onCreateNode: (type: 'file' | 'terminal' | 'frame' | 'agent' | 'text' | 'iframe' | 'mindmap') => void;
   onCloseContextMenu: () => void;
   onToolChange: (tool: string) => void;
-  onAddNode: (type: 'file' | 'terminal' | 'frame' | 'agent' | 'text' | 'iframe') => void;
+  onAddNode: (type: 'file' | 'terminal' | 'frame' | 'agent' | 'text' | 'iframe' | 'mindmap') => void;
   onResetTransform: () => void;
   onSearchSelect: (node: CanvasNode) => void;
   onCloseSearch: () => void;

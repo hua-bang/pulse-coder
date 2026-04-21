@@ -10,6 +10,7 @@ import { TextNodeBody, TextColorPicker } from "../TextNodeBody";
 import { IframeNodeBody } from "../IframeNodeBody";
 import { ImageNodeBody } from "../ImageNodeBody";
 import { ShapeNodeBody, ShapeStylePicker } from "../ShapeNodeBody";
+import { MindmapNodeBody } from "../MindmapNodeBody";
 
 interface Props {
   node: CanvasNode;
@@ -253,6 +254,13 @@ export const CanvasNodeView = ({
               <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3" />
               <path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
             </svg>
+          ) : node.type === "mindmap" ? (
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+              <circle cx="4" cy="8" r="1.8" stroke="currentColor" strokeWidth="1.3" />
+              <circle cx="12" cy="4" r="1.4" stroke="currentColor" strokeWidth="1.2" />
+              <circle cx="12" cy="12" r="1.4" stroke="currentColor" strokeWidth="1.2" />
+              <path d="M5.5 7l5 -2.5M5.5 9l5 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
           ) : (
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
               <circle cx="8" cy="5.5" r="3" stroke="currentColor" strokeWidth="1.3" />
@@ -312,6 +320,8 @@ export const CanvasNodeView = ({
           />
         ) : node.type === "iframe" ? (
           <IframeNodeBody node={node} workspaceId={workspaceId} onUpdate={onUpdate} />
+        ) : node.type === "mindmap" ? (
+          <MindmapNodeBody node={node} isSelected={isSelected} onUpdate={onUpdate} />
         ) : (
           <AgentNodeBody node={node} allNodes={allNodes} rootFolder={rootFolder} workspaceId={workspaceId} workspaceName={workspaceName} onUpdate={onUpdate} />
         )}

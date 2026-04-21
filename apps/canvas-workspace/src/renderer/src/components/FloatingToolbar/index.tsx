@@ -4,7 +4,7 @@ import { ShapeToolButton } from './ShapeToolButton';
 interface Props {
   activeTool: string;
   onToolChange: (tool: string) => void;
-  onAddNode: (type: "file" | "terminal" | "frame" | "agent" | "text" | "iframe") => void;
+  onAddNode: (type: "file" | "terminal" | "frame" | "agent" | "text" | "iframe" | "mindmap") => void;
   chatPanelOpen?: boolean;
   onChatToggle?: () => void;
 }
@@ -199,6 +199,23 @@ export const FloatingToolbar = ({
             <circle cx="10.5" cy="6" r="0.7" fill="currentColor" />
           </svg>
           <span className="toolbar-btn-label">Agent</span>
+        </button>
+        <button
+          className="toolbar-btn toolbar-btn--create"
+          onClick={() => onAddNode("mindmap")}
+          title="Add Mindmap"
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <circle cx="4.5" cy="9" r="2" stroke="currentColor" strokeWidth="1.3" />
+            <circle cx="14" cy="4.5" r="1.5" stroke="currentColor" strokeWidth="1.2" />
+            <circle cx="14" cy="9" r="1.5" stroke="currentColor" strokeWidth="1.2" />
+            <circle cx="14" cy="13.5" r="1.5" stroke="currentColor" strokeWidth="1.2" />
+            <path
+              d="M6.5 8.2 L12.5 5 M6.5 9 L12.5 9 M6.5 9.8 L12.5 13"
+              stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"
+            />
+          </svg>
+          <span className="toolbar-btn-label">Mindmap</span>
         </button>
       </div>
     </div>

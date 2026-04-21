@@ -7,10 +7,11 @@ import type {
   FileNodeData,
   FrameNodeData,
   ImageNodeData,
+  MindmapNodeData,
   ShapeNodeData,
   TextNodeData,
 } from '../types';
-import { createDefaultNode, createNodeData, genId } from '../utils/nodeFactory';
+import { cloneMindmapTopic, createDefaultNode, createNodeData, genId } from '../utils/nodeFactory';
 import { degradeEndpointsForDeletedNode } from '../utils/edgeFactory';
 import { useNodeHistory } from './useNodeHistory';
 
@@ -429,7 +430,16 @@ export const useNodes = (
               ? { ...(source.data as ImageNodeData) }
               : source.type === 'shape'
                 ? { ...(source.data as ShapeNodeData) }
-                : createNodeData(source.type),
+                : source.type === 'mindmap'
+                  ? (() => {
+                      const src = source.data as MindmapNodeData;
+                      return {
+                        ...src,
+                        root: cloneMindmapTopic(src.root),
+                        rev: 0,
+                      } satisfies MindmapNodeData;
+                    })()
+                  : createNodeData(source.type),
         updatedAt: Date.now(),
       };
       if (newNode.type === 'file') {
@@ -474,7 +484,16 @@ export const useNodes = (
               ? { ...(source.data as ImageNodeData) }
               : source.type === 'shape'
                 ? { ...(source.data as ShapeNodeData) }
-                : createNodeData(source.type),
+                : source.type === 'mindmap'
+                  ? (() => {
+                      const src = source.data as MindmapNodeData;
+                      return {
+                        ...src,
+                        root: cloneMindmapTopic(src.root),
+                        rev: 0,
+                      } satisfies MindmapNodeData;
+                    })()
+                  : createNodeData(source.type),
         updatedAt: now,
       }));
       newNodes.forEach((newNode) => {

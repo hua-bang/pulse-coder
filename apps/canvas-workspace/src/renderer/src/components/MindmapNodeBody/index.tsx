@@ -1,0 +1,531 @@
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import './index.css';
+import type { CanvasNode, MindmapNodeData, MindmapTopic } from '../../types';
+import { genTopicId } from '../../utils/nodeFactory';
+import {
+  deleteTopic,
+  findParent,
+  findTopicPath,
+  insertChild,
+  layoutMindmap,
+  setTopicText,
+  toggleCollapsed,
+  type LaidOutTopic,
+} from '../../utils/mindmapLayout';
+
+interface Props {
+  node: CanvasNode;
+  isSelected: boolean;
+  onUpdate: (id: string, patch: Partial<CanvasNode>) => void;
+}
+
+/**
+ * Heptabase-style mindmap body.
+ *
+ * Structure lives in `node.data.root` (a recursive `MindmapTopic` tree).
+ * Every render runs `layoutMindmap` to produce pill positions and branch
+ * paths in mindmap-local coords, then this component draws them in an
+ * absolutely-positioned inner canvas. The node's own width/height frames
+ * the viewport — oversized mindmaps scroll inside the node.
+ *
+ * Keyboard model (while a topic is focused):
+ *   Tab            → add child and enter edit on it
+ *   Enter          → add sibling (ignored on root — root has no siblings,
+ *                    so Enter on the root adds a child instead)
+ *   Shift+Tab      → unindent (become a sibling of the current parent)
+ *   Backspace      → delete when text is empty; otherwise normal edit
+ *   Space          → toggle collapse on a topic with children
+ *   Arrow keys     → move selection along the geometric neighbor
+ *   Esc            → exit edit mode but keep the topic selected
+ *
+ * Editing: single click selects a topic, double click or typing a char
+ * while selected enters edit mode. Commit on blur / Enter (Enter on a
+ * non-root topic also spawns a sibling); Esc cancels without saving.
+ */
+export const MindmapNodeBody = ({ node, isSelected, onUpdate }: Props) => {
+  const data = node.data as MindmapNodeData;
+  const root = data.root;
+
+  const [selectedId, setSelectedId] = useState<string>(root.id);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  // When the user creates a topic via Tab/Enter we want to jump to edit
+  // mode on the new topic as soon as it renders. We stash the id here
+  // and clear it once we've moved the focus.
+  const pendingFocusRef = useRef<string | null>(null);
+
+  const layout = useMemo(() => layoutMindmap(root), [root]);
+
+  const padding = 24;
+  const viewportWidth = Math.max(0, node.width - padding * 2);
+  const viewportHeight = Math.max(0, node.height - padding * 2);
+
+  // Keep selection valid when the tree mutates (delete removed the
+  // selected node, external update rebuilt ids, etc).
+  useEffect(() => {
+    const stillExists = findTopicPath(root, selectedId);
+    if (!stillExists) setSelectedId(root.id);
+  }, [root, selectedId]);
+
+  /* ---- Mutation helpers ---- */
+
+  const applyRoot = useCallback(
+    (nextRoot: MindmapTopic) => {
+      onUpdate(node.id, {
+        data: {
+          ...data,
+          root: nextRoot,
+          rev: (data.rev ?? 0) + 1,
+        },
+      });
+    },
+    [data, node.id, onUpdate],
+  );
+
+  const addChild = useCallback(
+    (parentId: string, afterId?: string) => {
+      const id = genTopicId();
+      const topic: MindmapTopic = { id, text: '', children: [] };
+      applyRoot(insertChild(root, parentId, topic, afterId));
+      pendingFocusRef.current = id;
+    },
+    [applyRoot, root],
+  );
+
+  const addSibling = useCallback(
+    (siblingId: string) => {
+      if (siblingId === root.id) {
+        addChild(root.id);
+        return;
+      }
+      const parent = findParent(root, siblingId);
+      if (!parent) return;
+      addChild(parent.id, siblingId);
+    },
+    [addChild, root],
+  );
+
+  const unindentTopic = useCallback(
+    (topicId: string) => {
+      if (topicId === root.id) return;
+      const parent = findParent(root, topicId);
+      if (!parent || parent.id === root.id) return; // already top level
+      const grandparent = findParent(root, parent.id);
+      if (!grandparent) return;
+
+      // Capture the topic BEFORE removing it so we can re-insert the
+      // same subtree under its grandparent.
+      const path = findTopicPath(root, topicId);
+      const original = path?.[path.length - 1];
+      if (!original) return;
+
+      const removed = deleteTopic(root, topicId);
+      if (!removed) return;
+      const next = insertChild(removed.root, grandparent.id, original, parent.id);
+      applyRoot(next);
+      pendingFocusRef.current = topicId;
+    },
+    [applyRoot, root],
+  );
+
+  const removeTopic = useCallback(
+    (topicId: string) => {
+      if (topicId === root.id) return;
+      const result = deleteTopic(root, topicId);
+      if (!result) return;
+      applyRoot(result.root);
+      setSelectedId(result.nextFocusId);
+      setEditingId(null);
+    },
+    [applyRoot, root],
+  );
+
+  const renameTopic = useCallback(
+    (topicId: string, text: string) => {
+      if (findTopicPath(root, topicId)?.slice(-1)[0].text === text) return;
+      applyRoot(setTopicText(root, topicId, text));
+    },
+    [applyRoot, root],
+  );
+
+  const toggle = useCallback(
+    (topicId: string) => {
+      applyRoot(toggleCollapsed(root, topicId));
+    },
+    [applyRoot, root],
+  );
+
+  /* ---- Focus hand-off for freshly-created topics ---- */
+
+  useLayoutEffect(() => {
+    const pendingId = pendingFocusRef.current;
+    if (!pendingId) return;
+    if (findTopicPath(root, pendingId)) {
+      setSelectedId(pendingId);
+      setEditingId(pendingId);
+      pendingFocusRef.current = null;
+    }
+  }, [root]);
+
+  /* ---- Geometric neighbor navigation ---- */
+
+  const moveSelection = useCallback(
+    (from: string, dir: 'up' | 'down' | 'left' | 'right') => {
+      const current = layout.topics.find((t) => t.id === from);
+      if (!current) return;
+      const cx = current.x + current.width / 2;
+      const cy = current.y + current.height / 2;
+
+      let best: LaidOutTopic | null = null;
+      let bestScore = Infinity;
+      for (const candidate of layout.topics) {
+        if (candidate.id === from) continue;
+        const dx = candidate.x + candidate.width / 2 - cx;
+        const dy = candidate.y + candidate.height / 2 - cy;
+        if (dir === 'left' && dx >= 0) continue;
+        if (dir === 'right' && dx <= 0) continue;
+        if (dir === 'up' && dy >= 0) continue;
+        if (dir === 'down' && dy <= 0) continue;
+        // Weight the movement axis heavier so "left" prefers candidates
+        // that are clearly to the left rather than ones that happen to be
+        // slightly diagonal.
+        const primary = dir === 'left' || dir === 'right' ? Math.abs(dx) : Math.abs(dy);
+        const secondary =
+          dir === 'left' || dir === 'right' ? Math.abs(dy) : Math.abs(dx);
+        const score = primary + secondary * 2;
+        if (score < bestScore) {
+          bestScore = score;
+          best = candidate;
+        }
+      }
+      if (best) setSelectedId(best.id);
+    },
+    [layout.topics],
+  );
+
+  /* ---- Render ---- */
+
+  const handleBodyMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      // Swallow the event so the canvas doesn't start a node drag when
+      // the user is interacting with the mindmap interior.
+      e.stopPropagation();
+    },
+    [],
+  );
+
+  return (
+    <div
+      className={`mindmap-node-body${isSelected ? ' mindmap-node-body--selected' : ''}`}
+      onMouseDown={handleBodyMouseDown}
+    >
+      <div
+        className="mindmap-viewport"
+        style={{
+          width: viewportWidth,
+          height: viewportHeight,
+          padding,
+        }}
+      >
+        <div
+          className="mindmap-content"
+          style={{
+            width: layout.width,
+            height: layout.height,
+          }}
+        >
+          <svg
+            className="mindmap-branches"
+            width={layout.width}
+            height={layout.height}
+            viewBox={`0 0 ${Math.max(1, layout.width)} ${Math.max(1, layout.height)}`}
+          >
+            {layout.branches.map((b) => (
+              <path
+                key={b.id}
+                d={b.path}
+                fill="none"
+                stroke={b.color}
+                strokeWidth={2}
+                strokeLinecap="round"
+                opacity={0.85}
+              />
+            ))}
+          </svg>
+          {layout.topics.map((t) => (
+            <TopicPill
+              key={t.id}
+              topic={t}
+              isSelected={selectedId === t.id}
+              isEditing={editingId === t.id}
+              onSelect={() => setSelectedId(t.id)}
+              onEnterEdit={() => {
+                setSelectedId(t.id);
+                setEditingId(t.id);
+              }}
+              onCommitText={(text) => renameTopic(t.id, text)}
+              onExitEdit={() => setEditingId(null)}
+              onToggleCollapse={() => toggle(t.id)}
+              onKeyAction={(action) => {
+                switch (action.kind) {
+                  case 'addChild':
+                    addChild(t.id);
+                    break;
+                  case 'addSibling':
+                    addSibling(t.id);
+                    break;
+                  case 'unindent':
+                    unindentTopic(t.id);
+                    break;
+                  case 'delete':
+                    removeTopic(t.id);
+                    break;
+                  case 'toggle':
+                    toggle(t.id);
+                    break;
+                  case 'move':
+                    moveSelection(t.id, action.dir);
+                    break;
+                  case 'exit':
+                    setEditingId(null);
+                    break;
+                }
+              }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ---- Topic pill ---- */
+
+type KeyAction =
+  | { kind: 'addChild' }
+  | { kind: 'addSibling' }
+  | { kind: 'unindent' }
+  | { kind: 'delete' }
+  | { kind: 'toggle' }
+  | { kind: 'exit' }
+  | { kind: 'move'; dir: 'up' | 'down' | 'left' | 'right' };
+
+interface TopicPillProps {
+  topic: LaidOutTopic;
+  isSelected: boolean;
+  isEditing: boolean;
+  onSelect: () => void;
+  onEnterEdit: () => void;
+  onCommitText: (text: string) => void;
+  onExitEdit: () => void;
+  onToggleCollapse: () => void;
+  onKeyAction: (action: KeyAction) => void;
+}
+
+const TopicPill = ({
+  topic,
+  isSelected,
+  isEditing,
+  onSelect,
+  onEnterEdit,
+  onCommitText,
+  onExitEdit,
+  onToggleCollapse,
+  onKeyAction,
+}: TopicPillProps) => {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const pillRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!isEditing) return;
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    if (sel) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  }, [isEditing]);
+
+  // When the selected pill isn't editing, send keyboard focus to the
+  // wrapper so arrow keys / Tab / Enter hit this component's handler
+  // instead of the canvas keyboard hook.
+  useEffect(() => {
+    if (isEditing) return;
+    if (isSelected) pillRef.current?.focus();
+  }, [isSelected, isEditing]);
+
+  // Push DOM text back in sync when the stored text changes from
+  // elsewhere (undo, external update) and we're not mid-edit.
+  useEffect(() => {
+    if (isEditing) return;
+    const el = editorRef.current;
+    if (el && el.innerText !== topic.text) el.innerText = topic.text;
+  }, [topic.text, isEditing]);
+
+  const commit = useCallback(() => {
+    const el = editorRef.current;
+    const next = el ? el.innerText.replace(/\n+$/, '') : topic.text;
+    if (next !== topic.text) onCommitText(next);
+    onExitEdit();
+  }, [onCommitText, onExitEdit, topic.text]);
+
+  const cancel = useCallback(() => {
+    const el = editorRef.current;
+    if (el) el.innerText = topic.text;
+    onExitEdit();
+  }, [onExitEdit, topic.text]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (isEditing) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          cancel();
+          return;
+        }
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          commit();
+          onKeyAction({ kind: 'addSibling' });
+          return;
+        }
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          commit();
+          if (e.shiftKey) onKeyAction({ kind: 'unindent' });
+          else onKeyAction({ kind: 'addChild' });
+          return;
+        }
+        return;
+      }
+
+      // Selected, not editing.
+      switch (e.key) {
+        case 'Enter':
+          e.preventDefault();
+          onKeyAction({ kind: 'addSibling' });
+          return;
+        case 'Tab':
+          e.preventDefault();
+          if (e.shiftKey) onKeyAction({ kind: 'unindent' });
+          else onKeyAction({ kind: 'addChild' });
+          return;
+        case 'Backspace':
+        case 'Delete':
+          e.preventDefault();
+          onKeyAction({ kind: 'delete' });
+          return;
+        case ' ':
+          if (topic.hasChildren) {
+            e.preventDefault();
+            onKeyAction({ kind: 'toggle' });
+          }
+          return;
+        case 'ArrowUp':
+          e.preventDefault();
+          onKeyAction({ kind: 'move', dir: 'up' });
+          return;
+        case 'ArrowDown':
+          e.preventDefault();
+          onKeyAction({ kind: 'move', dir: 'down' });
+          return;
+        case 'ArrowLeft':
+          e.preventDefault();
+          onKeyAction({ kind: 'move', dir: 'left' });
+          return;
+        case 'ArrowRight':
+          e.preventDefault();
+          onKeyAction({ kind: 'move', dir: 'right' });
+          return;
+        case 'F2':
+        case 'Escape':
+          e.preventDefault();
+          if (e.key === 'F2') onEnterEdit();
+          else onKeyAction({ kind: 'exit' });
+          return;
+        default:
+          // A printable character should drop straight into edit mode
+          // and replace the current text, mirroring Heptabase.
+          if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+            onEnterEdit();
+            // Let the keydown commit into the contenteditable after
+            // edit mode mounts by NOT preventing default.
+          }
+      }
+    },
+    [cancel, commit, isEditing, onEnterEdit, onKeyAction, topic.hasChildren],
+  );
+
+  const isRoot = topic.depth === 0;
+  const style: React.CSSProperties = {
+    transform: `translate(${topic.x}px, ${topic.y}px)`,
+    width: topic.width,
+    minHeight: topic.height,
+    borderColor: topic.color,
+    color: isRoot ? '#ffffff' : topic.color,
+    background: isRoot ? topic.color : '#ffffff',
+  };
+
+  return (
+    <div
+      ref={pillRef}
+      className={[
+        'mindmap-topic',
+        isRoot && 'mindmap-topic--root',
+        isSelected && 'mindmap-topic--selected',
+        isEditing && 'mindmap-topic--editing',
+        topic.collapsed && 'mindmap-topic--collapsed',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      style={style}
+      tabIndex={0}
+      onMouseDown={(e) => {
+        e.stopPropagation();
+        onSelect();
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onEnterEdit();
+      }}
+      onKeyDown={handleKeyDown}
+    >
+      <div
+        ref={editorRef}
+        className="mindmap-topic-text"
+        contentEditable={isEditing}
+        suppressContentEditableWarning
+        spellCheck={false}
+        onBlur={() => {
+          if (isEditing) commit();
+        }}
+      >
+        {topic.text}
+      </div>
+      {topic.hasChildren && !isRoot && (
+        <button
+          className="mindmap-topic-collapse"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleCollapse();
+          }}
+          title={topic.collapsed ? 'Expand' : 'Collapse'}
+          style={{ color: topic.color }}
+        >
+          {topic.collapsed ? '+' : '−'}
+        </button>
+      )}
+    </div>
+  );
+};

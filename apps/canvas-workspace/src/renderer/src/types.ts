@@ -1,6 +1,6 @@
 export interface CanvasNode {
   id: string;
-  type: "file" | "terminal" | "frame" | "agent" | "text" | "iframe" | "image" | "shape";
+  type: "file" | "terminal" | "frame" | "agent" | "text" | "iframe" | "image" | "shape" | "mindmap";
   title: string;
   x: number;
   y: number;
@@ -14,7 +14,8 @@ export interface CanvasNode {
     | TextNodeData
     | IframeNodeData
     | ImageNodeData
-    | ShapeNodeData;
+    | ShapeNodeData
+    | MindmapNodeData;
   /** Epoch millis of last mutation; used for cross-process merge. */
   updatedAt?: number;
 }
@@ -130,6 +131,42 @@ export interface ShapeNodeData {
   textColor?: string;
   /** Font size in px. Defaults to 16 when unset. */
   fontSize?: number;
+}
+
+/**
+ * Heptabase-style mindmap card.
+ *
+ * The whole mindmap lives inside ONE canvas node — branches and children
+ * are stored in a recursive `MindmapTopic` tree under `data.root`, not as
+ * separate `CanvasNode`s connected by `CanvasEdge`s. This keeps the
+ * structural relationships (parent/child) distinct from free-form canvas
+ * connections drawn by the user between different nodes.
+ *
+ * Layout is deterministic: given the tree, `layoutMindmap` produces the
+ * on-screen positions, so we never persist x/y for individual topics —
+ * only the tree, which is cheap to round-trip through JSON storage.
+ */
+export interface MindmapTopic {
+  /** Stable id — unique within the containing mindmap only. */
+  id: string;
+  text: string;
+  children: MindmapTopic[];
+  /** When true, the subtree is hidden (and its descendants are skipped
+   *  by layout). Applies only to non-root topics. */
+  collapsed?: boolean;
+  /** Optional per-topic color override (hex). Defaults to a branch color
+   *  derived from the topic's root-child index. */
+  color?: string;
+}
+
+export interface MindmapNodeData {
+  root: MindmapTopic;
+  /** Layout direction. v1 supports `'right'` (root on the left, children
+   *  growing rightward); other values are reserved for future modes. */
+  layout: 'right';
+  /** Bumped on every topic add/remove/rename — lets external observers
+   *  (canvas-cli, agent) diff mindmaps without structural equality. */
+  rev?: number;
 }
 
 export interface CanvasTransform {
