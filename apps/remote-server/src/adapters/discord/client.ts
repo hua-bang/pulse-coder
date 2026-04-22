@@ -49,9 +49,25 @@ interface EnsureThreadMembershipOptions {
   log?: boolean;
 }
 
+export type DiscordButtonStyle = 1 | 2 | 3 | 4 | 5;
+
+export interface DiscordButtonComponent {
+  type: 2;
+  style: DiscordButtonStyle;
+  label: string;
+  custom_id: string;
+  disabled?: boolean;
+}
+
+export interface DiscordMessageComponent {
+  type: 1;
+  components: DiscordButtonComponent[];
+}
+
 interface ChannelRequestOptions {
   assumeThread?: boolean;
   replyToMessageId?: string;
+  components?: DiscordMessageComponent[];
 }
 
 type DiscordApplicationCommandOptionType = 3;
@@ -104,6 +120,19 @@ export class DiscordClient {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ content: limitDiscordContent(content) }),
+    });
+  }
+
+  async createFollowupMessageWithComponents(
+    applicationId: string,
+    interactionToken: string,
+    content: string,
+    components: DiscordMessageComponent[],
+  ): Promise<void> {
+    await this.request<void>(`/webhooks/${applicationId}/${interactionToken}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: limitDiscordContent(content), components }),
     });
   }
 
@@ -323,7 +352,7 @@ export class DiscordClient {
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(buildChannelMessagePayload(content, options.replyToMessageId)),
+          body: JSON.stringify(buildChannelMessagePayload(content, options.replyToMessageId, options.components)),
         },
         true,
       ),
@@ -366,7 +395,7 @@ export class DiscordClient {
         {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ content: limitDiscordContent(content) }),
+          body: JSON.stringify(buildChannelMessageUpdatePayload(content, options.components)),
         },
         true,
       ),
@@ -565,10 +594,19 @@ function limitDiscordContent(text: string): string {
   return `${normalized.slice(0, DISCORD_MESSAGE_LIMIT - 3)}...`;
 }
 
-function buildChannelMessagePayload(content: string, replyToMessageId?: string): { content: string; message_reference?: { message_id: string; fail_if_not_exists: boolean } } {
+function buildChannelMessagePayload(
+  content: string,
+  replyToMessageId?: string,
+  components?: DiscordMessageComponent[],
+): {
+  content: string;
+  message_reference?: { message_id: string; fail_if_not_exists: boolean };
+  components?: DiscordMessageComponent[];
+} {
   const payload: {
     content: string;
     message_reference?: { message_id: string; fail_if_not_exists: boolean };
+    components?: DiscordMessageComponent[];
   } = {
     content: limitDiscordContent(content),
   };
@@ -579,6 +617,31 @@ function buildChannelMessagePayload(content: string, replyToMessageId?: string):
       message_id: trimmedReplyId,
       fail_if_not_exists: false,
     };
+  }
+
+  if (components && components.length > 0) {
+    payload.components = components;
+  }
+
+  return payload;
+}
+
+function buildChannelMessageUpdatePayload(
+  content: string,
+  components?: DiscordMessageComponent[],
+): {
+  content: string;
+  components?: DiscordMessageComponent[];
+} {
+  const payload: {
+    content: string;
+    components?: DiscordMessageComponent[];
+  } = {
+    content: limitDiscordContent(content),
+  };
+
+  if (components !== undefined) {
+    payload.components = components;
   }
 
   return payload;
@@ -631,3 +694,4 @@ function wait(ms: number): Promise<void> {
     setTimeout(resolve, ms);
   });
 }
+
