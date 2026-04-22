@@ -148,7 +148,12 @@ export interface DevtoolsLlmPromptSnapshot {
   systemPrompt?: string;
   systemPromptTruncated?: boolean;
   messages: any[];
+  /** True when head+tail windowing was applied (middle messages skipped). */
   messagesTruncated?: boolean;
+  /** Total message count sent to the LLM (before truncation). */
+  totalMessageCount?: number;
+  /** Number of messages skipped in the middle (head+tail gap). */
+  skippedMessages?: number;
   toolNames?: string[];
   totalBytes?: number;
 }
@@ -704,29 +709,64 @@ export class DevtoolsStore {
     const sysTruncated = redactedSystem !== undefined && redactedSystem.length > limit;
     const sysOut = sysTruncated ? `${redactedSystem!.slice(0, limit)}…[truncated]` : redactedSystem;
 
+    // Pre-compute redacted serializations for all messages so we can do
+    // head+tail windowing when the total exceeds the byte limit.
+    const allMsgs = snapshot.messages ?? [];
+    const redacted: string[] = allMsgs.map((m) => this.promptRedactor(safeStringify(m)));
+    const totalMsgBytes = redacted.reduce((s, r) => s + r.length, 0);
+
     const messages: any[] = [];
     let usedBytes = 0;
     let messagesTruncated = false;
-    for (const msg of snapshot.messages ?? []) {
-      const raw = safeStringify(msg);
-      const redacted = this.promptRedactor(raw);
-      if (usedBytes + redacted.length > limit) {
-        messagesTruncated = true;
-        const remaining = Math.max(0, limit - usedBytes);
-        if (remaining > 200) {
-          messages.push({ role: 'system', content: `…[truncated, ${redacted.length} bytes]` });
-        }
-        break;
+
+    const parseMsg = (raw: string, fallback: any): any => {
+      try { return JSON.parse(raw); } catch { return { role: 'unknown', content: raw }; }
+    };
+
+    if (totalMsgBytes <= limit) {
+      // Fits entirely — no truncation needed.
+      for (let i = 0; i < allMsgs.length; i++) {
+        messages.push(parseMsg(redacted[i], allMsgs[i]));
+        usedBytes += redacted[i].length;
       }
-      try {
-        messages.push(JSON.parse(redacted));
-      } catch {
-        messages.push({ role: 'unknown', content: redacted });
+    } else {
+      // Head+tail strategy: reserve half the budget for the tail (newest messages)
+      // so Cache Diff can always see what's new.
+      messagesTruncated = true;
+      const tailBudget = Math.floor(limit * 0.4);
+      const headBudget = limit - tailBudget;
+
+      // --- head: fill from the front ---
+      const headMsgs: any[] = [];
+      let headBytes = 0;
+      for (let i = 0; i < allMsgs.length; i++) {
+        if (headBytes + redacted[i].length > headBudget) break;
+        headMsgs.push(parseMsg(redacted[i], allMsgs[i]));
+        headBytes += redacted[i].length;
       }
-      usedBytes += redacted.length;
+
+      // --- tail: fill from the back ---
+      const tailMsgs: any[] = [];
+      let tailBytes = 0;
+      for (let i = allMsgs.length - 1; i >= headMsgs.length; i--) {
+        if (tailBytes + redacted[i].length > tailBudget) break;
+        tailMsgs.unshift(parseMsg(redacted[i], allMsgs[i]));
+        tailBytes += redacted[i].length;
+      }
+
+      const skipped = allMsgs.length - headMsgs.length - tailMsgs.length;
+      messages.push(...headMsgs);
+      if (skipped > 0) {
+        messages.push({ role: '__gap__', content: `…[${skipped} messages skipped]`, _skipped: skipped });
+      }
+      messages.push(...tailMsgs);
+      usedBytes = headBytes + tailBytes;
     }
 
     const totalBytes = usedBytes + (sysOut?.length ?? 0);
+    const skippedMessages = messagesTruncated
+      ? messages.filter((m) => m.role === '__gap__').reduce((s, m) => s + (m._skipped ?? 0), 0)
+      : 0;
     const snap: DevtoolsLlmPromptSnapshot = {
       runId,
       spanIndex: span.index,
@@ -736,6 +776,8 @@ export class DevtoolsStore {
       systemPromptTruncated: sysTruncated,
       messages,
       messagesTruncated,
+      totalMessageCount: allMsgs.length,
+      skippedMessages: skippedMessages > 0 ? skippedMessages : undefined,
       toolNames: snapshot.toolNames,
       totalBytes,
     };

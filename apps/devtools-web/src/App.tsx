@@ -1990,13 +1990,28 @@ function msgKey(msg: any): string {
   return `${msg.role}::${JSON.stringify(msg.content)}`;
 }
 
-/** Returns index of first diverging message (common prefix length). */
+/** Returns index of first diverging message (common prefix length).
+ *  Skips __gap__ markers when comparing. */
 function commonPrefixLen(a: any[], b: any[]): number {
-  const len = Math.min(a.length, b.length);
+  // Strip gap markers for comparison
+  const cleanA = a.filter((m) => m.role !== '__gap__');
+  const cleanB = b.filter((m) => m.role !== '__gap__');
+  const len = Math.min(cleanA.length, cleanB.length);
   for (let i = 0; i < len; i++) {
-    if (msgKey(a[i]) !== msgKey(b[i])) return i;
+    if (msgKey(cleanA[i]) !== msgKey(cleanB[i])) return i;
   }
   return len;
+}
+
+/** Map clean-index prefix len back to original array index in b (with gaps). */
+function prefixLenInRaw(rawB: any[], cleanPrefixLen: number): number {
+  let clean = 0;
+  for (let i = 0; i < rawB.length; i++) {
+    if (rawB[i].role === '__gap__') continue;
+    if (clean >= cleanPrefixLen) return i;
+    clean++;
+  }
+  return rawB.length;
 }
 
 function roleColor(role: string): string {
@@ -2037,6 +2052,15 @@ function MsgList({ messages, truncated, highlight }: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
       {messages.map((msg: any, i: number) => {
+        // Gap marker row
+        if (msg.role === '__gap__') {
+          return (
+            <div key={i} style={{ textAlign: 'center', padding: '6px 0', fontSize: 11, color: 'var(--text-muted)', background: 'var(--bg-sidebar)', border: '1px dashed var(--border)', borderRadius: 4 }}>
+              {msg.content}
+            </div>
+          );
+        }
+
         const hl = highlight ? highlight(i) : 'none';
         const isOpen = expanded === i;
         const preview = msgPreview(msg);
@@ -2116,10 +2140,20 @@ function CacheDiffView({ apiBase, run, llmSpans }: {
   const sysMatch = snapshotA && snapshotB
     ? (snapshotA.systemPrompt ?? '') === (snapshotB.systemPrompt ?? '')
     : null;
-  const prefixLen = snapshotA && snapshotB
+  // Clean prefix length (ignoring __gap__ markers)
+  const cleanPrefixLen = snapshotA && snapshotB
     ? commonPrefixLen(snapshotA.messages, snapshotB.messages)
     : 0;
-  const newMsgs = snapshotB ? snapshotB.messages.length - prefixLen : 0;
+  // Raw index boundary in B's message array (accounting for gap markers)
+  const rawPrefixBoundary = snapshotB
+    ? prefixLenInRaw(snapshotB.messages, cleanPrefixLen)
+    : 0;
+  // Count non-gap new messages in B beyond the prefix
+  const newMsgs = snapshotB
+    ? snapshotB.messages.slice(rawPrefixBoundary).filter((m: any) => m.role !== '__gap__').length
+    : 0;
+  const totalMsgCountB = snapshotB?.totalMessageCount ?? snapshotB?.messages.filter((m: any) => m.role !== '__gap__').length ?? 0;
+  const skippedB = snapshotB?.skippedMessages ?? 0;
   const cacheRead = spanInfoB?.cacheReadTokens ?? 0;
   const cacheWrite = spanInfoB?.cacheWriteTokens ?? 0;
   const inputB = spanInfoB?.inputTokens ?? 0;
@@ -2168,13 +2202,13 @@ function CacheDiffView({ apiBase, run, llmSpans }: {
             />
             <StatCard
               label="Prefix (msgs cached)"
-              value={`${prefixLen} msgs`}
-              sub={`of ${snapshotA.messages.length} in A`}
+              value={`${cleanPrefixLen} msgs`}
+              sub={`of ${snapshotA.messages.filter((m: any) => m.role !== '__gap__').length} in A`}
             />
             <StatCard
               label="New Messages (B)"
               value={`+${newMsgs} msgs`}
-              sub={`total ${snapshotB.messages.length}`}
+              sub={skippedB > 0 ? `total ${totalMsgCountB} (${skippedB} skipped)` : `total ${totalMsgCountB}`}
             />
             <StatCard
               label="Cache Read (B)"
@@ -2201,9 +2235,9 @@ function CacheDiffView({ apiBase, run, llmSpans }: {
                   SYS {sysMatch ? '⚡' : '✗'}
                 </div>
                 {/* Cached messages */}
-                {prefixLen > 0 && (
-                  <div style={{ background: '#2ecc71', flex: prefixLen, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 600, minWidth: 40 }}>
-                    ⚡ {prefixLen} msgs
+                {cleanPrefixLen > 0 && (
+                  <div style={{ background: '#2ecc71', flex: cleanPrefixLen, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 600, minWidth: 40 }}>
+                    ⚡ {cleanPrefixLen} msgs
                   </div>
                 )}
                 {/* New messages */}
@@ -2245,7 +2279,7 @@ function CacheDiffView({ apiBase, run, llmSpans }: {
               <MsgList
                 messages={snapshotB.messages}
                 truncated={snapshotB.messagesTruncated}
-                highlight={(i) => i < prefixLen ? 'cached' : 'new'}
+                highlight={(i) => i < rawPrefixBoundary ? 'cached' : 'new'}
               />
             </div>
           </div>
@@ -2258,7 +2292,7 @@ function CacheDiffView({ apiBase, run, llmSpans }: {
             <MsgList
               messages={snapshotB.messages}
               truncated={snapshotB.messagesTruncated}
-              highlight={(i) => i < prefixLen ? 'cached' : 'new'}
+              highlight={(i) => i < rawPrefixBoundary ? 'cached' : 'new'}
             />
           </div>
         )
