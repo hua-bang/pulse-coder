@@ -450,6 +450,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
         onDragStart={onDragStart}
         onResizeStart={onResizeStart}
         onUpdate={updateNode}
+        onAutoResize={resizeNode}
         onRemove={removeNode}
         onSelect={(id) => {
           setSelectedNodeIds([id]);

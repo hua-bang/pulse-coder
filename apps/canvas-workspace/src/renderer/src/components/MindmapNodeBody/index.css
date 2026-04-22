@@ -113,7 +113,15 @@
  * empty element's text normally, and the ::before disappears because
  * the rule no longer applies (we toggle a class, not :empty, because
  * browsers may fill empty contenteditable with a lone <br>).
+ *
+ * `white-space: nowrap` on the empty variant keeps "Untitled" on one
+ * line; without it, the text div's flex shrink factor makes the
+ * placeholder break character-by-character inside the narrow slot.
  */
+.mindmap-topic-text--empty {
+  white-space: nowrap;
+}
+
 .mindmap-topic-text--empty::before {
   content: attr(data-placeholder);
   color: #9aa0a6;

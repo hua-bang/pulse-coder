@@ -35,6 +35,10 @@ interface Props {
     minHeight?: number
   ) => void;
   onUpdate: (id: string, patch: Partial<CanvasNode>) => void;
+  /** Dimension-only update that skips history. Content-sized nodes use
+   *  this to reconcile their on-canvas bounds with their rendered body
+   *  without polluting the undo stack. */
+  onAutoResize: (id: string, width: number, height: number) => void;
   onRemove: (id: string) => void;
   onSelect: (id: string) => void;
   onFocus: (node: CanvasNode) => void;
@@ -54,6 +58,7 @@ export const CanvasNodeView = ({
   onDragStart,
   onResizeStart,
   onUpdate,
+  onAutoResize,
   onRemove,
   onSelect,
   onFocus
@@ -213,6 +218,10 @@ export const CanvasNodeView = ({
   }
 
   if (node.type === "mindmap") {
+    // Mindmaps are fully chromeless and content-sized: no border, no
+    // hover/selected outline, no resize handles. MindmapNodeBody
+    // reports the rendered bounding box via `onAutoResize`, so the
+    // canvas node's width/height track the topic tree automatically.
     return (
       <div
         className={classes}
@@ -236,6 +245,7 @@ export const CanvasNodeView = ({
             isSelected={isSelected}
             onUpdate={onUpdate}
             onSelectNode={onSelect}
+            onAutoResize={onAutoResize}
           />
         </div>
         <button className="node-close node-close--floating" onClick={handleClose} title="Remove">
@@ -243,18 +253,6 @@ export const CanvasNodeView = ({
             <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
           </svg>
         </button>
-        <div
-          className="resize-handle resize-handle--right"
-          onMouseDown={makeResizeHandler("right")}
-        />
-        <div
-          className="resize-handle resize-handle--bottom"
-          onMouseDown={makeResizeHandler("bottom")}
-        />
-        <div
-          className="resize-handle resize-handle--corner"
-          onMouseDown={makeResizeHandler("bottom-right")}
-        />
       </div>
     );
   }

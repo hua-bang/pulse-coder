@@ -30,6 +30,12 @@ interface Props {
    *  shortcuts like Delete that act on the selected canvas node hit
    *  the right target). */
   onSelectNode: (id: string) => void;
+  /** Dimension-only update that skips history. We call this when the
+   *  rendered tree's bounding box no longer matches the canvas node's
+   *  width/height — typing a character grows the owning topic's slot,
+   *  which in turn grows the whole mindmap; we want that resize to
+   *  reconcile silently rather than spamming undo history. */
+  onAutoResize: (id: string, width: number, height: number) => void;
 }
 
 /**
@@ -55,7 +61,7 @@ interface Props {
  * while selected enters edit mode. Commit on blur / Enter (Enter on a
  * non-root topic also spawns a sibling); Esc cancels without saving.
  */
-export const MindmapNodeBody = ({ node, isSelected, onUpdate, onSelectNode }: Props) => {
+export const MindmapNodeBody = ({ node, isSelected, onUpdate, onSelectNode, onAutoResize }: Props) => {
   const data = node.data as MindmapNodeData;
   const root = data.root;
 
@@ -68,9 +74,22 @@ export const MindmapNodeBody = ({ node, isSelected, onUpdate, onSelectNode }: Pr
 
   const layout = useMemo(() => layoutMindmap(root), [root]);
 
-  const padding = 24;
+  const padding = 16;
+  const wantedWidth = Math.max(140, Math.ceil(layout.width + padding * 2));
+  const wantedHeight = Math.max(60, Math.ceil(layout.height + padding * 2));
   const viewportWidth = Math.max(0, node.width - padding * 2);
   const viewportHeight = Math.max(0, node.height - padding * 2);
+
+  // Mindmap nodes auto-size to their content. Whenever the computed
+  // bounding box disagrees with the canvas node's current dimensions
+  // (because the user typed, added, deleted, or folded a topic) we
+  // reconcile via `onAutoResize`, which bypasses the undo history so
+  // the size change rides along with whatever mutation just fired.
+  useEffect(() => {
+    if (node.width !== wantedWidth || node.height !== wantedHeight) {
+      onAutoResize(node.id, wantedWidth, wantedHeight);
+    }
+  }, [wantedWidth, wantedHeight, node.id, node.width, node.height, onAutoResize]);
 
   // Keep selection valid when the tree mutates (delete removed the
   // selected node, external update rebuilt ids, etc).

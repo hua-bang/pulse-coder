@@ -52,6 +52,11 @@ interface CanvasSurfaceProps {
     minHeight?: number
   ) => void;
   onUpdate: (id: string, patch: Partial<CanvasNode>) => void;
+  /** Dimension-only update that bypasses undo history. Used by nodes
+   *  whose size is derived from their content (e.g. mindmap auto-fits
+   *  to its topic tree) so every typed character doesn't spam the
+   *  history stack with a paired text + resize entry. */
+  onAutoResize: (id: string, width: number, height: number) => void;
   onRemove: (id: string) => void;
   onSelect: (id: string) => void;
   onFocus: (node: CanvasNode) => void;
@@ -92,6 +97,7 @@ export const CanvasSurface = ({
   onDragStart,
   onResizeStart,
   onUpdate,
+  onAutoResize,
   onRemove,
   onSelect,
   onFocus,
@@ -140,6 +146,7 @@ export const CanvasSurface = ({
         onDragStart={onDragStart}
         onResizeStart={onResizeStart}
         onUpdate={onUpdate}
+        onAutoResize={onAutoResize}
         onRemove={onRemove}
         onSelect={onSelect}
         onFocus={onFocus}

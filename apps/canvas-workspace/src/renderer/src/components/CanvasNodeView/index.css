@@ -279,35 +279,25 @@
   overflow: visible;
 }
 
-/* Mindmap nodes: chromeless like images/shapes. Heptabase-style mindmaps
- * float directly on the canvas with no surrounding card — text and
- * curves are the whole content. A soft outline appears on hover /
- * selection so the user can still find the hit box to drag/resize. */
-.canvas-node--mindmap {
-  background: transparent;
-  border: 1px solid transparent;
-  box-shadow: none;
-}
-
-.canvas-node--mindmap:hover {
-  border-color: rgba(0, 0, 0, 0.08);
-  box-shadow: none;
-}
-
-.canvas-node--mindmap.canvas-node--selected {
-  border-color: var(--accent-border);
-  box-shadow: 0 0 0 2px rgba(35, 131, 226, 0.12);
-}
-
+/* Mindmap nodes are entirely frame-less — text and curves ARE the
+ * whole node on the canvas, so even the hover / selected outlines
+ * used by image/shape nodes would feel like a surrounding box.
+ * Selection is communicated by per-topic accent bars inside the
+ * mindmap body, not by the canvas-node wrapper. */
+.canvas-node--mindmap,
+.canvas-node--mindmap:hover,
+.canvas-node--mindmap.canvas-node--selected,
 .canvas-node--mindmap.canvas-node--dragging,
 .canvas-node--mindmap.canvas-node--resizing {
-  box-shadow: var(--shadow-drag);
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 .node-body--mindmap {
   padding: 0;
   height: 100%;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .node-close--floating {
