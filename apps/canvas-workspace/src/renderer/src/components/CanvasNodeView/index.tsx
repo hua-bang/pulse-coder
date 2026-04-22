@@ -212,6 +212,48 @@ export const CanvasNodeView = ({
     );
   }
 
+  if (node.type === "mindmap") {
+    return (
+      <div
+        className={classes}
+        style={{
+          transform: `translate(${node.x}px, ${node.y}px)`,
+          width: node.width,
+          height: node.height,
+        }}
+        onClick={handleNodeClick}
+        // The wrapper itself is the drag handle — topic pills inside
+        // stop propagation, so mousedown on the empty mindmap area
+        // bubbles here and starts a node drag.
+        onMouseDown={(e) => {
+          onSelect(node.id);
+          onDragStart(e, node);
+        }}
+      >
+        <div className="node-body node-body--mindmap">
+          <MindmapNodeBody node={node} isSelected={isSelected} onUpdate={onUpdate} />
+        </div>
+        <button className="node-close node-close--floating" onClick={handleClose} title="Remove">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+          </svg>
+        </button>
+        <div
+          className="resize-handle resize-handle--right"
+          onMouseDown={makeResizeHandler("right")}
+        />
+        <div
+          className="resize-handle resize-handle--bottom"
+          onMouseDown={makeResizeHandler("bottom")}
+        />
+        <div
+          className="resize-handle resize-handle--corner"
+          onMouseDown={makeResizeHandler("bottom-right")}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className={classes}
@@ -253,13 +295,6 @@ export const CanvasNodeView = ({
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
               <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3" />
               <path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-            </svg>
-          ) : node.type === "mindmap" ? (
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-              <circle cx="4" cy="8" r="1.8" stroke="currentColor" strokeWidth="1.3" />
-              <circle cx="12" cy="4" r="1.4" stroke="currentColor" strokeWidth="1.2" />
-              <circle cx="12" cy="12" r="1.4" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M5.5 7l5 -2.5M5.5 9l5 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
             </svg>
           ) : (
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
@@ -320,8 +355,6 @@ export const CanvasNodeView = ({
           />
         ) : node.type === "iframe" ? (
           <IframeNodeBody node={node} workspaceId={workspaceId} onUpdate={onUpdate} />
-        ) : node.type === "mindmap" ? (
-          <MindmapNodeBody node={node} isSelected={isSelected} onUpdate={onUpdate} />
         ) : (
           <AgentNodeBody node={node} allNodes={allNodes} rootFolder={rootFolder} workspaceId={workspaceId} workspaceName={workspaceName} onUpdate={onUpdate} />
         )}

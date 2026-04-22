@@ -211,19 +211,14 @@ export const MindmapNodeBody = ({ node, isSelected, onUpdate }: Props) => {
 
   /* ---- Render ---- */
 
-  const handleBodyMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      // Swallow the event so the canvas doesn't start a node drag when
-      // the user is interacting with the mindmap interior.
-      e.stopPropagation();
-    },
-    [],
-  );
-
+  // We deliberately do NOT stop mousedown here. Topic pills below stop
+  // their own mousedown events so clicking a topic never starts a drag,
+  // but clicking the empty mindmap background should bubble up to the
+  // canvas-node wrapper so the whole mindmap can be dragged around the
+  // canvas — just like an image or shape node.
   return (
     <div
       className={`mindmap-node-body${isSelected ? ' mindmap-node-body--selected' : ''}`}
-      onMouseDown={handleBodyMouseDown}
     >
       <div
         className="mindmap-viewport"
