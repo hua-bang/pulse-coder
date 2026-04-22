@@ -292,6 +292,11 @@
   background: transparent;
   border: none;
   box-shadow: none;
+  /* Override .canvas-node's default overflow: hidden so SVG stroke
+   * linecaps and the close-button hover ring can render a pixel past
+   * the auto-sized bounds without getting cropped into the scrollbar
+   * flicker we saw at sub-pixel widths. */
+  overflow: visible;
 }
 
 .node-body--mindmap {

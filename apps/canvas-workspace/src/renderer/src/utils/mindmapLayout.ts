@@ -98,16 +98,18 @@ const ROOT_COLOR = '#1F2328';
  * stays synchronous, which matters because `layoutMindmap` runs in a
  * `useMemo` on every tree mutation.
  *
- * Latin characters at the topic font size (~14px) average ~0.56em; CJK
- * chars are ~1em. We detect CJK by scanning for Han + kana + full-width
- * ranges and pick the wider estimate — good enough, and errs on the
- * side of "a little too wide" which never looks broken.
+ * The canvas app ships a monospace-leaning UI font, so Latin chars at
+ * the topic font sizes (14 / 20px) run ~0.6em wide; CJK chars are
+ * ~0.95em. We pick a slightly pessimistic multiplier so the estimated
+ * slot never ends up narrower than the rendered text — if it did, the
+ * text would either wrap (for pre-wrap) or overshoot its slot and clip
+ * into the neighbouring branch.
  */
 const CJK_RANGE = /[　-鿿＀-￯぀-ヿ]/;
 const estimateTextWidth = (text: string, fontSize: number): number => {
   if (!text) return 0;
   const hasCJK = CJK_RANGE.test(text);
-  const avg = hasCJK ? fontSize * 0.95 : fontSize * 0.56;
+  const avg = hasCJK ? fontSize * 0.98 : fontSize * 0.65;
   return text.length * avg;
 };
 

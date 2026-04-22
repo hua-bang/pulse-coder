@@ -1,8 +1,14 @@
+/*
+ * The mindmap node is auto-sized to its content, so no inner level
+ * needs to scroll or clip. Every container uses overflow: visible so
+ * SVG stroke linecaps that extend a pixel past the bounding box don't
+ * trigger sneaky scrollbars on the viewport.
+ */
 .mindmap-node-body {
   position: relative;
   width: 100%;
   height: 100%;
-  overflow: hidden;
+  overflow: visible;
   background: transparent;
 }
 
@@ -10,7 +16,7 @@
   position: relative;
   width: 100%;
   height: 100%;
-  overflow: auto;
+  overflow: visible;
   box-sizing: border-box;
 }
 
@@ -55,6 +61,14 @@
   font-weight: 500;
   padding: 0 10px;
   color: #1f2328;
+}
+
+/* Force the root topic onto a single line even though .mindmap-topic-text
+ * defaults to pre-wrap. Without this, "Central topic" (and any other
+ * multi-word root) wraps in the 120px-minimum slot. The rule lives on the
+ * inner text div because parent-level white-space: nowrap is overridden
+ * by the more-specific text rule below. */
+.mindmap-topic--root .mindmap-topic-text {
   white-space: nowrap;
 }
 
