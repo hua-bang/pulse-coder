@@ -462,10 +462,29 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
       }
 
       if (finishReason === 'content-filter') {
-        return text || 'Content filtered.';
+        // Provider's safety/policy layer rejected the response. Surface a more
+        // actionable message so users know it's not an internal bug. Log the
+        // event with usage details so operators can correlate by timestamp.
+        console.warn('[loop] content-filter finishReason', {
+          textLen: text?.length ?? 0,
+          textTail: typeof text === 'string' ? text.slice(-200) : undefined,
+          inputTokens: (usage as any)?.inputTokens,
+          outputTokens: (usage as any)?.outputTokens,
+          model: options?.model,
+          modelType: options?.modelType,
+          msgCount: context.messages.length,
+        });
+        return text || '⚠️ Upstream content filter blocked this response (provider safety policy). Try rephrasing, splitting the request, or switching model.';
       }
 
       if (finishReason === 'error') {
+        console.warn('[loop] error finishReason', {
+          textLen: text?.length ?? 0,
+          inputTokens: (usage as any)?.inputTokens,
+          outputTokens: (usage as any)?.outputTokens,
+          model: options?.model,
+          modelType: options?.modelType,
+        });
         return text || 'Task failed.';
       }
 

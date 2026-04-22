@@ -175,7 +175,15 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
       },
     });
 
-    await handle.onDone(turn.resultText);
+    // If the engine returned a synthetic warning (e.g. content-filter, context
+    // overflow, max-steps), tag the runId so users can pull full context from
+    // devtools / pm2 logs.
+    let finalText = turn.resultText;
+    if (typeof finalText === 'string' && finalText.startsWith('⚠️')) {
+      finalText = `${finalText}\n\n_runId: \`${turn.runId}\` (use this to look up the full request/response in devtools or pm2 logs)_`;
+    }
+
+    await handle.onDone(finalText);
 
     if (turn.compactions.length > 0) {
       console.info(
