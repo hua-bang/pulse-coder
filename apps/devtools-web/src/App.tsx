@@ -1983,19 +1983,305 @@ function formatBytes(n: number): string {
   return `${n} B`;
 }
 
+// ── Prompt diff helpers ───────────────────────────────────────────────────────
+
+function msgKey(msg: any): string {
+  if (typeof msg.content === 'string') return `${msg.role}::${msg.content}`;
+  return `${msg.role}::${JSON.stringify(msg.content)}`;
+}
+
+/** Returns index of first diverging message (common prefix length). */
+function commonPrefixLen(a: any[], b: any[]): number {
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    if (msgKey(a[i]) !== msgKey(b[i])) return i;
+  }
+  return len;
+}
+
+function roleColor(role: string): string {
+  if (role === 'user') return '#1a6b2e';
+  if (role === 'assistant') return '#1a4f9c';
+  if (role === 'tool' || role === 'tool_result') return '#7a5c00';
+  if (role === 'system') return '#6b2fa0';
+  return '#555';
+}
+
+function roleBg(role: string): string {
+  if (role === 'user') return '#e8f5e9';
+  if (role === 'assistant') return '#e3edf7';
+  if (role === 'tool' || role === 'tool_result') return '#fff3cd';
+  if (role === 'system') return '#f8f0fb';
+  return '#f0efed';
+}
+
+function msgPreview(msg: any, chars = 120): string {
+  if (typeof msg.content === 'string') return msg.content.slice(0, chars);
+  if (Array.isArray(msg.content)) {
+    const t = msg.content.find((c: any) => c.type === 'text');
+    return t?.text?.slice(0, chars) ?? `[${msg.content.length} parts]`;
+  }
+  return '';
+}
+
+// ── Single-span message list ──────────────────────────────────────────────────
+
+function MsgList({ messages, truncated, highlight }: {
+  messages: any[];
+  truncated?: boolean;
+  highlight?: (i: number) => 'cached' | 'new' | 'none';
+}) {
+  const [expanded, setExpanded] = useState<number | null>(null);
+  if (messages.length === 0) return <div className="empty">No messages captured.</div>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      {messages.map((msg: any, i: number) => {
+        const hl = highlight ? highlight(i) : 'none';
+        const isOpen = expanded === i;
+        const preview = msgPreview(msg);
+        const borderLeft = hl === 'cached'
+          ? '3px solid #27ae60'
+          : hl === 'new' ? '3px solid #2980b9' : '3px solid transparent';
+        return (
+          <div key={i} style={{ border: '1px solid var(--border)', borderLeft, borderRadius: 6, overflow: 'hidden', background: 'var(--bg-card)' }}>
+            <div
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', cursor: 'pointer', background: 'var(--bg-sidebar)', borderBottom: isOpen ? '1px solid var(--border)' : 'none' }}
+              onClick={() => setExpanded(isOpen ? null : i)}
+            >
+              {hl !== 'none' && (
+                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', padding: '1px 5px', borderRadius: 3, background: hl === 'cached' ? '#d4edda' : '#cce5ff', color: hl === 'cached' ? '#155724' : '#004085', minWidth: 38, textAlign: 'center' }}>
+                  {hl === 'cached' ? '⚡ hit' : '✦ new'}
+                </span>
+              )}
+              <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', padding: '2px 6px', borderRadius: 4, background: roleBg(msg.role), color: roleColor(msg.role), minWidth: 60, textAlign: 'center' }}>
+                {msg.role}
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {preview}{!isOpen && preview.length === 120 ? '…' : ''}
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{isOpen ? '▲' : '▼'}</span>
+            </div>
+            {isOpen && (
+              <div className="mono-block" style={{ margin: 0, borderRadius: 0, maxHeight: 300, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content, null, 2)}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {truncated && <div className="empty" style={{ fontSize: 12 }}>⚠ Snapshot truncated — older messages not shown.</div>}
+    </div>
+  );
+}
+
+// ── Cache Diff View ───────────────────────────────────────────────────────────
+
+function CacheDiffView({ apiBase, run, llmSpans }: {
+  apiBase: string;
+  run: RunDetail;
+  llmSpans: LlmSpan[];
+}) {
+  const defaultA = llmSpans.length >= 2 ? llmSpans[llmSpans.length - 2].index : llmSpans[0].index;
+  const defaultB = llmSpans[llmSpans.length - 1].index;
+
+  const [spanA, setSpanA] = useState(defaultA);
+  const [spanB, setSpanB] = useState(defaultB);
+  const [snapshotA, setSnapshotA] = useState<LlmPromptSnapshot | null>(null);
+  const [snapshotB, setSnapshotB] = useState<LlmPromptSnapshot | null>(null);
+  const [loadingA, setLoadingA] = useState(false);
+  const [loadingB, setLoadingB] = useState(false);
+  const [errorA, setErrorA] = useState<string | null>(null);
+  const [errorB, setErrorB] = useState<string | null>(null);
+  const [showPanel, setShowPanel] = useState<'side' | 'b-only'>('b-only');
+
+  const fetchSnap = async (idx: number, set: (s: LlmPromptSnapshot | null) => void, setL: (b: boolean) => void, setE: (s: string | null) => void) => {
+    setL(true); setE(null);
+    try {
+      const res = await fetch(`${apiBase}/runs/${run.runId}/llm/${idx}`);
+      const data = await res.json();
+      if (!data.ok || !data.snapshot) throw new Error(data.error ?? 'No snapshot');
+      set(data.snapshot as LlmPromptSnapshot);
+    } catch (e) { setE(e instanceof Error ? e.message : String(e)); set(null); }
+    finally { setL(false); }
+  };
+
+  useEffect(() => { fetchSnap(spanA, setSnapshotA, setLoadingA, setErrorA); }, [spanA, run.runId]);
+  useEffect(() => { fetchSnap(spanB, setSnapshotB, setLoadingB, setErrorB); }, [spanB, run.runId]);
+
+  const spanInfoA = llmSpans.find((s) => s.index === spanA);
+  const spanInfoB = llmSpans.find((s) => s.index === spanB);
+
+  // Diff analysis
+  const sysMatch = snapshotA && snapshotB
+    ? (snapshotA.systemPrompt ?? '') === (snapshotB.systemPrompt ?? '')
+    : null;
+  const prefixLen = snapshotA && snapshotB
+    ? commonPrefixLen(snapshotA.messages, snapshotB.messages)
+    : 0;
+  const newMsgs = snapshotB ? snapshotB.messages.length - prefixLen : 0;
+  const cacheRead = spanInfoB?.cacheReadTokens ?? 0;
+  const cacheWrite = spanInfoB?.cacheWriteTokens ?? 0;
+  const inputB = spanInfoB?.inputTokens ?? 0;
+  const cacheHitRate = inputB > 0 ? Math.round((cacheRead / inputB) * 100) : 0;
+
+  const loading = loadingA || loadingB;
+
+  return (
+    <div className="stats-view">
+      {/* Span selectors */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#27ae60', minWidth: 14 }}>A</span>
+          <select className="filter-select" value={spanA} onChange={(e: any) => setSpanA(Number(e.target.value))}>
+            {llmSpans.map((s) => (
+              <option key={s.index} value={s.index}>#{s.index}{s.durationMs !== undefined ? ` · ${formatDuration(s.durationMs)}` : ''}</option>
+            ))}
+          </select>
+        </div>
+        <span style={{ fontSize: 14, color: 'var(--text-muted)' }}>→</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#2980b9', minWidth: 14 }}>B</span>
+          <select className="filter-select" value={spanB} onChange={(e: any) => setSpanB(Number(e.target.value))}>
+            {llmSpans.map((s) => (
+              <option key={s.index} value={s.index}>#{s.index}{s.durationMs !== undefined ? ` · ${formatDuration(s.durationMs)}` : ''}</option>
+            ))}
+          </select>
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+          <button className={`tab-button ${showPanel === 'b-only' ? 'active' : ''}`} style={{ fontSize: 11 }} onClick={() => setShowPanel('b-only')}>B 视角</button>
+          <button className={`tab-button ${showPanel === 'side' ? 'active' : ''}`} style={{ fontSize: 11 }} onClick={() => setShowPanel('side')}>并排</button>
+        </div>
+        {loading && <span className="stats-loading">Loading…</span>}
+      </div>
+
+      {(errorA || errorB) && <div className="error" style={{ marginBottom: 10 }}>{errorA ?? errorB}</div>}
+
+      {/* Cache analysis cards */}
+      {snapshotA && snapshotB && (
+        <>
+          <div className="stats-cards" style={{ marginBottom: 14 }}>
+            <StatCard
+              label="System Prompt"
+              value={sysMatch ? '✓ Same' : '✗ Changed'}
+              sub={sysMatch ? 'full match → cached' : 'mismatch → cache miss'}
+            />
+            <StatCard
+              label="Prefix (msgs cached)"
+              value={`${prefixLen} msgs`}
+              sub={`of ${snapshotA.messages.length} in A`}
+            />
+            <StatCard
+              label="New Messages (B)"
+              value={`+${newMsgs} msgs`}
+              sub={`total ${snapshotB.messages.length}`}
+            />
+            <StatCard
+              label="Cache Read (B)"
+              value={cacheRead > 0 ? formatK(cacheRead) : '0'}
+              sub={cacheRead > 0 ? `${cacheHitRate}% of input tokens` : 'no cache hit'}
+            />
+            {cacheWrite > 0 && (
+              <StatCard label="Cache Write (B)" value={formatK(cacheWrite)} sub="new prefix stored" />
+            )}
+            <StatCard
+              label="Input Tokens (B)"
+              value={formatK(inputB)}
+              sub={spanInfoB?.model ?? undefined}
+            />
+          </div>
+
+          {/* Cache boundary visualization */}
+          {snapshotB.messages.length > 0 && (
+            <div className="stats-section" style={{ marginBottom: 14 }}>
+              <h3 className="stats-section-title">缓存边界可视化</h3>
+              <div style={{ display: 'flex', gap: 0, height: 28, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border)' }}>
+                {/* System prompt */}
+                <div style={{ background: sysMatch ? '#27ae60' : '#e74c3c', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 600, maxWidth: 120 }}>
+                  SYS {sysMatch ? '⚡' : '✗'}
+                </div>
+                {/* Cached messages */}
+                {prefixLen > 0 && (
+                  <div style={{ background: '#2ecc71', flex: prefixLen, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 600, minWidth: 40 }}>
+                    ⚡ {prefixLen} msgs
+                  </div>
+                )}
+                {/* New messages */}
+                {newMsgs > 0 && (
+                  <div style={{ background: '#3498db', flex: newMsgs, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 600, minWidth: 40 }}>
+                    ✦ +{newMsgs} new
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+                <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#27ae60', borderRadius: 2, marginRight: 4 }} />system match</span>
+                <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#2ecc71', borderRadius: 2, marginRight: 4 }} />cached prefix</span>
+                <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#3498db', borderRadius: 2, marginRight: 4 }} />new (not cached)</span>
+                {!sysMatch && <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#e74c3c', borderRadius: 2, marginRight: 4 }} />system changed</span>}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Message panels */}
+      {snapshotA && snapshotB && (
+        showPanel === 'side' ? (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#27ae60', marginBottom: 8 }}>
+                A — Span #{spanA} · {snapshotA.messages.length} msgs
+              </div>
+              <MsgList
+                messages={snapshotA.messages}
+                truncated={snapshotA.messagesTruncated}
+              />
+            </div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#2980b9', marginBottom: 8 }}>
+                B — Span #{spanB} · {snapshotB.messages.length} msgs
+                {cacheRead > 0 && <span style={{ marginLeft: 8, fontSize: 11, color: '#27ae60' }}>⚡ {formatK(cacheRead)} cache read</span>}
+              </div>
+              <MsgList
+                messages={snapshotB.messages}
+                truncated={snapshotB.messagesTruncated}
+                highlight={(i) => i < prefixLen ? 'cached' : 'new'}
+              />
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#2980b9', marginBottom: 8 }}>
+              B — Span #{spanB} · {snapshotB.messages.length} msgs
+              {cacheRead > 0 && <span style={{ marginLeft: 8, fontSize: 11, color: '#27ae60' }}>⚡ {formatK(cacheRead)} cache read</span>}
+            </div>
+            <MsgList
+              messages={snapshotB.messages}
+              truncated={snapshotB.messagesTruncated}
+              highlight={(i) => i < prefixLen ? 'cached' : 'new'}
+            />
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+// ── PromptView ────────────────────────────────────────────────────────────────
+
 function PromptView({ apiBase, run }: { apiBase: string; run: RunDetail | null }) {
+  const [viewMode, setViewMode] = useState<'single' | 'diff'>('single');
   const [spanIndex, setSpanIndex] = useState(0);
   const [snapshot, setSnapshot] = useState<LlmPromptSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [msgTab, setMsgTab] = useState<'messages' | 'tools'>('messages');
 
   useEffect(() => {
     setSpanIndex(0);
     setSnapshot(null);
     setError(null);
-    setExpandedIdx(null);
+    setViewMode('single');
   }, [run?.runId]);
 
   const load = async (idx: number) => {
@@ -2007,7 +2293,6 @@ function PromptView({ apiBase, run }: { apiBase: string; run: RunDetail | null }
       const data = await res.json();
       if (!data.ok || !data.snapshot) throw new Error(data.error ?? 'No snapshot');
       setSnapshot(data.snapshot as LlmPromptSnapshot);
-      setExpandedIdx(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setSnapshot(null);
@@ -2017,10 +2302,10 @@ function PromptView({ apiBase, run }: { apiBase: string; run: RunDetail | null }
   };
 
   useEffect(() => {
-    if (run && run.llmSpans?.length > 0) {
+    if (run && run.llmSpans?.length > 0 && viewMode === 'single') {
       load(spanIndex);
     }
-  }, [run?.runId, spanIndex]);
+  }, [run?.runId, spanIndex, viewMode]);
 
   if (!run) {
     return <div className="empty" style={{ padding: '40px 0' }}>Select a run to inspect its prompt.</div>;
@@ -2035,6 +2320,32 @@ function PromptView({ apiBase, run }: { apiBase: string; run: RunDetail | null }
 
   return (
     <div className="stats-view">
+      {/* Mode switcher */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        <button
+          className={`tab-button ${viewMode === 'single' ? 'active' : ''}`}
+          onClick={() => setViewMode('single')}
+        >
+          单次查看
+        </button>
+        <button
+          className={`tab-button ${viewMode === 'diff' ? 'active' : ''}`}
+          onClick={() => setViewMode('diff')}
+          disabled={llmSpans.length < 2}
+          title={llmSpans.length < 2 ? '需要至少 2 次 LLM 调用' : '对比两次调用的 prompt 缓存'}
+        >
+          ⚡ Cache Diff
+        </button>
+      </div>
+
+      {/* Cache Diff Mode */}
+      {viewMode === 'diff' && (
+        <CacheDiffView apiBase={apiBase} run={run} llmSpans={llmSpans} />
+      )}
+
+      {/* Single Mode */}
+      {viewMode === 'single' && <>
+
       {/* Span selector */}
       <div className="stats-controls" style={{ marginBottom: 12 }}>
         <div className="stats-range-tabs">
@@ -2217,6 +2528,7 @@ function PromptView({ apiBase, run }: { apiBase: string; run: RunDetail | null }
           )}
         </>
       )}
+      </>}
     </div>
   );
 }
