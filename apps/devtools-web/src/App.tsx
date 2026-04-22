@@ -1,7 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 
 type RunStatus = 'running' | 'finished';
-type PageView = 'runs' | 'stats' | 'tools' | 'errors';
+type PageView = 'runs' | 'sessions' | 'stats' | 'tools' | 'errors';
+
+// Generic span reference used by Cache Diff (works across runs)
+interface DiffSpanRef {
+  key: string;          // unique select id (e.g. "runId#idx")
+  runId: string;        // for snapshot fetch
+  spanIndex: number;    // 1-based span index
+  label: string;        // displayed text in <option>
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  durationMs?: number;
+}
 type StatsRange = 'today' | 'week' | 'month' | 'custom';
 type StatsGranularity = 'hour' | 'day' | 'week';
 type StatsGroupBy = 'none' | 'model' | 'session';
@@ -1440,7 +1454,7 @@ export default function App() {
       </header>
 
       <div className="page-nav">
-        {(['runs', 'stats', 'tools', 'errors'] as const).map((p) => (
+        {(['runs', 'sessions', 'stats', 'tools', 'errors'] as const).map((p) => (
           <button
             key={p}
             className={`page-nav-btn ${page === p ? 'active' : ''}`}
@@ -1448,6 +1462,8 @@ export default function App() {
           >
             {p === 'runs'
               ? '⚡ Runs'
+              : p === 'sessions'
+              ? '🧵 Sessions'
               : p === 'stats'
               ? '📊 Stats'
               : p === 'tools'
@@ -1459,6 +1475,8 @@ export default function App() {
 
       {page === 'stats' ? (
         <StatsView apiBase={apiBase} />
+      ) : page === 'sessions' ? (
+        <SessionsView apiBase={apiBase} />
       ) : page === 'tools' ? (
         <ToolsView apiBase={apiBase} />
       ) : page === 'errors' ? (
@@ -2101,16 +2119,29 @@ function MsgList({ messages, truncated, highlight }: {
 
 // ── Cache Diff View ───────────────────────────────────────────────────────────
 
-function CacheDiffView({ apiBase, run, llmSpans }: {
+function CacheDiffView({ apiBase, spans, contextLabel }: {
   apiBase: string;
-  run: RunDetail;
-  llmSpans: LlmSpan[];
+  spans: DiffSpanRef[];
+  contextLabel?: string;
 }) {
-  const defaultA = llmSpans.length >= 2 ? llmSpans[llmSpans.length - 2].index : llmSpans[0].index;
-  const defaultB = llmSpans[llmSpans.length - 1].index;
+  if (spans.length === 0) {
+    return <div className="empty" style={{ padding: '40px 0' }}>No LLM spans available.</div>;
+  }
+  const defaultA = spans.length >= 2 ? spans[spans.length - 2].key : spans[0].key;
+  const defaultB = spans[spans.length - 1].key;
 
-  const [spanA, setSpanA] = useState(defaultA);
-  const [spanB, setSpanB] = useState(defaultB);
+  const [keyA, setKeyA] = useState(defaultA);
+  const [keyB, setKeyB] = useState(defaultB);
+
+  // When spans list changes (e.g. switch session), reset selection.
+  useEffect(() => {
+    setKeyA(defaultA);
+    setKeyB(defaultB);
+  }, [spans.length, spans[0]?.key, spans[spans.length - 1]?.key]);
+
+  const spanInfoA = spans.find((s) => s.key === keyA) ?? spans[0];
+  const spanInfoB = spans.find((s) => s.key === keyB) ?? spans[spans.length - 1];
+
   const [snapshotA, setSnapshotA] = useState<LlmPromptSnapshot | null>(null);
   const [snapshotB, setSnapshotB] = useState<LlmPromptSnapshot | null>(null);
   const [loadingA, setLoadingA] = useState(false);
@@ -2119,10 +2150,10 @@ function CacheDiffView({ apiBase, run, llmSpans }: {
   const [errorB, setErrorB] = useState<string | null>(null);
   const [showPanel, setShowPanel] = useState<'side' | 'b-only'>('b-only');
 
-  const fetchSnap = async (idx: number, set: (s: LlmPromptSnapshot | null) => void, setL: (b: boolean) => void, setE: (s: string | null) => void) => {
+  const fetchSnap = async (ref: DiffSpanRef, set: (s: LlmPromptSnapshot | null) => void, setL: (b: boolean) => void, setE: (s: string | null) => void) => {
     setL(true); setE(null);
     try {
-      const res = await fetch(`${apiBase}/runs/${run.runId}/llm/${idx}`);
+      const res = await fetch(`${apiBase}/runs/${ref.runId}/llm/${ref.spanIndex}`);
       const data = await res.json();
       if (!data.ok || !data.snapshot) throw new Error(data.error ?? 'No snapshot');
       set(data.snapshot as LlmPromptSnapshot);
@@ -2130,25 +2161,19 @@ function CacheDiffView({ apiBase, run, llmSpans }: {
     finally { setL(false); }
   };
 
-  useEffect(() => { fetchSnap(spanA, setSnapshotA, setLoadingA, setErrorA); }, [spanA, run.runId]);
-  useEffect(() => { fetchSnap(spanB, setSnapshotB, setLoadingB, setErrorB); }, [spanB, run.runId]);
-
-  const spanInfoA = llmSpans.find((s) => s.index === spanA);
-  const spanInfoB = llmSpans.find((s) => s.index === spanB);
+  useEffect(() => { fetchSnap(spanInfoA, setSnapshotA, setLoadingA, setErrorA); }, [spanInfoA.runId, spanInfoA.spanIndex]);
+  useEffect(() => { fetchSnap(spanInfoB, setSnapshotB, setLoadingB, setErrorB); }, [spanInfoB.runId, spanInfoB.spanIndex]);
 
   // Diff analysis
   const sysMatch = snapshotA && snapshotB
     ? (snapshotA.systemPrompt ?? '') === (snapshotB.systemPrompt ?? '')
     : null;
-  // Clean prefix length (ignoring __gap__ markers)
   const cleanPrefixLen = snapshotA && snapshotB
     ? commonPrefixLen(snapshotA.messages, snapshotB.messages)
     : 0;
-  // Raw index boundary in B's message array (accounting for gap markers)
   const rawPrefixBoundary = snapshotB
     ? prefixLenInRaw(snapshotB.messages, cleanPrefixLen)
     : 0;
-  // Count non-gap new messages in B beyond the prefix
   const newMsgs = snapshotB
     ? snapshotB.messages.slice(rawPrefixBoundary).filter((m: any) => m.role !== '__gap__').length
     : 0;
@@ -2159,29 +2184,42 @@ function CacheDiffView({ apiBase, run, llmSpans }: {
   const inputB = spanInfoB?.inputTokens ?? 0;
   const cacheHitRate = inputB > 0 ? Math.round((cacheRead / inputB) * 100) : 0;
 
+  // Cross-run flag (different runIds → useful note)
+  const crossRun = spanInfoA && spanInfoB && spanInfoA.runId !== spanInfoB.runId;
+
   const loading = loadingA || loadingB;
 
   return (
     <div className="stats-view">
+      {contextLabel && (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+          {contextLabel}
+        </div>
+      )}
       {/* Span selectors */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 14, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: '#27ae60', minWidth: 14 }}>A</span>
-          <select className="filter-select" value={spanA} onChange={(e: any) => setSpanA(Number(e.target.value))}>
-            {llmSpans.map((s) => (
-              <option key={s.index} value={s.index}>#{s.index}{s.durationMs !== undefined ? ` · ${formatDuration(s.durationMs)}` : ''}</option>
+          <select className="filter-select" value={keyA} onChange={(e: any) => setKeyA(e.target.value)} style={{ minWidth: 220 }}>
+            {spans.map((s) => (
+              <option key={s.key} value={s.key}>{s.label}</option>
             ))}
           </select>
         </div>
         <span style={{ fontSize: 14, color: 'var(--text-muted)' }}>→</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: '#2980b9', minWidth: 14 }}>B</span>
-          <select className="filter-select" value={spanB} onChange={(e: any) => setSpanB(Number(e.target.value))}>
-            {llmSpans.map((s) => (
-              <option key={s.index} value={s.index}>#{s.index}{s.durationMs !== undefined ? ` · ${formatDuration(s.durationMs)}` : ''}</option>
+          <select className="filter-select" value={keyB} onChange={(e: any) => setKeyB(e.target.value)} style={{ minWidth: 220 }}>
+            {spans.map((s) => (
+              <option key={s.key} value={s.key}>{s.label}</option>
             ))}
           </select>
         </div>
+        {crossRun && (
+          <span className="pill" style={{ background: '#fef3c7', color: '#92400e', borderColor: '#fcd34d', fontSize: 10 }}>
+            cross-run
+          </span>
+        )}
         <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
           <button className={`tab-button ${showPanel === 'b-only' ? 'active' : ''}`} style={{ fontSize: 11 }} onClick={() => setShowPanel('b-only')}>B 视角</button>
           <button className={`tab-button ${showPanel === 'side' ? 'active' : ''}`} style={{ fontSize: 11 }} onClick={() => setShowPanel('side')}>并排</button>
@@ -2230,17 +2268,14 @@ function CacheDiffView({ apiBase, run, llmSpans }: {
             <div className="stats-section" style={{ marginBottom: 14 }}>
               <h3 className="stats-section-title">缓存边界可视化</h3>
               <div style={{ display: 'flex', gap: 0, height: 28, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border)' }}>
-                {/* System prompt */}
                 <div style={{ background: sysMatch ? '#27ae60' : '#e74c3c', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 600, maxWidth: 120 }}>
                   SYS {sysMatch ? '⚡' : '✗'}
                 </div>
-                {/* Cached messages */}
                 {cleanPrefixLen > 0 && (
                   <div style={{ background: '#2ecc71', flex: cleanPrefixLen, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 600, minWidth: 40 }}>
                     ⚡ {cleanPrefixLen} msgs
                   </div>
                 )}
-                {/* New messages */}
                 {newMsgs > 0 && (
                   <div style={{ background: '#3498db', flex: newMsgs, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 600, minWidth: 40 }}>
                     ✦ +{newMsgs} new
@@ -2264,7 +2299,7 @@ function CacheDiffView({ apiBase, run, llmSpans }: {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
               <div style={{ fontSize: 12, fontWeight: 600, color: '#27ae60', marginBottom: 8 }}>
-                A — Span #{spanA} · {snapshotA.messages.length} msgs
+                A — {spanInfoA.label} · {snapshotA.messages.length} msgs
               </div>
               <MsgList
                 messages={snapshotA.messages}
@@ -2273,7 +2308,7 @@ function CacheDiffView({ apiBase, run, llmSpans }: {
             </div>
             <div>
               <div style={{ fontSize: 12, fontWeight: 600, color: '#2980b9', marginBottom: 8 }}>
-                B — Span #{spanB} · {snapshotB.messages.length} msgs
+                B — {spanInfoB.label} · {snapshotB.messages.length} msgs
                 {cacheRead > 0 && <span style={{ marginLeft: 8, fontSize: 11, color: '#27ae60' }}>⚡ {formatK(cacheRead)} cache read</span>}
               </div>
               <MsgList
@@ -2286,7 +2321,7 @@ function CacheDiffView({ apiBase, run, llmSpans }: {
         ) : (
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#2980b9', marginBottom: 8 }}>
-              B — Span #{spanB} · {snapshotB.messages.length} msgs
+              B — {spanInfoB.label} · {snapshotB.messages.length} msgs
               {cacheRead > 0 && <span style={{ marginLeft: 8, fontSize: 11, color: '#27ae60' }}>⚡ {formatK(cacheRead)} cache read</span>}
             </div>
             <MsgList
@@ -2374,7 +2409,21 @@ function PromptView({ apiBase, run }: { apiBase: string; run: RunDetail | null }
 
       {/* Cache Diff Mode */}
       {viewMode === 'diff' && (
-        <CacheDiffView apiBase={apiBase} run={run} llmSpans={llmSpans} />
+        <CacheDiffView
+          apiBase={apiBase}
+          spans={llmSpans.map((s) => ({
+            key: `${run.runId}#${s.index}`,
+            runId: run.runId,
+            spanIndex: s.index,
+            label: `#${s.index}${s.durationMs !== undefined ? ` · ${formatDuration(s.durationMs)}` : ''}${s.cacheReadTokens ? ` · ⚡${formatK(s.cacheReadTokens)}` : ''}`,
+            model: s.model,
+            inputTokens: s.inputTokens,
+            outputTokens: s.outputTokens,
+            cacheReadTokens: s.cacheReadTokens,
+            cacheWriteTokens: s.cacheWriteTokens,
+            durationMs: s.durationMs,
+          }))}
+        />
       )}
 
       {/* Single Mode */}
@@ -3044,6 +3093,457 @@ function ErrorsView({ apiBase }: { apiBase: string }) {
                         </td>
                         <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                           {e.sessionId ? e.sessionId.slice(0, 20) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Sessions View ────────────────────────────────────────────────────────────
+
+interface SessionListEntry {
+  sessionId: string;
+  runCount: number;
+  llmCallCount: number;
+  toolCallCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  cacheHitRate: number;
+  errorCount: number;
+  costUsd: number;
+  firstRunAt: number;
+  lastRunAt: number;
+  models: string[];
+  pluginNames: string[];
+}
+
+interface SessionsListResponse {
+  ok: boolean;
+  from: number;
+  to: number;
+  sessions: SessionListEntry[];
+}
+
+interface SessionRunRow {
+  runId: string;
+  status: string;
+  startedAt: number;
+  endedAt?: number;
+  durationMs?: number;
+  pluginName?: string;
+  caller?: string;
+  userTextPreview?: string;
+  llmCalls: number;
+  toolCalls: number;
+  totalInputTokens?: number;
+  totalOutputTokens?: number;
+  totalCacheReadTokens?: number;
+  errorCount?: number;
+  costUsd?: number;
+  models?: string[];
+}
+
+interface SessionLlmCallRow {
+  runId: string;
+  runStartedAt: number;
+  pluginName?: string;
+  spanIndex: number;
+  startedAt: number;
+  endedAt?: number;
+  durationMs?: number;
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  messageCount?: number;
+  finishReason?: string;
+  errorMessage?: string;
+}
+
+interface SessionDetailResponse {
+  ok: boolean;
+  sessionId: string;
+  aggregate: {
+    sessionId: string;
+    runCount: number;
+    llmCallCount: number;
+    toolCallCount: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    totalTokens: number;
+    cacheHitRate: number;
+    errorCount: number;
+    costUsd: number;
+    firstRunAt: number;
+    lastRunAt: number;
+    models: string[];
+  };
+  runs: SessionRunRow[];
+  llmCalls: SessionLlmCallRow[];
+}
+
+function formatTimeShort(ts: number): string {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
+}
+
+function SessionsView({ apiBase }: { apiBase: string }) {
+  const [range, setRange] = useState<StatsRange>('week');
+  const [search, setSearch] = useState('');
+  const [data, setData] = useState<SessionsListResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true); setError(null);
+    try {
+      const params = new URLSearchParams();
+      params.set('range', range);
+      if (search.trim()) params.set('q', search.trim());
+      params.set('limit', '100');
+      const res = await fetch(`${apiBase}/sessions?${params.toString()}`);
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error ?? 'Failed');
+      setData(json as SessionsListResponse);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, [apiBase, range]);
+
+  if (selectedId) {
+    return (
+      <SessionDetailView
+        apiBase={apiBase}
+        sessionId={selectedId}
+        onBack={() => setSelectedId(null)}
+      />
+    );
+  }
+
+  return (
+    <div className="stats-view">
+      <div className="stats-controls" style={{ marginBottom: 12 }}>
+        <div className="stats-range-tabs">
+          {(['today', 'week', 'month'] as const).map((r) => (
+            <button
+              key={r}
+              className={`tab-button ${range === r ? 'active' : ''}`}
+              onClick={() => setRange(r)}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+        <input
+          className="filter-input"
+          placeholder="Search session_id"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') load(); }}
+          style={{ maxWidth: 280 }}
+        />
+        <button className="tab-button" onClick={load}>Search</button>
+        {loading && <span className="stats-loading">Loading…</span>}
+      </div>
+
+      {error && <div className="error">{error}</div>}
+
+      {data && (
+        <div className="stats-section">
+          <h3 className="stats-section-title">
+            Sessions ({data.sessions.length})
+          </h3>
+          <div className="stats-table-wrapper">
+            <table className="stats-table">
+              <thead>
+                <tr>
+                  <th>Session ID</th>
+                  <th style={{ textAlign: 'right' }}>Runs</th>
+                  <th style={{ textAlign: 'right' }}>LLM calls</th>
+                  <th style={{ textAlign: 'right' }}>Total tok</th>
+                  <th style={{ textAlign: 'right' }}>Cache hit</th>
+                  <th style={{ textAlign: 'right' }}>Cost</th>
+                  <th style={{ textAlign: 'right' }}>Errors</th>
+                  <th>Last activity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.sessions.map((s) => (
+                  <tr
+                    key={s.sessionId}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setSelectedId(s.sessionId)}
+                  >
+                    <td>
+                      <span style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                        {s.sessionId === 'unknown' ? '(unknown)' : s.sessionId.length > 32 ? `${s.sessionId.slice(0, 32)}…` : s.sessionId}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: 'right' }}>{s.runCount}</td>
+                    <td style={{ textAlign: 'right' }}>{s.llmCallCount}</td>
+                    <td style={{ textAlign: 'right' }}>{formatK(s.totalTokens)}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <span style={{ color: s.cacheHitRate > 0.5 ? '#27ae60' : s.cacheHitRate > 0.2 ? '#f39c12' : 'var(--text-muted)' }}>
+                        {Math.round(s.cacheHitRate * 100)}%
+                      </span>
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      {s.costUsd > 0 ? `$${s.costUsd.toFixed(4)}` : '—'}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      {s.errorCount > 0 ? <span style={{ color: '#e74c3c' }}>{s.errorCount}</span> : '—'}
+                    </td>
+                    <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                      {formatTimeShort(s.lastRunAt)}
+                    </td>
+                  </tr>
+                ))}
+                {data.sessions.length === 0 && (
+                  <tr><td colSpan={8} className="empty">No sessions in range.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SessionDetailView({ apiBase, sessionId, onBack }: {
+  apiBase: string;
+  sessionId: string;
+  onBack: () => void;
+}) {
+  const [data, setData] = useState<SessionDetailResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<'timeline' | 'diff' | 'runs'>('timeline');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true); setError(null);
+      try {
+        const res = await fetch(`${apiBase}/sessions/${encodeURIComponent(sessionId)}?range=month`);
+        const json = await res.json();
+        if (!json.ok) throw new Error(json.error ?? 'Failed');
+        if (!cancelled) setData(json as SessionDetailResponse);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [apiBase, sessionId]);
+
+  const llmSpans: DiffSpanRef[] = useMemo(() => {
+    if (!data) return [];
+    return data.llmCalls.map((c, idx) => {
+      const t = new Date(c.startedAt);
+      const timeStr = `${t.getHours().toString().padStart(2, '0')}:${t.getMinutes().toString().padStart(2, '0')}:${t.getSeconds().toString().padStart(2, '0')}`;
+      const cacheStr = c.cacheReadTokens ? ` · ⚡${formatK(c.cacheReadTokens)}` : '';
+      const inStr = c.inputTokens ? ` · in${formatK(c.inputTokens)}` : '';
+      return {
+        key: `${c.runId}#${c.spanIndex}`,
+        runId: c.runId,
+        spanIndex: c.spanIndex,
+        label: `[${idx + 1}] ${timeStr} · run:${c.runId.slice(0, 6)}#${c.spanIndex}${inStr}${cacheStr}`,
+        model: c.model,
+        inputTokens: c.inputTokens,
+        outputTokens: c.outputTokens,
+        cacheReadTokens: c.cacheReadTokens,
+        cacheWriteTokens: c.cacheWriteTokens,
+        durationMs: c.durationMs,
+      };
+    });
+  }, [data]);
+
+  return (
+    <div className="stats-view">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+        <button className="tab-button" onClick={onBack}>← Back</button>
+        <h2 style={{ margin: 0, fontSize: 16 }}>
+          Session <span style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-muted)' }}>
+            {sessionId === 'unknown' ? '(unknown)' : sessionId}
+          </span>
+        </h2>
+        {sessionId !== 'unknown' && <CopyButton value={sessionId} />}
+        {loading && <span className="stats-loading">Loading…</span>}
+      </div>
+
+      {error && <div className="error">{error}</div>}
+
+      {data && (
+        <>
+          {/* Aggregate cards */}
+          <div className="stats-cards" style={{ marginBottom: 14 }}>
+            <StatCard label="Runs" value={String(data.aggregate.runCount)} sub={`${data.aggregate.llmCallCount} LLM calls`} />
+            <StatCard label="Total Tokens" value={formatK(data.aggregate.totalTokens)} sub={`in ${formatK(data.aggregate.inputTokens)} · out ${formatK(data.aggregate.outputTokens)}`} />
+            <StatCard
+              label="Cache Hit Rate"
+              value={`${Math.round(data.aggregate.cacheHitRate * 100)}%`}
+              sub={`${formatK(data.aggregate.cacheReadTokens)} cache read`}
+            />
+            <StatCard
+              label="Cost"
+              value={data.aggregate.costUsd > 0 ? `$${data.aggregate.costUsd.toFixed(4)}` : '—'}
+              sub={data.aggregate.models.join(', ') || undefined}
+            />
+            <StatCard
+              label="Errors"
+              value={String(data.aggregate.errorCount)}
+              sub={data.aggregate.toolCallCount > 0 ? `${data.aggregate.toolCallCount} tool calls` : undefined}
+            />
+            <StatCard
+              label="Span"
+              value={`${formatTimeShort(data.aggregate.firstRunAt).split(' ')[1]} → ${formatTimeShort(data.aggregate.lastRunAt).split(' ')[1]}`}
+              sub={formatTimeShort(data.aggregate.firstRunAt).split(' ')[0]}
+            />
+          </div>
+
+          {/* Tabs */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+            <button className={`tab-button ${tab === 'timeline' ? 'active' : ''}`} onClick={() => setTab('timeline')}>
+              📋 LLM Timeline ({data.llmCalls.length})
+            </button>
+            <button
+              className={`tab-button ${tab === 'diff' ? 'active' : ''}`}
+              onClick={() => setTab('diff')}
+              disabled={llmSpans.length < 2}
+              title={llmSpans.length < 2 ? '需要至少 2 次 LLM 调用' : 'Cross-run cache diff'}
+            >
+              ⚡ Cache Diff
+            </button>
+            <button className={`tab-button ${tab === 'runs' ? 'active' : ''}`} onClick={() => setTab('runs')}>
+              ⚡ Runs ({data.runs.length})
+            </button>
+          </div>
+
+          {tab === 'timeline' && (
+            <div className="stats-section">
+              <div className="stats-table-wrapper">
+                <table className="stats-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Time</th>
+                      <th>Run</th>
+                      <th>Span</th>
+                      <th>Model</th>
+                      <th style={{ textAlign: 'right' }}>Msgs</th>
+                      <th style={{ textAlign: 'right' }}>In</th>
+                      <th style={{ textAlign: 'right' }}>Out</th>
+                      <th style={{ textAlign: 'right' }}>Cache R</th>
+                      <th style={{ textAlign: 'right' }}>Cache W</th>
+                      <th style={{ textAlign: 'right' }}>Dur</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.llmCalls.map((c, idx) => {
+                      const inT = c.inputTokens ?? 0;
+                      const cR = c.cacheReadTokens ?? 0;
+                      const hitRate = inT > 0 ? Math.round((cR / inT) * 100) : 0;
+                      return (
+                        <tr key={`${c.runId}-${c.spanIndex}`}>
+                          <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>{idx + 1}</td>
+                          <td style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{formatTime(c.startedAt)}</td>
+                          <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{c.runId.slice(0, 8)}</td>
+                          <td style={{ textAlign: 'center' }}>#{c.spanIndex}</td>
+                          <td style={{ fontSize: 11 }}>{c.model ?? '—'}</td>
+                          <td style={{ textAlign: 'right' }}>{c.messageCount ?? '—'}</td>
+                          <td style={{ textAlign: 'right' }}>{c.inputTokens ? formatK(c.inputTokens) : '—'}</td>
+                          <td style={{ textAlign: 'right' }}>{c.outputTokens ? formatK(c.outputTokens) : '—'}</td>
+                          <td style={{ textAlign: 'right' }}>
+                            {cR > 0 ? (
+                              <span style={{ color: '#27ae60' }}>{formatK(cR)} <span style={{ fontSize: 10, opacity: 0.7 }}>({hitRate}%)</span></span>
+                            ) : '—'}
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            {c.cacheWriteTokens ? <span style={{ color: '#3498db' }}>{formatK(c.cacheWriteTokens)}</span> : '—'}
+                          </td>
+                          <td style={{ textAlign: 'right', fontSize: 11 }}>{c.durationMs ? formatDuration(c.durationMs) : '—'}</td>
+                          <td>
+                            {c.errorMessage ? <span style={{ color: '#e74c3c', fontSize: 11 }}>error</span> : <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>{c.finishReason ?? 'ok'}</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {data.llmCalls.length === 0 && (
+                      <tr><td colSpan={12} className="empty">No LLM calls in this session.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {tab === 'diff' && (
+            <CacheDiffView
+              apiBase={apiBase}
+              spans={llmSpans}
+              contextLabel={`Cross-run diff within session · ${llmSpans.length} LLM calls`}
+            />
+          )}
+
+          {tab === 'runs' && (
+            <div className="stats-section">
+              <div className="stats-table-wrapper">
+                <table className="stats-table">
+                  <thead>
+                    <tr>
+                      <th>Run ID</th>
+                      <th>Status</th>
+                      <th>Started</th>
+                      <th>Duration</th>
+                      <th style={{ textAlign: 'right' }}>LLM</th>
+                      <th style={{ textAlign: 'right' }}>Tools</th>
+                      <th style={{ textAlign: 'right' }}>Tokens</th>
+                      <th style={{ textAlign: 'right' }}>Cache R</th>
+                      <th style={{ textAlign: 'right' }}>Errors</th>
+                      <th>User text</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.runs.map((r) => (
+                      <tr key={r.runId}>
+                        <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{r.runId.slice(0, 10)}</td>
+                        <td>
+                          <span className={`status ${r.status}`} style={{ fontSize: 11 }}>{r.status}</span>
+                        </td>
+                        <td style={{ fontSize: 11 }}>{formatTime(r.startedAt)}</td>
+                        <td style={{ fontSize: 11 }}>{r.durationMs ? formatDuration(r.durationMs) : '—'}</td>
+                        <td style={{ textAlign: 'right' }}>{r.llmCalls}</td>
+                        <td style={{ textAlign: 'right' }}>{r.toolCalls}</td>
+                        <td style={{ textAlign: 'right' }}>{formatK((r.totalInputTokens ?? 0) + (r.totalOutputTokens ?? 0))}</td>
+                        <td style={{ textAlign: 'right' }}>{r.totalCacheReadTokens ? formatK(r.totalCacheReadTokens) : '—'}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          {r.errorCount && r.errorCount > 0 ? <span style={{ color: '#e74c3c' }}>{r.errorCount}</span> : '—'}
+                        </td>
+                        <td style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {r.userTextPreview ?? '—'}
                         </td>
                       </tr>
                     ))}
