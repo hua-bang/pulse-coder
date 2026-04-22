@@ -8,6 +8,27 @@ import type { Tool as CoderTool, ToolExecutionContext, LLMProviderFactory, Syste
 const openaiProviderOptions = { openai: { store: false, reasoningEffort: OPENAI_REASONING_EFFORT } };
 const claudeProviderOptions = { anthropic: { cacheControl: { type: 'ephemeral' as const } } };
 
+/**
+ * Default per-call output token caps.
+ *
+ * The Vercel AI SDK does NOT pass `maxOutputTokens` automatically — when omitted,
+ * Anthropic provider falls back to its protocol default of 4096, which Claude
+ * regularly burns entirely on internal thinking tokens, surfacing as
+ * `finishReason='length'` with `textLen=0`. We were misdiagnosing that as a
+ * context-window overflow and force-compacting the history (see loop.ts), which
+ * never helped because the bottleneck was output tokens, not input.
+ *
+ * Set explicit, generous caps. Anthropic Claude Sonnet 4.x supports up to
+ * 64K output tokens; 16K is enough for reasoning + final answer in practice
+ * while keeping latency/cost reasonable.
+ */
+const DEFAULT_MAX_OUTPUT_TOKENS_CLAUDE = Number(process.env.CLAUDE_MAX_OUTPUT_TOKENS ?? 16384);
+const DEFAULT_MAX_OUTPUT_TOKENS_OPENAI = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS ?? 16384);
+
+function resolveMaxOutputTokens(modelType?: ModelType): number {
+  return modelType === 'claude' ? DEFAULT_MAX_OUTPUT_TOKENS_CLAUDE : DEFAULT_MAX_OUTPUT_TOKENS_OPENAI;
+}
+
 function resolveProviderOptions(modelType?: ModelType) {
   if (modelType === 'claude') {
     return { ...openaiProviderOptions, ...claudeProviderOptions };
@@ -124,6 +145,7 @@ export const streamTextAI = (messages: ModelMessage[], tools: Record<string, Cod
     messages: filteredMessages,
     tools: wrappedTools as Record<string, Tool>,
     providerOptions: resolveProviderOptions(options?.modelType),
+    maxOutputTokens: resolveMaxOutputTokens(options?.modelType),
     abortSignal: options?.abortSignal,
     onStepFinish: options?.onStepFinish,
     onChunk: options?.onChunk,
