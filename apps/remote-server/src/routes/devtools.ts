@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { devtoolsStore } from '../core/devtools.js';
-import type { TokenStatsGranularity } from 'pulse-coder-plugin-kit/devtools';
+import type { TokenStatsGranularity, TokenStatsGroupBy } from 'pulse-coder-plugin-kit/devtools';
 
 export const devtoolsRouter = new Hono();
 
@@ -29,6 +29,19 @@ devtoolsRouter.get('/runs/:runId', async (c) => {
     return c.json({ ok: false, error: 'Not found' }, 404);
   }
   return c.json({ ok: true, run });
+});
+
+devtoolsRouter.get('/runs/:runId/llm/:spanIndex', async (c) => {
+  const runId = c.req.param('runId');
+  const spanIndex = Number(c.req.param('spanIndex'));
+  if (!Number.isFinite(spanIndex) || spanIndex < 1) {
+    return c.json({ ok: false, error: 'Invalid spanIndex' }, 400);
+  }
+  const snapshot = await devtoolsStore.getLlmPromptSnapshot(runId, spanIndex);
+  if (!snapshot) {
+    return c.json({ ok: false, error: 'Snapshot not found' }, 404);
+  }
+  return c.json({ ok: true, snapshot });
 });
 
 // ── Token Stats ──────────────────────────────────────────────────────────────
@@ -61,14 +74,17 @@ devtoolsRouter.get('/stats/tokens', (c) => {
   const toRaw = c.req.query('to');
   const granularityRaw = c.req.query('granularity') as TokenStatsGranularity | undefined;
   const sessionId = c.req.query('sessionId') || undefined;
+  const groupByRaw = c.req.query('groupBy') as TokenStatsGroupBy | undefined;
 
   const granularity: TokenStatsGranularity =
     granularityRaw === 'hour' || granularityRaw === 'week' ? granularityRaw : 'day';
+  const groupBy: TokenStatsGroupBy =
+    groupByRaw === 'model' || groupByRaw === 'session' ? groupByRaw : 'none';
 
   const { from, to } = resolveTimeRange(range, fromRaw, toRaw);
 
-  const result = devtoolsStore.getTokenStats({ from, to, granularity, sessionId });
-  return c.json({ ok: true, from, to, granularity, ...result });
+  const result = devtoolsStore.getTokenStats({ from, to, granularity, sessionId, groupBy });
+  return c.json({ ok: true, from, to, granularity, groupBy, ...result });
 });
 
 // Per-session token breakdown within a time range
@@ -128,4 +144,30 @@ devtoolsRouter.get('/stats/sessions', (c) => {
     .slice(0, limit);
 
   return c.json({ ok: true, from, to, sessions });
+});
+
+// ── Tool Health Stats ────────────────────────────────────────────────────────
+
+devtoolsRouter.get('/stats/tools', async (c) => {
+  const range = c.req.query('range');
+  const fromRaw = c.req.query('from');
+  const toRaw = c.req.query('to');
+  const sessionId = c.req.query('sessionId') || undefined;
+  const { from, to } = resolveTimeRange(range, fromRaw, toRaw);
+  const result = await devtoolsStore.getToolStats({ from, to, sessionId });
+  return c.json({ ok: true, ...result });
+});
+
+// ── Errors ───────────────────────────────────────────────────────────────────
+
+devtoolsRouter.get('/errors', async (c) => {
+  const range = c.req.query('range');
+  const fromRaw = c.req.query('from');
+  const toRaw = c.req.query('to');
+  const sessionId = c.req.query('sessionId') || undefined;
+  const limitRaw = c.req.query('limit');
+  const limit = limitRaw ? Math.max(1, Math.min(500, Number(limitRaw))) : 200;
+  const { from, to } = resolveTimeRange(range, fromRaw, toRaw);
+  const result = await devtoolsStore.getErrors({ from, to, sessionId, limit });
+  return c.json({ ok: true, ...result });
 });

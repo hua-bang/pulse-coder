@@ -17,6 +17,8 @@ export interface BeforeRunInput {
   systemPrompt?: SystemPromptOption;
   tools: Record<string, any>;
   runContext?: Record<string, any>;
+  /** Model identifier that will be used for the upcoming call. */
+  model?: string;
 }
 
 export interface BeforeRunResult {
@@ -41,6 +43,8 @@ export interface AfterLLMCallInput {
   finishReason: string;
   text: string;
   usage?: any;
+  /** Model identifier that produced this response. */
+  model?: string;
   timings?: {
     requestStartAt?: number;
     firstChunkAt?: number;

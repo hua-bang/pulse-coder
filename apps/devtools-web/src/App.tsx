@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 
 type RunStatus = 'running' | 'finished';
-type PageView = 'runs' | 'stats';
+type PageView = 'runs' | 'stats' | 'tools' | 'errors';
 type StatsRange = 'today' | 'week' | 'month' | 'custom';
 type StatsGranularity = 'hour' | 'day' | 'week';
+type StatsGroupBy = 'none' | 'model' | 'session';
 
 interface RunSummary {
   runId: string;
@@ -25,6 +26,9 @@ interface RunSummary {
   totalOutputTokens?: number;
   totalCacheReadTokens?: number;
   totalCacheWriteTokens?: number;
+  models?: string[];
+  errorCount?: number;
+  costUsd?: number;
 }
 
 interface TokenStatsBucket {
@@ -36,6 +40,7 @@ interface TokenStatsBucket {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   totalTokens: number;
+  costUsd?: number;
 }
 
 interface TokenStatsSummary {
@@ -45,6 +50,18 @@ interface TokenStatsSummary {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   totalTokens: number;
+  costUsd?: number;
+}
+
+interface TokenStatsGroupEntry {
+  key: string;
+  runCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  costUsd?: number;
 }
 
 interface TokenStatsResponse {
@@ -52,8 +69,10 @@ interface TokenStatsResponse {
   from: number;
   to: number;
   granularity: StatsGranularity;
+  groupBy?: StatsGroupBy;
   summary: TokenStatsSummary;
   buckets: TokenStatsBucket[];
+  groups?: TokenStatsGroupEntry[];
 }
 
 interface SessionBreakdown {
@@ -89,6 +108,7 @@ interface LlmSpan {
   streamDurationMs?: number;
   finishReason?: string;
   textLength?: number;
+  model?: string;
   toolCalls?: Array<{
     name: string;
     inputSize?: number;
@@ -100,6 +120,77 @@ interface LlmSpan {
   cacheWriteTokens?: number;
   usageRaw?: string;
   usageTruncated?: boolean;
+  promptRef?: string;
+  systemPromptPreview?: string;
+  messageCount?: number;
+  toolNames?: string[];
+  messagesBytes?: number;
+  promptTruncated?: boolean;
+  errorMessage?: string;
+}
+
+interface LlmPromptSnapshot {
+  runId: string;
+  spanIndex: number;
+  capturedAt: number;
+  model?: string;
+  systemPrompt?: string;
+  systemPromptTruncated?: boolean;
+  messages: any[];
+  messagesTruncated?: boolean;
+  toolNames?: string[];
+  totalBytes?: number;
+}
+
+interface ToolStatEntry {
+  name: string;
+  count: number;
+  errorCount: number;
+  errorRate: number;
+  totalDurationMs: number;
+  avgDurationMs: number;
+  p50DurationMs: number;
+  p95DurationMs: number;
+  maxDurationMs: number;
+  avgInputBytes: number;
+  avgOutputBytes: number;
+  lastUsedAt: number;
+}
+
+interface ToolStatsResponse {
+  ok: boolean;
+  from: number;
+  to: number;
+  totalCalls: number;
+  tools: ToolStatEntry[];
+}
+
+interface DevtoolsErrorEntry {
+  runId: string;
+  source: 'tool' | 'llm';
+  name: string;
+  message: string;
+  at: number;
+  spanIndex?: number;
+  sessionId?: string;
+}
+
+interface ErrorAggregateEntry {
+  message: string;
+  count: number;
+  source: 'tool' | 'llm';
+  names: string[];
+  lastAt: number;
+  sampleRunIds: string[];
+}
+
+interface ErrorsResponse {
+  ok: boolean;
+  from: number;
+  to: number;
+  total: number;
+  entries: DevtoolsErrorEntry[];
+  aggregates: ErrorAggregateEntry[];
 }
 
 interface ToolSpan {
@@ -202,7 +293,7 @@ export default function App() {
   const [groupBy, setGroupBy] = useState<'none' | 'session'>('none');
   const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'finished'>('all');
   const [sortBy, setSortBy] = useState<'recent' | 'duration' | 'lastEvent'>('recent');
-  const [detailTab, setDetailTab] = useState<'llm' | 'plugins' | 'timeline'>('llm');
+  const [detailTab, setDetailTab] = useState<'llm' | 'plugins' | 'timeline' | 'prompt'>('llm');
   const [timelineRange, setTimelineRange] = useState({ from: 1, to: 1 });
 
   const apiBase = useMemo(() => sanitizeBaseUrl(baseUrl), [baseUrl]);
@@ -670,6 +761,12 @@ export default function App() {
             LLM & Tools
           </button>
           <button
+            className={`tab-button ${detailTab === 'prompt' ? 'active' : ''}`}
+            onClick={() => setDetailTab('prompt')}
+          >
+            Prompts
+          </button>
+          <button
             className={`tab-button ${detailTab === 'timeline' ? 'active' : ''}`}
             onClick={() => setDetailTab('timeline')}
           >
@@ -1000,6 +1097,8 @@ export default function App() {
               )}
             </section>
           </>
+        ) : detailTab === 'prompt' ? (
+          <PromptView apiBase={apiBase} run={selectedRun} />
         ) : detailTab === 'timeline' ? (
           <>
             <section className="section">
@@ -1341,19 +1440,29 @@ export default function App() {
       </header>
 
       <div className="page-nav">
-        {(['runs', 'stats'] as const).map((p) => (
+        {(['runs', 'stats', 'tools', 'errors'] as const).map((p) => (
           <button
             key={p}
             className={`page-nav-btn ${page === p ? 'active' : ''}`}
             onClick={() => setPage(p)}
           >
-            {p === 'runs' ? '⚡ Runs' : '📊 Stats'}
+            {p === 'runs'
+              ? '⚡ Runs'
+              : p === 'stats'
+              ? '📊 Stats'
+              : p === 'tools'
+              ? '🧰 Tools'
+              : '⚠️ Errors'}
           </button>
         ))}
       </div>
 
       {page === 'stats' ? (
         <StatsView apiBase={apiBase} />
+      ) : page === 'tools' ? (
+        <ToolsView apiBase={apiBase} />
+      ) : page === 'errors' ? (
+        <ErrorsView apiBase={apiBase} />
       ) : (
       <main>
         <section className="panel">
@@ -1643,6 +1752,7 @@ function BarChart({ buckets, height = 140 }: { buckets: TokenStatsBucket[]; heig
 function StatsView({ apiBase }: { apiBase: string }) {
   const [range, setRange] = useState<StatsRange>('week');
   const [granularity, setGranularity] = useState<StatsGranularity>('day');
+  const [groupBy, setGroupBy] = useState<StatsGroupBy>('none');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [tokenStats, setTokenStats] = useState<TokenStatsResponse | null>(null);
@@ -1651,7 +1761,7 @@ function StatsView({ apiBase }: { apiBase: string }) {
   const [error, setError] = useState<string | null>(null);
 
   const buildQuery = () => {
-    const params = new URLSearchParams({ range, granularity });
+    const params = new URLSearchParams({ range, granularity, groupBy });
     if (range === 'custom') {
       if (customFrom) params.set('from', String(new Date(customFrom).getTime()));
       if (customTo) params.set('to', String(new Date(customTo).getTime()));
@@ -1679,7 +1789,7 @@ function StatsView({ apiBase }: { apiBase: string }) {
     }
   };
 
-  useEffect(() => { load(); }, [range, granularity, apiBase]);
+  useEffect(() => { load(); }, [range, granularity, groupBy, apiBase]);
 
   const summary = tokenStats?.summary;
   const buckets = tokenStats?.buckets ?? [];
@@ -1711,6 +1821,18 @@ function StatsView({ apiBase }: { apiBase: string }) {
             <option value="hour">Hour</option>
             <option value="day">Day</option>
             <option value="week">Week</option>
+          </select>
+        </div>
+        <div className="stats-granularity">
+          <span className="stats-ctrl-label">Group by</span>
+          <select
+            className="filter-select"
+            value={groupBy}
+            onChange={(e) => setGroupBy(e.target.value as StatsGroupBy)}
+          >
+            <option value="none">None</option>
+            <option value="model">Model</option>
+            <option value="session">Session</option>
           </select>
         </div>
         {range === 'custom' && (
@@ -1747,6 +1869,9 @@ function StatsView({ apiBase }: { apiBase: string }) {
           />
           <StatCard label="Output Tokens" value={formatK(summary.outputTokens)} />
           <StatCard label="Total Tokens" value={formatK(summary.totalTokens)} />
+          {summary.costUsd !== undefined && (
+            <StatCard label="Est. Cost" value={`$${summary.costUsd.toFixed(4)}`} sub="model price table" />
+          )}
           {summary.cacheReadTokens > 0 && (
             <StatCard
               label="Cache Read"
@@ -1773,6 +1898,43 @@ function StatsView({ apiBase }: { apiBase: string }) {
         <h3 className="stats-section-title">Token Usage Over Time</h3>
         <BarChart buckets={buckets} />
       </div>
+
+      {/* Groups (groupBy=model | session) */}
+      {tokenStats?.groups && tokenStats.groups.length > 0 && (
+        <div className="stats-section">
+          <h3 className="stats-section-title">
+            Breakdown by {groupBy === 'model' ? 'Model' : 'Session'}
+          </h3>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>{groupBy === 'model' ? 'Model' : 'Session'}</th>
+                  <th>Runs</th>
+                  <th>Input</th>
+                  <th>Output</th>
+                  <th>Cache R</th>
+                  <th>Total</th>
+                  <th>Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tokenStats.groups.map((g) => (
+                  <tr key={g.key}>
+                    <td title={g.key}>{g.key.length > 36 ? g.key.slice(0, 36) + '…' : g.key}</td>
+                    <td>{g.runCount}</td>
+                    <td>{formatK(g.inputTokens)}</td>
+                    <td>{formatK(g.outputTokens)}</td>
+                    <td>{formatK(g.cacheReadTokens)}</td>
+                    <td>{formatK(g.totalTokens)}</td>
+                    <td>{g.costUsd !== undefined ? `$${g.costUsd.toFixed(4)}` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Session Breakdown */}
       <div className="stats-section">
@@ -1809,6 +1971,743 @@ function StatsView({ apiBase }: { apiBase: string }) {
           <div className="empty">No session data in this range.</div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── PromptView ────────────────────────────────────────────────────────────────
+
+function formatBytes(n: number): string {
+  if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(1)} MB`;
+  if (n >= 1_024) return `${(n / 1_024).toFixed(1)} KB`;
+  return `${n} B`;
+}
+
+function PromptView({ apiBase, run }: { apiBase: string; run: RunDetail | null }) {
+  const [spanIndex, setSpanIndex] = useState(0);
+  const [snapshot, setSnapshot] = useState<LlmPromptSnapshot | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const [msgTab, setMsgTab] = useState<'messages' | 'tools'>('messages');
+
+  useEffect(() => {
+    setSpanIndex(0);
+    setSnapshot(null);
+    setError(null);
+    setExpandedIdx(null);
+  }, [run?.runId]);
+
+  const load = async (idx: number) => {
+    if (!run) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiBase}/runs/${run.runId}/llm/${idx}`);
+      const data = await res.json();
+      if (!data.ok || !data.snapshot) throw new Error(data.error ?? 'No snapshot');
+      setSnapshot(data.snapshot as LlmPromptSnapshot);
+      setExpandedIdx(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setSnapshot(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (run && run.llmSpans?.length > 0) {
+      load(spanIndex);
+    }
+  }, [run?.runId, spanIndex]);
+
+  if (!run) {
+    return <div className="empty" style={{ padding: '40px 0' }}>Select a run to inspect its prompt.</div>;
+  }
+
+  const llmSpans = run.llmSpans ?? [];
+  if (llmSpans.length === 0) {
+    return <div className="empty" style={{ padding: '40px 0' }}>No LLM spans recorded for this run.</div>;
+  }
+
+  const currentSpan = llmSpans[spanIndex];
+
+  return (
+    <div className="stats-view">
+      {/* Span selector */}
+      <div className="stats-controls" style={{ marginBottom: 12 }}>
+        <div className="stats-range-tabs">
+          {llmSpans.map((span, i) => (
+            <button
+              key={span.index}
+              className={`tab-button ${spanIndex === i ? 'active' : ''}`}
+              onClick={() => setSpanIndex(i)}
+            >
+              #{span.index}
+              {span.durationMs !== undefined ? ` · ${formatDuration(span.durationMs)}` : ''}
+            </button>
+          ))}
+        </div>
+        {loading && <span className="stats-loading" style={{ marginLeft: 12 }}>Loading…</span>}
+      </div>
+
+      {/* Span meta cards */}
+      {currentSpan && (
+        <div className="stats-cards">
+          <StatCard label="Model" value={currentSpan.model ?? '—'} />
+          <StatCard label="Duration" value={formatDuration(currentSpan.durationMs)} />
+          <StatCard label="Finish" value={currentSpan.finishReason ?? '—'} />
+          <StatCard
+            label="Tokens In / Out"
+            value={`${formatK(currentSpan.inputTokens ?? 0)} / ${formatK(currentSpan.outputTokens ?? 0)}`}
+            sub={currentSpan.cacheReadTokens ? `+${formatK(currentSpan.cacheReadTokens)} cache` : undefined}
+          />
+          {currentSpan.messagesBytes !== undefined && (
+            <StatCard
+              label="Prompt Size"
+              value={formatBytes(currentSpan.messagesBytes)}
+              sub={currentSpan.promptTruncated ? '⚠ truncated' : undefined}
+            />
+          )}
+          {currentSpan.messageCount !== undefined && (
+            <StatCard label="Messages" value={String(currentSpan.messageCount)} />
+          )}
+        </div>
+      )}
+
+      {currentSpan?.errorMessage && (
+        <div className="error" style={{ marginBottom: 12 }}>
+          LLM Error: {currentSpan.errorMessage}
+        </div>
+      )}
+
+      {error && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
+
+      {snapshot && (
+        <>
+          {/* System Prompt */}
+          {snapshot.systemPrompt && (
+            <div className="stats-section">
+              <h3 className="stats-section-title">
+                System Prompt
+                {snapshot.systemPromptTruncated && (
+                  <span className="pill" style={{ marginLeft: 8, background: '#fff3cd', color: '#856404' }}>truncated</span>
+                )}
+                {snapshot.systemPrompt && (
+                  <span style={{ marginLeft: 'auto' }}>
+                    <CopyButton value={snapshot.systemPrompt} />
+                  </span>
+                )}
+              </h3>
+              <div className="mono-block" style={{ maxHeight: 240, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {snapshot.systemPrompt}
+              </div>
+            </div>
+          )}
+
+          {/* Messages / Tools tabs */}
+          <div className="stats-section">
+            <div className="detail-tabs" style={{ marginBottom: 12 }}>
+              <button
+                className={`tab-button ${msgTab === 'messages' ? 'active' : ''}`}
+                onClick={() => setMsgTab('messages')}
+              >
+                Messages ({snapshot.messages.length}
+                {snapshot.messagesTruncated ? '+' : ''})
+              </button>
+              {snapshot.toolNames && snapshot.toolNames.length > 0 && (
+                <button
+                  className={`tab-button ${msgTab === 'tools' ? 'active' : ''}`}
+                  onClick={() => setMsgTab('tools')}
+                >
+                  Tools ({snapshot.toolNames.length})
+                </button>
+              )}
+            </div>
+
+            {msgTab === 'messages' && (
+              snapshot.messages.length === 0 ? (
+                <div className="empty">No messages captured.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {snapshot.messages.map((msg: any, i: number) => {
+                    const role: string = msg.role ?? 'unknown';
+                    const isExpanded = expandedIdx === i;
+                    let preview = '';
+                    if (typeof msg.content === 'string') {
+                      preview = msg.content.slice(0, 160);
+                    } else if (Array.isArray(msg.content)) {
+                      const first = msg.content.find((c: any) => c.type === 'text');
+                      preview = first?.text?.slice(0, 160) ?? `[${msg.content.length} parts]`;
+                    }
+                    const roleColor = role === 'user' ? '#1a6b2e' : role === 'assistant' ? '#1a4f9c' : '#7a5c00';
+                    return (
+                      <div
+                        key={i}
+                        style={{
+                          border: '1px solid var(--border)',
+                          borderRadius: 6,
+                          overflow: 'hidden',
+                          background: 'var(--bg-card)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '6px 10px',
+                            cursor: 'pointer',
+                            background: 'var(--bg-sidebar)',
+                            borderBottom: isExpanded ? '1px solid var(--border)' : 'none',
+                          }}
+                          onClick={() => setExpandedIdx(isExpanded ? null : i)}
+                        >
+                          <span style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            color: roleColor,
+                            minWidth: 72,
+                          }}>
+                            {role}
+                          </span>
+                          <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {preview}{!isExpanded && preview.length === 160 ? '…' : ''}
+                          </span>
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                            {isExpanded ? '▲' : '▼'}
+                          </span>
+                        </div>
+                        {isExpanded && (
+                          <div className="mono-block" style={{ margin: 0, borderRadius: 0, maxHeight: 360, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                            {typeof msg.content === 'string'
+                              ? msg.content
+                              : JSON.stringify(msg.content, null, 2)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {snapshot.messagesTruncated && (
+                    <div className="empty" style={{ fontSize: 12 }}>
+                      ⚠ Snapshot was truncated — older messages not shown.
+                    </div>
+                  )}
+                </div>
+              )
+            )}
+
+            {msgTab === 'tools' && snapshot.toolNames && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {snapshot.toolNames.map((t) => (
+                  <span key={t} className="pill">{t}</span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Footer info */}
+          {snapshot.totalBytes !== undefined && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+              Snapshot size: {formatBytes(snapshot.totalBytes)}
+              {' · '}Captured: {new Date(snapshot.capturedAt).toLocaleString()}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── ToolsView ─────────────────────────────────────────────────────────────────
+
+function ToolsView({ apiBase }: { apiBase: string }) {
+  const [range, setRange] = useState<StatsRange>('week');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [sessionId, setSessionId] = useState('');
+  const [data, setData] = useState<ToolStatsResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<'count' | 'avgDurationMs' | 'errorRate' | 'p95DurationMs'>('count');
+
+  const buildQuery = () => {
+    const params = new URLSearchParams({ range });
+    if (range === 'custom') {
+      if (customFrom) params.set('from', String(new Date(customFrom).getTime()));
+      if (customTo) params.set('to', String(new Date(customTo).getTime()));
+    }
+    if (sessionId.trim()) params.set('sessionId', sessionId.trim());
+    return params.toString();
+  };
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiBase}/stats/tools?${buildQuery()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json() as ToolStatsResponse;
+      setData(json);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, [range, apiBase]);
+
+  const tools = [...(data?.tools ?? [])].sort((a, b) => b[sortKey] - a[sortKey]);
+  const maxCount = Math.max(...tools.map((t) => t.count), 1);
+
+  return (
+    <div className="stats-view">
+      {/* Controls */}
+      <div className="stats-controls">
+        <div className="stats-range-tabs">
+          {(['today', 'week', 'month', 'custom'] as const).map((r) => (
+            <button
+              key={r}
+              className={`tab-button ${range === r ? 'active' : ''}`}
+              onClick={() => setRange(r)}
+            >
+              {r === 'today' ? 'Today' : r === 'week' ? '7 Days' : r === 'month' ? '30 Days' : 'Custom'}
+            </button>
+          ))}
+        </div>
+        <input
+          className="filter-input"
+          placeholder="Filter session ID"
+          value={sessionId}
+          onChange={(e) => setSessionId(e.target.value)}
+          style={{ width: 200 }}
+        />
+        {range === 'custom' && (
+          <div className="stats-custom-range">
+            <input type="date" className="filter-input" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+            <span>→</span>
+            <input type="date" className="filter-input" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+            <button className="button" onClick={load}>Apply</button>
+          </div>
+        )}
+        {loading && <span className="stats-loading">Loading…</span>}
+      </div>
+
+      {error && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
+
+      {/* Summary Cards */}
+      {data && (
+        <div className="stats-cards">
+          <StatCard label="Total Calls" value={formatK(data.totalCalls)} />
+          <StatCard label="Unique Tools" value={String(data.tools.length)} />
+          {data.tools.length > 0 && (
+            <StatCard
+              label="Most Used"
+              value={data.tools.reduce((a, b) => a.count >= b.count ? a : b).name}
+            />
+          )}
+          {data.tools.length > 0 && (
+            <StatCard
+              label="Avg Duration"
+              value={formatDuration(
+                Math.round(data.tools.reduce((s, t) => s + t.avgDurationMs * t.count, 0) / Math.max(data.totalCalls, 1))
+              )}
+            />
+          )}
+        </div>
+      )}
+
+      {data && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+          {formatDate(data.from)} – {formatDate(data.to)}
+        </div>
+      )}
+
+      {/* Sort controls */}
+      {tools.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Sort by</span>
+          {([
+            ['count', 'Calls'],
+            ['avgDurationMs', 'Avg Duration'],
+            ['p95DurationMs', 'p95'],
+            ['errorRate', 'Error Rate'],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              className={`tab-button ${sortKey === key ? 'active' : ''}`}
+              style={{ fontSize: 11, padding: '3px 9px' }}
+              onClick={() => setSortKey(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Bar visualization */}
+      {tools.length > 0 && (
+        <div className="stats-section">
+          <h3 className="stats-section-title">Call Count by Tool</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {tools.slice(0, 20).map((t) => {
+              const pct = Math.round((t.count / maxCount) * 100);
+              return (
+                <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12, fontFamily: 'monospace', minWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    title={t.name}>
+                    {t.name}
+                  </span>
+                  <div className="bar-track" style={{ flex: 1 }}>
+                    <div className="bar-fill" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="bar-value">{formatK(t.count)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Table */}
+      {tools.length > 0 ? (
+        <div className="stats-section">
+          <h3 className="stats-section-title">Detailed Stats</h3>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tool</th>
+                  <th>Calls</th>
+                  <th>Errors</th>
+                  <th>Err Rate</th>
+                  <th>Avg</th>
+                  <th>p50</th>
+                  <th>p95</th>
+                  <th>Max</th>
+                  <th>Avg Input</th>
+                  <th>Avg Output</th>
+                  <th>Last Used</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tools.map((t) => (
+                  <tr key={t.name}>
+                    <td title={t.name} style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                      {t.name.length > 30 ? t.name.slice(0, 30) + '…' : t.name}
+                    </td>
+                    <td>{formatK(t.count)}</td>
+                    <td style={{ color: t.errorCount > 0 ? '#c0392b' : undefined }}>{t.errorCount}</td>
+                    <td style={{ color: t.errorRate > 0.1 ? '#c0392b' : undefined }}>
+                      {(t.errorRate * 100).toFixed(1)}%
+                    </td>
+                    <td>{formatDuration(t.avgDurationMs)}</td>
+                    <td>{formatDuration(t.p50DurationMs)}</td>
+                    <td>{formatDuration(t.p95DurationMs)}</td>
+                    <td>{formatDuration(t.maxDurationMs)}</td>
+                    <td>{t.avgInputBytes > 0 ? formatBytes(t.avgInputBytes) : '—'}</td>
+                    <td>{t.avgOutputBytes > 0 ? formatBytes(t.avgOutputBytes) : '—'}</td>
+                    <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>{formatDate(t.lastUsedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        !loading && <div className="empty">No tool usage data in this range.</div>
+      )}
+    </div>
+  );
+}
+
+// ── ErrorsView ────────────────────────────────────────────────────────────────
+
+function ErrorsView({ apiBase }: { apiBase: string }) {
+  const [range, setRange] = useState<StatsRange>('week');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [sessionId, setSessionId] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'tool' | 'llm'>('all');
+  const [data, setData] = useState<ErrorsResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedAgg, setExpandedAgg] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<'aggregate' | 'list'>('aggregate');
+
+  const buildQuery = () => {
+    const params = new URLSearchParams({ range, limit: '200' });
+    if (range === 'custom') {
+      if (customFrom) params.set('from', String(new Date(customFrom).getTime()));
+      if (customTo) params.set('to', String(new Date(customTo).getTime()));
+    }
+    if (sessionId.trim()) params.set('sessionId', sessionId.trim());
+    return params.toString();
+  };
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiBase}/errors?${buildQuery()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json() as ErrorsResponse;
+      setData(json);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, [range, apiBase]);
+
+  const aggregates = (data?.aggregates ?? []).filter(
+    (a) => sourceFilter === 'all' || a.source === sourceFilter
+  );
+  const entries = (data?.entries ?? []).filter(
+    (e) => sourceFilter === 'all' || e.source === sourceFilter
+  );
+
+  const toolErrors = data?.aggregates.filter((a) => a.source === 'tool').reduce((s, a) => s + a.count, 0) ?? 0;
+  const llmErrors = data?.aggregates.filter((a) => a.source === 'llm').reduce((s, a) => s + a.count, 0) ?? 0;
+
+  return (
+    <div className="stats-view">
+      {/* Controls */}
+      <div className="stats-controls">
+        <div className="stats-range-tabs">
+          {(['today', 'week', 'month', 'custom'] as const).map((r) => (
+            <button
+              key={r}
+              className={`tab-button ${range === r ? 'active' : ''}`}
+              onClick={() => setRange(r)}
+            >
+              {r === 'today' ? 'Today' : r === 'week' ? '7 Days' : r === 'month' ? '30 Days' : 'Custom'}
+            </button>
+          ))}
+        </div>
+        <select
+          className="filter-select"
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value as 'all' | 'tool' | 'llm')}
+        >
+          <option value="all">All Sources</option>
+          <option value="tool">Tool</option>
+          <option value="llm">LLM</option>
+        </select>
+        <input
+          className="filter-input"
+          placeholder="Filter session ID"
+          value={sessionId}
+          onChange={(e) => setSessionId(e.target.value)}
+          style={{ width: 200 }}
+        />
+        {range === 'custom' && (
+          <div className="stats-custom-range">
+            <input type="date" className="filter-input" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+            <span>→</span>
+            <input type="date" className="filter-input" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+            <button className="button" onClick={load}>Apply</button>
+          </div>
+        )}
+        {loading && <span className="stats-loading">Loading…</span>}
+      </div>
+
+      {error && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
+
+      {/* Summary Cards */}
+      {data && (
+        <div className="stats-cards">
+          <StatCard label="Total Errors" value={String(data.total)} />
+          <StatCard label="Unique Patterns" value={String(data.aggregates.length)} />
+          <StatCard label="Tool Errors" value={String(toolErrors)} />
+          <StatCard label="LLM Errors" value={String(llmErrors)} />
+        </div>
+      )}
+
+      {data && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+          {formatDate(data.from)} – {formatDate(data.to)}
+        </div>
+      )}
+
+      {/* View mode tabs */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+        <button
+          className={`tab-button ${viewMode === 'aggregate' ? 'active' : ''}`}
+          onClick={() => setViewMode('aggregate')}
+        >
+          Aggregated ({aggregates.length})
+        </button>
+        <button
+          className={`tab-button ${viewMode === 'list' ? 'active' : ''}`}
+          onClick={() => setViewMode('list')}
+        >
+          Raw Events ({entries.length})
+        </button>
+      </div>
+
+      {/* Aggregated view */}
+      {viewMode === 'aggregate' && (
+        <>
+          {aggregates.length === 0 ? (
+            !loading && <div className="empty">No errors in this range. 🎉</div>
+          ) : (
+            <div className="stats-section">
+              <h3 className="stats-section-title">Error Patterns</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {aggregates.map((agg, i) => {
+                  const isOpen = expandedAgg === i;
+                  const sourceBg = agg.source === 'tool' ? '#fff0f0' : '#fff8e6';
+                  const sourceFg = agg.source === 'tool' ? '#c0392b' : '#7a5c00';
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                        overflow: 'hidden',
+                        background: 'var(--bg-card)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
+                          padding: '7px 12px',
+                          cursor: 'pointer',
+                          background: 'var(--bg-sidebar)',
+                          borderBottom: isOpen ? '1px solid var(--border)' : 'none',
+                        }}
+                        onClick={() => setExpandedAgg(isOpen ? null : i)}
+                      >
+                        <span style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          background: sourceBg,
+                          color: sourceFg,
+                          padding: '2px 7px',
+                          borderRadius: 4,
+                          minWidth: 36,
+                          textAlign: 'center',
+                        }}>
+                          {agg.source}
+                        </span>
+                        <span style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }}
+                          title={agg.message}>
+                          {agg.message.length > 100 ? agg.message.slice(0, 100) + '…' : agg.message}
+                        </span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: '#c0392b', minWidth: 32, textAlign: 'right' }}>
+                          ×{agg.count}
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)', minWidth: 80, textAlign: 'right' }}>
+                          last {formatDate(agg.lastAt)}
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{isOpen ? '▲' : '▼'}</span>
+                      </div>
+                      {isOpen && (
+                        <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>FULL MESSAGE</div>
+                            <div className="mono-block" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 180, overflowY: 'auto' }}>
+                              {agg.message}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>
+                              TOOLS / NAMES ({agg.names.length})
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                              {agg.names.map((n) => <span key={n} className="pill">{n}</span>)}
+                            </div>
+                          </div>
+                          {agg.sampleRunIds.length > 0 && (
+                            <div>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>
+                                SAMPLE RUN IDS
+                              </div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                                {agg.sampleRunIds.map((rid) => (
+                                  <span key={rid} style={{ fontSize: 11, fontFamily: 'monospace', background: '#f0efed', padding: '2px 7px', borderRadius: 4 }}>
+                                    {rid.slice(0, 20)}…
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Raw events list */}
+      {viewMode === 'list' && (
+        <>
+          {entries.length === 0 ? (
+            !loading && <div className="empty">No error events in this range.</div>
+          ) : (
+            <div className="stats-section">
+              <h3 className="stats-section-title">Raw Error Events ({entries.length})</h3>
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Source</th>
+                      <th>Name</th>
+                      <th>Message</th>
+                      <th>Run ID</th>
+                      <th>Session</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {entries.map((e, i) => (
+                      <tr key={i}>
+                        <td style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{formatTime(e.at)}</td>
+                        <td>
+                          <span style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            background: e.source === 'tool' ? '#fff0f0' : '#fff8e6',
+                            color: e.source === 'tool' ? '#c0392b' : '#7a5c00',
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                          }}>
+                            {e.source}
+                          </span>
+                        </td>
+                        <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{e.name}</td>
+                        <td title={e.message} style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>
+                          {e.message}
+                        </td>
+                        <td style={{ fontSize: 11, fontFamily: 'monospace' }}>
+                          {e.runId.slice(0, 16)}…
+                        </td>
+                        <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                          {e.sessionId ? e.sessionId.slice(0, 20) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

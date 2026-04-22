@@ -246,7 +246,7 @@ export class Engine {
     // --- beforeRun hooks ---
     const beforeRunHooks = this.pluginManager.getHooks('beforeRun');
     for (const hook of beforeRunHooks) {
-      const result = await hook({ context, systemPrompt, tools, runContext: options?.runContext });
+      const result = await hook({ context, systemPrompt, tools, runContext: options?.runContext, model: options?.model ?? this.options.model });
       if (result) {
         if ('systemPrompt' in result && result.systemPrompt !== undefined) {
           systemPrompt = result.systemPrompt;
