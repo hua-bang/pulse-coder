@@ -11,6 +11,38 @@ import {
 } from "../config/index.js";
 
 /**
+ * Coarse per-family input-token budgets. Used only to disambiguate
+ * `finishReason='length'` between (a) prompt overflow and (b) output-cap
+ * exhaustion. Doesn't need to be exact — a conservative lower bound keeps
+ * us safe.
+ *
+ * Override per deployment via env: MODEL_CONTEXT_BUDGET (single global cap).
+ */
+const MODEL_CONTEXT_BUDGET_OVERRIDE = Number(process.env.MODEL_CONTEXT_BUDGET ?? 0) || undefined;
+
+function resolveModelContextBudget(model?: string, modelType?: ModelType): number {
+  if (MODEL_CONTEXT_BUDGET_OVERRIDE && MODEL_CONTEXT_BUDGET_OVERRIDE > 0) {
+    return MODEL_CONTEXT_BUDGET_OVERRIDE;
+  }
+  const name = (model ?? '').toLowerCase();
+  if (modelType === 'claude' || name.includes('claude')) {
+    // Claude 3.5/4.x sonnet & opus all support 200K. Use 180K as safe budget.
+    return 180_000;
+  }
+  if (name.includes('gpt-5') || name.includes('gpt-4.1') || name.includes('o1') || name.includes('o3')) {
+    return 180_000;
+  }
+  if (name.includes('gpt-4o')) {
+    return 110_000;
+  }
+  if (name.includes('gemini')) {
+    return 900_000;
+  }
+  // Conservative default
+  return 110_000;
+}
+
+/**
  * Hook arrays passed into the loop by Engine.
  * Each array may contain handlers from multiple plugins + EngineOptions.
  */
@@ -379,6 +411,30 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
       }
 
       if (finishReason === 'length') {
+        // `finishReason === 'length'` is ambiguous:
+        //   (a) prompt exceeded the model's context window, or
+        //   (b) per-call output cap (`maxOutputTokens`) was exhausted —
+        //       common with Claude when reasoning tokens eat the whole 4096
+        //       default cap before any text is emitted.
+        //
+        // Previously we always treated it as (a) and force-compacted, which
+        // never helps case (b) and silently shrinks healthy sessions. Now we
+        // disambiguate using `usage.inputTokens` against a per-model context
+        // budget. Output-cap hits just continue the loop so the model can
+        // resume; only true overflow triggers compaction.
+        const inputTokens = (usage as any)?.inputTokens ?? (usage as any)?.input_tokens;
+        const modelContextBudget = resolveModelContextBudget(options?.model, options?.modelType);
+        const looksLikeContextOverflow =
+          typeof inputTokens === 'number' && inputTokens >= modelContextBudget * 0.8;
+
+        if (!looksLikeContextOverflow) {
+          // Output-cap hit (case b). Don't compact. Loop continues; if the
+          // SDK already wrote a partial assistant message into the step
+          // history, the next iteration will see it and resume naturally.
+          continue;
+        }
+
+        // True context overflow (case a): compact up to N times.
         if (compactionAttempts < MAX_COMPACTION_ATTEMPTS) {
           const { didCompact, reason, newMessages, stats } = await maybeCompactContext(context, {
             force: true,
