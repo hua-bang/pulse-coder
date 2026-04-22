@@ -68,24 +68,25 @@ export interface LayoutOptions {
 }
 
 const DEFAULT_OPTS: Required<LayoutOptions> = {
-  hGap: 56,
-  vGap: 12,
-  topicWidth: 168,
-  topicHeight: 36,
+  hGap: 64,
+  vGap: 14,
+  topicWidth: 180,
+  topicHeight: 34,
 };
 
 /**
  * Heptabase-ish palette for the first six primary branches. Indexing
  * beyond the end wraps, which is fine for the rare case of >6 branches
- * — the colors just repeat.
+ * — the colors just repeat. Tuned to match Heptabase's default theme:
+ * warm yellow, cool gray, warm orange, etc.
  */
 const BRANCH_COLORS = [
+  '#D9A13B', // yellow
+  '#9AA0A6', // gray
   '#E07B4A', // orange
   '#3B8FD6', // blue
   '#7A57C4', // purple
   '#2F8F5A', // green
-  '#C94F8C', // pink
-  '#C9A31A', // yellow
 ];
 
 const ROOT_COLOR = '#1F2328';
@@ -166,16 +167,36 @@ export const layoutMindmap = (
 
       walk(child, depth + 1, t.id, childXLeft, childYCursor, childColor);
 
-      // Branch line from parent right-center to child left-center.
+      // Heptabase anchors: branches enter the child at its text baseline
+      // (bottom of the topic box), which visually sits just under the
+      // text. The root is special — it has no underline, so branches
+      // leave it at its vertical center. Every other parent branches off
+      // of its own baseline, so incoming + outgoing lines share the
+      // same horizontal track and read as a continuous "underline".
       const parentRightX = xLeft + o.topicWidth;
-      const parentCenterY = y + o.topicHeight / 2;
+      const parentAnchorY =
+        depth === 0 ? y + o.topicHeight / 2 : y + o.topicHeight;
       const childLeftX = childXLeft;
-      const childCenterY =
-        childYCursor + (childSlot - o.topicHeight) / 2 + o.topicHeight / 2;
+      const childAnchorY =
+        childYCursor +
+        (childSlot - o.topicHeight) / 2 +
+        o.topicHeight;
       const midX = parentRightX + (childLeftX - parentRightX) / 2;
+      // When the child itself has visible children, extend the incoming
+      // branch horizontally across the child's full width so the line
+      // reads as an "underline" that outgoing branches share with the
+      // incoming one. Leaves get no extension — their text sits at the
+      // end of the curve, matching Heptabase's look.
+      const childHasVisibleChildren =
+        child.children.length > 0 && !child.collapsed;
+      const childRightX = childXLeft + o.topicWidth;
+      const tail = childHasVisibleChildren
+        ? ` L ${childRightX} ${childAnchorY}`
+        : '';
       const path =
-        `M ${parentRightX} ${parentCenterY} ` +
-        `C ${midX} ${parentCenterY}, ${midX} ${childCenterY}, ${childLeftX} ${childCenterY}`;
+        `M ${parentRightX} ${parentAnchorY} ` +
+        `C ${midX} ${parentAnchorY}, ${midX} ${childAnchorY}, ${childLeftX} ${childAnchorY}` +
+        tail;
       branches.push({
         id: `${t.id}->${child.id}`,
         parentId: t.id,
@@ -235,11 +256,11 @@ export const layoutMindmap = (
  * a simple number-token rewrite.
  */
 const shiftPath = (path: string, dx: number, dy: number): string => {
-  const tokens = path.split(/\s+/);
+  const tokens = path.split(/\s+/).filter((t) => t.length > 0);
   const out: string[] = [];
   let numberIndex = 0;
   for (const tok of tokens) {
-    if (tok === 'M' || tok === 'C') {
+    if (tok === 'M' || tok === 'C' || tok === 'L') {
       out.push(tok);
       numberIndex = 0;
       continue;

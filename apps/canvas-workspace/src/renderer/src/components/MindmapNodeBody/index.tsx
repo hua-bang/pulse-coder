@@ -467,13 +467,17 @@ const TopicPill = ({
   );
 
   const isRoot = topic.depth === 0;
+  // Heptabase-style: the topic itself is chromeless. Color drives only
+  // the selection cue and the collapse pill — the connecting branch
+  // takes over as the primary color signal.
   const style: React.CSSProperties = {
     transform: `translate(${topic.x}px, ${topic.y}px)`,
     width: topic.width,
     minHeight: topic.height,
-    borderColor: topic.color,
-    color: isRoot ? '#ffffff' : topic.color,
-    background: isRoot ? topic.color : '#ffffff',
+    color: isRoot ? '#1f2328' : '#1f2328',
+    // Selected-state underline uses currentColor, so pipe the branch
+    // color through when selected — otherwise keep text neutral.
+    ['--mindmap-topic-accent' as string]: topic.color,
   };
 
   return (
