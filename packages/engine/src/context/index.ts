@@ -38,14 +38,29 @@ const ensureSummaryPrefix = (summary: string): string => {
  * Ensure compacted messages end with a user-role message.
  * Some providers (e.g. claude-opus-4.7 via copilot-api) reject requests
  * where the last message has role "assistant" (no prefill support).
- * Safety: never returns an empty array — falls back to original when all messages are assistant.
+ *
+ * Strategy:
+ *   1. Strip trailing assistant messages.
+ *   2. If everything is stripped (all-assistant input, e.g. summary-only
+ *      compact result), append a placeholder user message so the
+ *      conversation still ends with a user turn — never returns the
+ *      original all-assistant array, which would re-trigger the same 400.
  */
+const PLACEHOLDER_USER_MESSAGE: ModelMessage = {
+  role: 'user',
+  content: 'Please continue based on the context above.',
+};
+
 const ensureEndsWithUser = (messages: ModelMessage[]): ModelMessage[] => {
   let end = messages.length;
   while (end > 0 && messages[end - 1].role === 'assistant') {
     end--;
   }
-  if (end === 0) return messages;
+  if (end === 0) {
+    // All messages are assistant — keep them and append a placeholder user
+    // message so the request is well-formed for providers without prefill support.
+    return [...messages, PLACEHOLDER_USER_MESSAGE];
+  }
   return end === messages.length ? messages : messages.slice(0, end);
 };
 
