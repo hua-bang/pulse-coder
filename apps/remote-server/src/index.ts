@@ -46,6 +46,11 @@ async function main() {
   console.log(`  GET  /health`);
   console.log(`  GET  /api/devtools/runs`);
   console.log(`  GET  /api/devtools/runs/:runId`);
+  console.log(`  GET  /api/devtools/runs/:runId/llm/:spanIndex`);
+  console.log(`  GET  /api/devtools/stats/tokens`);
+  console.log(`  GET  /api/devtools/stats/sessions`);
+  console.log(`  GET  /api/devtools/stats/tools`);
+  console.log(`  GET  /api/devtools/errors`);
   // console.log(`  POST /api/chat`);
   // console.log(`  GET  /api/stream/:streamId`);
   // console.log(`  POST /api/clarify/:streamId`);

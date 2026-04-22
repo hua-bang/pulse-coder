@@ -27,6 +27,12 @@ export interface DevtoolsRunSummary {
   totalOutputTokens?: number;
   totalCacheReadTokens?: number;
   totalCacheWriteTokens?: number;
+  /** Distinct model identifiers used in this run. */
+  models?: string[];
+  /** Total error count (tool + LLM). */
+  errorCount?: number;
+  /** Estimated cost in USD (when modelPrices configured). */
+  costUsd?: number;
 }
 
 export type TokenStatsGranularity = 'hour' | 'day' | 'week';
@@ -40,6 +46,7 @@ export interface TokenStatsBucket {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   totalTokens: number;
+  costUsd?: number;
 }
 
 export interface TokenStatsSummary {
@@ -49,11 +56,24 @@ export interface TokenStatsSummary {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   totalTokens: number;
+  costUsd?: number;
+}
+
+export interface TokenStatsGroupEntry {
+  key: string;
+  runCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  costUsd?: number;
 }
 
 export interface TokenStatsResult {
   summary: TokenStatsSummary;
   buckets: TokenStatsBucket[];
+  groups?: TokenStatsGroupEntry[];
 }
 
 export interface TokenStatsOptions {
@@ -61,6 +81,7 @@ export interface TokenStatsOptions {
   to: number;
   granularity?: TokenStatsGranularity;
   sessionId?: string;
+  groupBy?: TokenStatsGroupBy;
 }
 
 export interface DevtoolsLlmSpan {
@@ -78,6 +99,7 @@ export interface DevtoolsLlmSpan {
   streamDurationMs?: number;
   finishReason?: string;
   textLength?: number;
+  model?: string;
   inputTokens?: number;
   outputTokens?: number;
   cacheReadTokens?: number;
@@ -89,6 +111,20 @@ export interface DevtoolsLlmSpan {
     inputSize?: number;
     inputPreview?: string;
   }>;
+  /** Reference to a separately stored prompt snapshot (runs/<runId>/llm/<index>.json). */
+  promptRef?: string;
+  /** Inline preview of the system prompt (truncated). */
+  systemPromptPreview?: string;
+  /** Number of messages sent to the LLM. */
+  messageCount?: number;
+  /** Names of tools exposed to the LLM in this call. */
+  toolNames?: string[];
+  /** Total bytes of the message payload (after redaction). */
+  messagesBytes?: number;
+  /** Whether the snapshot was truncated due to size. */
+  promptTruncated?: boolean;
+  /** Error message if the LLM call itself failed (network/parse). */
+  errorMessage?: string;
 }
 
 export interface DevtoolsToolSpan {
@@ -102,6 +138,19 @@ export interface DevtoolsToolSpan {
   inputPreview?: string;
   outputPreview?: string;
   error?: string;
+}
+
+export interface DevtoolsLlmPromptSnapshot {
+  runId: string;
+  spanIndex: number;
+  capturedAt: number;
+  model?: string;
+  systemPrompt?: string;
+  systemPromptTruncated?: boolean;
+  messages: any[];
+  messagesTruncated?: boolean;
+  toolNames?: string[];
+  totalBytes?: number;
 }
 
 export interface DevtoolsCompactionEvent {
@@ -166,7 +215,77 @@ export interface DevtoolsStoreOptions {
   flushDelayMs?: number;
   maxEntries?: number;
   saveUserText?: boolean;
+  /** Whether to capture LLM prompt/messages snapshots. Default: true. */
+  capturePrompts?: boolean;
+  /** Per-snapshot byte limit. Default: 256KB. */
+  promptSnapshotLimitBytes?: number;
+  /** Custom redactor for prompt content. */
+  promptRedactor?: (text: string) => string;
+  /** Optional model price table for cost calculation (USD per 1M tokens). */
+  modelPrices?: Record<string, ModelPriceEntry>;
 }
+
+export interface ModelPriceEntry {
+  /** USD per 1M input tokens */
+  input?: number;
+  /** USD per 1M output tokens */
+  output?: number;
+  /** USD per 1M cache-read tokens */
+  cacheRead?: number;
+  /** USD per 1M cache-write tokens */
+  cacheWrite?: number;
+}
+
+export interface ToolStatEntry {
+  name: string;
+  count: number;
+  errorCount: number;
+  errorRate: number;
+  totalDurationMs: number;
+  avgDurationMs: number;
+  p50DurationMs: number;
+  p95DurationMs: number;
+  maxDurationMs: number;
+  avgInputBytes: number;
+  avgOutputBytes: number;
+  lastUsedAt: number;
+}
+
+export interface ToolStatsResult {
+  from: number;
+  to: number;
+  totalCalls: number;
+  tools: ToolStatEntry[];
+}
+
+export interface DevtoolsErrorEntry {
+  runId: string;
+  source: 'tool' | 'llm';
+  name: string;
+  message: string;
+  at: number;
+  spanIndex?: number;
+  sessionId?: string;
+}
+
+export interface ErrorAggregateEntry {
+  message: string;
+  count: number;
+  source: 'tool' | 'llm';
+  names: string[];
+  lastAt: number;
+  sampleRunIds: string[];
+}
+
+export interface ErrorsResult {
+  from: number;
+  to: number;
+  total: number;
+  entries: DevtoolsErrorEntry[];
+  aggregates: ErrorAggregateEntry[];
+}
+
+export type TokenStatsGroupBy = 'none' | 'model' | 'session';
 
 export interface DevtoolsIntegrationOptions extends DevtoolsStoreOptions {
   pluginName?: string;
@@ -183,6 +302,92 @@ export interface DevtoolsIntegration {
 
 const DEFAULT_FLUSH_DELAY_MS = 200;
 const DEFAULT_MAX_INDEX_ENTRIES = 500;
+const DEFAULT_PROMPT_SNAPSHOT_LIMIT_BYTES = 256 * 1024;
+
+const SECRET_PATTERNS: Array<[RegExp, string]> = [
+  // Authorization: Bearer xxx
+  [/(authorization|bearer)["'\s:=]+[a-zA-Z0-9._\-]{16,}/gi, '$1: [REDACTED]'],
+  // sk-... API keys (OpenAI, Anthropic, etc.)
+  [/\bsk-[a-zA-Z0-9_\-]{20,}/g, '[REDACTED_KEY]'],
+  // Generic api_key="..." / "apiKey": "..."
+  [/((?:api[_-]?key|secret|token|password)["'\s:=]+)([a-zA-Z0-9._\-]{12,})/gi, '$1[REDACTED]'],
+  // AWS-like access keys
+  [/\bAKIA[0-9A-Z]{16}\b/g, '[REDACTED_AWS]'],
+  // Email addresses
+  [/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[REDACTED_EMAIL]'],
+  // Phone (CN 11 digits & generic +-numbers)
+  [/\b1[3-9]\d{9}\b/g, '[REDACTED_PHONE]'],
+];
+
+function defaultRedact(text: string): string {
+  let out = text;
+  for (const [pattern, replacement] of SECRET_PATTERNS) {
+    out = out.replace(pattern, replacement);
+  }
+  return out;
+}
+
+const DEFAULT_MODEL_PRICES: Record<string, ModelPriceEntry> = {
+  // Anthropic Claude (USD per 1M tokens)
+  'claude-sonnet-4-5': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  'claude-sonnet-4': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  'claude-opus-4': { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
+  'claude-3-5-sonnet': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  'claude-3-5-haiku': { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1 },
+  // OpenAI
+  'gpt-4o': { input: 2.5, output: 10, cacheRead: 1.25 },
+  'gpt-4o-mini': { input: 0.15, output: 0.6, cacheRead: 0.075 },
+  'gpt-4.1': { input: 2, output: 8, cacheRead: 0.5 },
+  'o1': { input: 15, output: 60 },
+  'o3-mini': { input: 1.1, output: 4.4 },
+  // Google Gemini
+  'gemini-2.0-flash': { input: 0.1, output: 0.4 },
+  'gemini-2.5-pro': { input: 1.25, output: 10 },
+  'gemini-2.5-flash': { input: 0.3, output: 2.5 },
+};
+
+function resolveModelPrice(
+  model: string | undefined,
+  prices: Record<string, ModelPriceEntry>,
+): ModelPriceEntry | undefined {
+  if (!model) return undefined;
+  const lower = model.toLowerCase();
+  if (prices[lower]) return prices[lower];
+  // Loose match by prefix (e.g. provider/model:version → strip)
+  const stripped = lower.replace(/^[^/]+\//, '').replace(/[:@].*$/, '');
+  if (prices[stripped]) return prices[stripped];
+  // Find longest matching key prefix
+  let best: ModelPriceEntry | undefined;
+  let bestLen = 0;
+  for (const key of Object.keys(prices)) {
+    if (lower.includes(key) && key.length > bestLen) {
+      best = prices[key];
+      bestLen = key.length;
+    }
+  }
+  return best;
+}
+
+function calcCost(
+  tokens: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number },
+  price?: ModelPriceEntry,
+): number | undefined {
+  if (!price) return undefined;
+  const usd =
+    ((price.input ?? 0) * tokens.inputTokens +
+      (price.output ?? 0) * tokens.outputTokens +
+      (price.cacheRead ?? 0) * tokens.cacheReadTokens +
+      (price.cacheWrite ?? 0) * tokens.cacheWriteTokens) /
+    1_000_000;
+  return Number.isFinite(usd) && usd > 0 ? Number(usd.toFixed(6)) : undefined;
+}
+
+function percentile(values: number[], p: number): number {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
+  return sorted[idx];
+}
 
 function now(): number {
   return Date.now();
@@ -326,6 +531,10 @@ export class DevtoolsStore {
   private flushDelayMs: number;
   private maxEntries: number;
   private saveUserText: boolean;
+  private capturePrompts: boolean;
+  private promptSnapshotLimitBytes: number;
+  private promptRedactor: (text: string) => string;
+  private modelPrices: Record<string, ModelPriceEntry>;
   private runFlushTimers = new Map<string, NodeJS.Timeout>();
   private indexFlushTimer: NodeJS.Timeout | null = null;
 
@@ -336,6 +545,10 @@ export class DevtoolsStore {
     this.flushDelayMs = options.flushDelayMs ?? DEFAULT_FLUSH_DELAY_MS;
     this.maxEntries = options.maxEntries ?? DEFAULT_MAX_INDEX_ENTRIES;
     this.saveUserText = options.saveUserText !== false;
+    this.capturePrompts = options.capturePrompts !== false;
+    this.promptSnapshotLimitBytes = options.promptSnapshotLimitBytes ?? DEFAULT_PROMPT_SNAPSHOT_LIMIT_BYTES;
+    this.promptRedactor = options.promptRedactor ?? defaultRedact;
+    this.modelPrices = { ...DEFAULT_MODEL_PRICES, ...(options.modelPrices ?? {}) };
   }
 
   async initialize(): Promise<void> {
@@ -436,19 +649,116 @@ export class DevtoolsStore {
     this.scheduleIndexFlush();
   }
 
-  recordLLMStart(runId: string, inputTokens?: number): void {
+  recordLLMStart(
+    runId: string,
+    inputTokens?: number,
+    snapshot?: {
+      messages?: any[];
+      systemPrompt?: string;
+      model?: string;
+      toolNames?: string[];
+    },
+  ): void {
     const record = this.runs.get(runId);
     if (!record) {
       return;
     }
     const timestamp = now();
     record.llmCalls += 1;
-    record.llmSpans.push({
+    const span: DevtoolsLlmSpan = {
       index: record.llmCalls,
       startedAt: timestamp,
       inputTokens,
-    });
+    };
+    if (snapshot?.model) {
+      span.model = snapshot.model;
+    }
+    if (snapshot?.toolNames?.length) {
+      span.toolNames = snapshot.toolNames.slice(0, 100);
+    }
+    if (snapshot?.messages) {
+      span.messageCount = snapshot.messages.length;
+    }
+    if (snapshot?.systemPrompt) {
+      span.systemPromptPreview = buildPreview(this.promptRedactor(snapshot.systemPrompt), 240);
+    }
+    record.llmSpans.push(span);
+
+    // Async snapshot persistence (best-effort, non-blocking).
+    if (this.capturePrompts && snapshot && (snapshot.messages?.length || snapshot.systemPrompt)) {
+      void this.savePromptSnapshot(record.runId, span, snapshot).catch(() => {
+        /* swallow snapshot errors */
+      });
+    }
+
     this.touch(record, timestamp);
+  }
+
+  private async savePromptSnapshot(
+    runId: string,
+    span: DevtoolsLlmSpan,
+    snapshot: { messages?: any[]; systemPrompt?: string; model?: string; toolNames?: string[] },
+  ): Promise<void> {
+    const limit = this.promptSnapshotLimitBytes;
+    const redactedSystem = snapshot.systemPrompt ? this.promptRedactor(snapshot.systemPrompt) : undefined;
+    const sysTruncated = redactedSystem !== undefined && redactedSystem.length > limit;
+    const sysOut = sysTruncated ? `${redactedSystem!.slice(0, limit)}…[truncated]` : redactedSystem;
+
+    const messages: any[] = [];
+    let usedBytes = 0;
+    let messagesTruncated = false;
+    for (const msg of snapshot.messages ?? []) {
+      const raw = safeStringify(msg);
+      const redacted = this.promptRedactor(raw);
+      if (usedBytes + redacted.length > limit) {
+        messagesTruncated = true;
+        const remaining = Math.max(0, limit - usedBytes);
+        if (remaining > 200) {
+          messages.push({ role: 'system', content: `…[truncated, ${redacted.length} bytes]` });
+        }
+        break;
+      }
+      try {
+        messages.push(JSON.parse(redacted));
+      } catch {
+        messages.push({ role: 'unknown', content: redacted });
+      }
+      usedBytes += redacted.length;
+    }
+
+    const totalBytes = usedBytes + (sysOut?.length ?? 0);
+    const snap: DevtoolsLlmPromptSnapshot = {
+      runId,
+      spanIndex: span.index,
+      capturedAt: now(),
+      model: snapshot.model,
+      systemPrompt: sysOut,
+      systemPromptTruncated: sysTruncated,
+      messages,
+      messagesTruncated,
+      toolNames: snapshot.toolNames,
+      totalBytes,
+    };
+
+    const dir = join(this.runsDir, runId, 'llm');
+    await fs.mkdir(dir, { recursive: true });
+    const file = join(dir, `${span.index}.json`);
+    await fs.writeFile(file, JSON.stringify(snap, null, 2), 'utf-8');
+
+    span.promptRef = `runs/${runId}/llm/${span.index}.json`;
+    span.messagesBytes = totalBytes;
+    span.promptTruncated = messagesTruncated || sysTruncated;
+    this.scheduleRunFlush(runId);
+  }
+
+  async getLlmPromptSnapshot(runId: string, spanIndex: number): Promise<DevtoolsLlmPromptSnapshot | null> {
+    const file = join(this.runsDir, runId, 'llm', `${spanIndex}.json`);
+    try {
+      const raw = await fs.readFile(file, 'utf-8');
+      return JSON.parse(raw) as DevtoolsLlmPromptSnapshot;
+    } catch {
+      return null;
+    }
   }
 
   recordLLMEnd(
@@ -456,7 +766,8 @@ export class DevtoolsStore {
     finishReason?: string,
     text?: string,
     usage?: any,
-    timings?: { firstChunkAt?: number; lastChunkAt?: number },
+    timings?: { firstChunkAt?: number; lastChunkAt?: number; requestStartAt?: number; firstTextAt?: number },
+    extras?: { model?: string },
   ): void {
     const record = this.runs.get(runId);
     if (!record) {
@@ -484,6 +795,9 @@ export class DevtoolsStore {
       span.ttftTextMs = Math.max(0, timings.firstTextAt - (timings.requestStartAt ?? span.startedAt));
     }
     span.finishReason = finishReason;
+    if (extras?.model && !span.model) {
+      span.model = extras.model;
+    }
     span.textLength = typeof text === 'string' ? text.length : undefined;
     if (usage !== undefined) {
       const rawUsage = safeStringify(usage);
@@ -510,6 +824,23 @@ export class DevtoolsStore {
     }
     if (usageTokens.cacheWriteTokens !== undefined) {
       span.cacheWriteTokens = usageTokens.cacheWriteTokens;
+    }
+    this.touch(record, timestamp);
+  }
+
+  recordLLMError(runId: string, error: Error | string, model?: string): void {
+    const record = this.runs.get(runId);
+    if (!record) return;
+    const timestamp = now();
+    const span = [...record.llmSpans].reverse().find((item) => item.endedAt === undefined);
+    const message = error instanceof Error ? error.message : String(error);
+    if (span) {
+      span.endedAt = timestamp;
+      span.durationMs = Math.max(0, timestamp - span.startedAt);
+      span.errorMessage = message;
+      if (model && !span.model) {
+        span.model = model;
+      }
     }
     this.touch(record, timestamp);
   }
@@ -633,6 +964,31 @@ export class DevtoolsStore {
     const totalCacheReadTokens = record.llmSpans.reduce((s, x) => s + (x.cacheReadTokens ?? 0), 0);
     const totalCacheWriteTokens = record.llmSpans.reduce((s, x) => s + (x.cacheWriteTokens ?? 0), 0);
 
+    const modelSet = new Set<string>();
+    let costUsd = 0;
+    let hasCost = false;
+    for (const span of record.llmSpans) {
+      if (span.model) modelSet.add(span.model);
+      const price = resolveModelPrice(span.model, this.modelPrices);
+      const c = calcCost(
+        {
+          inputTokens: span.inputTokens ?? 0,
+          outputTokens: span.outputTokens ?? 0,
+          cacheReadTokens: span.cacheReadTokens ?? 0,
+          cacheWriteTokens: span.cacheWriteTokens ?? 0,
+        },
+        price,
+      );
+      if (c !== undefined) {
+        costUsd += c;
+        hasCost = true;
+      }
+    }
+
+    const toolErrorCount = record.toolSpans.filter((s) => s.error).length;
+    const llmErrorCount = record.llmSpans.filter((s) => s.errorMessage).length;
+    const errorCount = toolErrorCount + llmErrorCount;
+
     const summary: DevtoolsRunSummary = {
       runId: record.runId,
       status: record.status,
@@ -653,6 +1009,9 @@ export class DevtoolsStore {
       totalOutputTokens: totalOutputTokens > 0 ? totalOutputTokens : undefined,
       totalCacheReadTokens: totalCacheReadTokens > 0 ? totalCacheReadTokens : undefined,
       totalCacheWriteTokens: totalCacheWriteTokens > 0 ? totalCacheWriteTokens : undefined,
+      models: modelSet.size > 0 ? [...modelSet] : undefined,
+      errorCount: errorCount > 0 ? errorCount : undefined,
+      costUsd: hasCost ? Number(costUsd.toFixed(6)) : undefined,
     };
 
     const existingIndex = this.index.findIndex((item) => item.runId === record.runId);
@@ -711,7 +1070,7 @@ export class DevtoolsStore {
   }
 
   getTokenStats(options: TokenStatsOptions): TokenStatsResult {
-    const { from, to, granularity = 'day', sessionId } = options;
+    const { from, to, granularity = 'day', sessionId, groupBy = 'none' } = options;
 
     // Filter runs within the time range
     let runs = this.index.filter((r) => r.startedAt >= from && r.startedAt <= to);
@@ -787,7 +1146,11 @@ export class DevtoolsStore {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       totalTokens: 0,
+      costUsd: 0,
     };
+
+    const groupMap = new Map<string, TokenStatsGroupEntry>();
+    let hasCost = false;
 
     for (const run of runs) {
       const bucketTs = getBucketTs(run.startedAt);
@@ -802,6 +1165,7 @@ export class DevtoolsStore {
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
           totalTokens: 0,
+          costUsd: 0,
         };
         bucketMap.set(bucketTs, bucket);
       }
@@ -810,6 +1174,8 @@ export class DevtoolsStore {
       const cr = run.totalCacheReadTokens ?? 0;
       const cw = run.totalCacheWriteTokens ?? 0;
       const total = inp + out;
+      const cost = run.costUsd ?? 0;
+      if (run.costUsd !== undefined) hasCost = true;
 
       bucket.runCount += 1;
       bucket.inputTokens += inp;
@@ -817,6 +1183,7 @@ export class DevtoolsStore {
       bucket.cacheReadTokens += cr;
       bucket.cacheWriteTokens += cw;
       bucket.totalTokens += total;
+      bucket.costUsd = (bucket.costUsd ?? 0) + cost;
 
       summary.totalRuns += 1;
       summary.inputTokens += inp;
@@ -824,11 +1191,203 @@ export class DevtoolsStore {
       summary.cacheReadTokens += cr;
       summary.cacheWriteTokens += cw;
       summary.totalTokens += total;
+      summary.costUsd = (summary.costUsd ?? 0) + cost;
+
+      if (groupBy !== 'none') {
+        const key =
+          groupBy === 'session'
+            ? run.sessionId ?? 'unknown'
+            : run.models?.[0] ?? 'unknown';
+        let entry = groupMap.get(key);
+        if (!entry) {
+          entry = {
+            key,
+            runCount: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            totalTokens: 0,
+            costUsd: 0,
+          };
+          groupMap.set(key, entry);
+        }
+        entry.runCount += 1;
+        entry.inputTokens += inp;
+        entry.outputTokens += out;
+        entry.cacheReadTokens += cr;
+        entry.cacheWriteTokens += cw;
+        entry.totalTokens += total;
+        entry.costUsd = (entry.costUsd ?? 0) + cost;
+      }
+    }
+
+    if (!hasCost) {
+      summary.costUsd = undefined;
+      for (const b of bucketMap.values()) b.costUsd = undefined;
+      for (const g of groupMap.values()) g.costUsd = undefined;
+    } else if (summary.costUsd !== undefined) {
+      summary.costUsd = Number(summary.costUsd.toFixed(6));
+      for (const b of bucketMap.values()) {
+        if (b.costUsd !== undefined) b.costUsd = Number(b.costUsd.toFixed(6));
+      }
+      for (const g of groupMap.values()) {
+        if (g.costUsd !== undefined) g.costUsd = Number(g.costUsd.toFixed(6));
+      }
     }
 
     const buckets = [...bucketMap.values()].sort((a, b) => a.ts - b.ts);
+    const groups =
+      groupBy === 'none'
+        ? undefined
+        : [...groupMap.values()].sort((a, b) => b.totalTokens - a.totalTokens);
 
-    return { summary, buckets };
+    return { summary, buckets, groups };
+  }
+
+  /**
+   * Aggregate tool span metrics across runs in [from, to].
+   * Reads run records from disk for runs not in cache.
+   */
+  async getToolStats(options: { from: number; to: number; sessionId?: string }): Promise<ToolStatsResult> {
+    const { from, to, sessionId } = options;
+    let runs = this.index.filter((r) => r.startedAt >= from && r.startedAt <= to);
+    if (sessionId) runs = runs.filter((r) => r.sessionId === sessionId);
+
+    type Acc = {
+      durations: number[];
+      errorCount: number;
+      inputBytes: number;
+      outputBytes: number;
+      lastUsedAt: number;
+    };
+    const map = new Map<string, Acc>();
+    let totalCalls = 0;
+
+    for (const summary of runs) {
+      // Skip runs with no tool calls fast.
+      if (!summary.toolCalls) continue;
+      const record = await this.getRun(summary.runId);
+      if (!record) continue;
+      for (const span of record.toolSpans) {
+        if (!span.endedAt) continue;
+        let acc = map.get(span.name);
+        if (!acc) {
+          acc = { durations: [], errorCount: 0, inputBytes: 0, outputBytes: 0, lastUsedAt: 0 };
+          map.set(span.name, acc);
+        }
+        acc.durations.push(span.durationMs ?? 0);
+        if (span.error) acc.errorCount += 1;
+        acc.inputBytes += span.inputSize ?? 0;
+        acc.outputBytes += span.outputSize ?? 0;
+        if ((span.endedAt ?? 0) > acc.lastUsedAt) acc.lastUsedAt = span.endedAt ?? 0;
+        totalCalls += 1;
+      }
+    }
+
+    const tools: ToolStatEntry[] = [...map.entries()]
+      .map(([name, acc]) => {
+        const count = acc.durations.length;
+        const total = acc.durations.reduce((s, x) => s + x, 0);
+        return {
+          name,
+          count,
+          errorCount: acc.errorCount,
+          errorRate: count > 0 ? Number((acc.errorCount / count).toFixed(4)) : 0,
+          totalDurationMs: total,
+          avgDurationMs: count > 0 ? Math.round(total / count) : 0,
+          p50DurationMs: percentile(acc.durations, 50),
+          p95DurationMs: percentile(acc.durations, 95),
+          maxDurationMs: acc.durations.length ? Math.max(...acc.durations) : 0,
+          avgInputBytes: count > 0 ? Math.round(acc.inputBytes / count) : 0,
+          avgOutputBytes: count > 0 ? Math.round(acc.outputBytes / count) : 0,
+          lastUsedAt: acc.lastUsedAt,
+        };
+      })
+      .sort((a, b) => b.count - a.count);
+
+    return { from, to, totalCalls, tools };
+  }
+
+  /**
+   * Aggregate errors (tool + LLM) across runs in [from, to].
+   */
+  async getErrors(options: {
+    from: number;
+    to: number;
+    sessionId?: string;
+    limit?: number;
+  }): Promise<ErrorsResult> {
+    const { from, to, sessionId, limit = 200 } = options;
+    let runs = this.index.filter((r) => r.startedAt >= from && r.startedAt <= to);
+    if (sessionId) runs = runs.filter((r) => r.sessionId === sessionId);
+
+    const entries: DevtoolsErrorEntry[] = [];
+    for (const summary of runs) {
+      if (!summary.errorCount) continue;
+      const record = await this.getRun(summary.runId);
+      if (!record) continue;
+      for (const span of record.toolSpans) {
+        if (!span.error) continue;
+        entries.push({
+          runId: record.runId,
+          source: 'tool',
+          name: span.name,
+          message: span.error,
+          at: span.endedAt ?? span.startedAt,
+          spanIndex: span.index,
+          sessionId: record.sessionId,
+        });
+      }
+      for (const span of record.llmSpans) {
+        if (!span.errorMessage) continue;
+        entries.push({
+          runId: record.runId,
+          source: 'llm',
+          name: span.model ?? 'llm',
+          message: span.errorMessage,
+          at: span.endedAt ?? span.startedAt,
+          spanIndex: span.index,
+          sessionId: record.sessionId,
+        });
+      }
+    }
+
+    entries.sort((a, b) => b.at - a.at);
+    const trimmed = entries.slice(0, limit);
+
+    const aggMap = new Map<string, ErrorAggregateEntry>();
+    for (const entry of entries) {
+      // Normalize message: strip numbers / hashes / paths to merge similar errors.
+      const normalized = entry.message
+        .replace(/\d+/g, 'N')
+        .replace(/0x[0-9a-fA-F]+/g, 'HEX')
+        .replace(/\/[\w\-./]+/g, '/PATH')
+        .slice(0, 200);
+      const key = `${entry.source}:${normalized}`;
+      let agg = aggMap.get(key);
+      if (!agg) {
+        agg = {
+          message: normalized,
+          count: 0,
+          source: entry.source,
+          names: [],
+          lastAt: 0,
+          sampleRunIds: [],
+        };
+        aggMap.set(key, agg);
+      }
+      agg.count += 1;
+      if (!agg.names.includes(entry.name)) agg.names.push(entry.name);
+      if (entry.at > agg.lastAt) agg.lastAt = entry.at;
+      if (agg.sampleRunIds.length < 5 && !agg.sampleRunIds.includes(entry.runId)) {
+        agg.sampleRunIds.push(entry.runId);
+      }
+    }
+
+    const aggregates = [...aggMap.values()].sort((a, b) => b.count - a.count);
+
+    return { from, to, total: entries.length, entries: trimmed, aggregates };
   }
 }
 
@@ -951,21 +1510,33 @@ export function createDevtoolsIntegration(options: DevtoolsIntegrationOptions = 
       context.registerHook('beforeLLMCall', (input) => {
         const runId = runIdByContext.get(input.context);
         if (runId) {
-          const messageTokens = estimateTokensFromMessages(input.context?.messages ?? []);
-          let systemPromptTokens = 0;
+          const messages = input.context?.messages ?? [];
+          const messageTokens = estimateTokensFromMessages(messages);
+          let systemPromptText: string | undefined;
           if (typeof input.systemPrompt === 'string') {
-            systemPromptTokens = estimateTokensFromText(input.systemPrompt);
+            systemPromptText = input.systemPrompt;
           } else if (typeof input.systemPrompt === 'function') {
             try {
-              systemPromptTokens = estimateTokensFromText(input.systemPrompt());
+              systemPromptText = input.systemPrompt();
             } catch {
-              systemPromptTokens = 0;
+              systemPromptText = undefined;
             }
-          } else if (input.systemPrompt && typeof input.systemPrompt.append === 'string') {
-            systemPromptTokens = estimateTokensFromText(input.systemPrompt.append);
+          } else if (input.systemPrompt && typeof (input.systemPrompt as any).append === 'string') {
+            systemPromptText = (input.systemPrompt as any).append;
           }
+          const systemPromptTokens = systemPromptText ? estimateTokensFromText(systemPromptText) : 0;
           const inputTokens = messageTokens + systemPromptTokens;
-          store.recordLLMStart(runId, inputTokens);
+          const toolNames = Object.keys(input.tools ?? {});
+          const model =
+            (input.runContext as any)?.model ??
+            (input.context as any)?.model ??
+            undefined;
+          store.recordLLMStart(runId, inputTokens, {
+            messages,
+            systemPrompt: systemPromptText,
+            model: typeof model === 'string' ? model : undefined,
+            toolNames,
+          });
         }
         return { tools: wrapTools(input.tools, store) };
       });
@@ -973,7 +1544,18 @@ export function createDevtoolsIntegration(options: DevtoolsIntegrationOptions = 
       context.registerHook('afterLLMCall', (input) => {
         const runId = runIdByContext.get(input.context);
         if (runId) {
-          store.recordLLMEnd(runId, input.finishReason, input.text, input.usage, input.timings);
+          const model =
+            (input as any).model ??
+            (input.context as any)?.model ??
+            undefined;
+          store.recordLLMEnd(
+            runId,
+            input.finishReason,
+            input.text,
+            input.usage,
+            input.timings,
+            { model: typeof model === 'string' ? model : undefined },
+          );
         }
       });
 

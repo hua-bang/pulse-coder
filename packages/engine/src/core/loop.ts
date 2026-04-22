@@ -256,7 +256,7 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
       // --- beforeLLMCall hooks ---
       if (loopHooks.beforeLLMCall?.length) {
         for (const hook of loopHooks.beforeLLMCall) {
-          const result = await hook({ context, systemPrompt, tools });
+          const result = await hook({ context, systemPrompt, tools, runContext: options?.runContext, model: options?.model });
           if (result) {
             if ('systemPrompt' in result && result.systemPrompt !== undefined) {
               systemPrompt = result.systemPrompt;
@@ -357,6 +357,7 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
             finishReason,
             text,
             usage,
+            model: options?.model,
             timings: {
               requestStartAt,
               firstChunkAt,
