@@ -1,4 +1,5 @@
 import type { Engine, LoopOptions, ILogger } from 'pulse-coder-engine';
+import type { AgentRuntimeFactory } from './runtimes/types.js';
 
 /**
  * Engine constructor options.
@@ -47,9 +48,14 @@ export interface TeammateOptions {
   id: string;
   /** Human-readable name. */
   name: string;
-  /** Engine configuration for this teammate's independent Engine instance. */
+  /**
+   * Pluggable runtime backend (pulse / claude-code / codex / ...).
+   * If omitted, a `PulseRuntime` is built from `engineOptions` + `model`.
+   */
+  runtime?: AgentRuntimeFactory;
+  /** Engine configuration for this teammate's pulse Engine instance (default runtime only). */
   engineOptions?: EngineOptions;
-  /** Loop options defaults for every run. */
+  /** Loop options defaults for every run (pulse runtime only). */
   loopOptions?: Partial<LoopOptions>;
   /** Initial system prompt / spawn prompt from the lead. */
   spawnPrompt?: string;
@@ -59,6 +65,9 @@ export interface TeammateOptions {
   requirePlanApproval?: boolean;
   /** Working directory for this teammate. Tools default to this path. */
   cwd?: string;
+  /** Team state directory (injected by `Team.spawnTeammate`). Runtimes that
+   *  spawn child processes use this to share mailbox / task-list state. */
+  stateDir?: string;
   /** Logger instance. */
   logger?: ILogger;
 }

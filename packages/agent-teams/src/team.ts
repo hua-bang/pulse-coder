@@ -90,13 +90,15 @@ export class Team {
       throw new Error(`Teammate with id '${options.id}' already exists`);
     }
 
-    // Inherit team cwd if teammate doesn't specify its own
-    const optionsWithCwd = this.cwd && !options.cwd
-      ? { ...options, cwd: this.cwd }
-      : options;
+    // Inherit team cwd / stateDir if teammate doesn't specify its own.
+    const enriched: TeammateOptions = {
+      ...options,
+      cwd: options.cwd ?? this.cwd,
+      stateDir: options.stateDir ?? this.stateDir,
+    };
 
     const teammate = new Teammate(
-      optionsWithCwd,
+      enriched,
       this.mailbox,
       this.taskList,
       {
