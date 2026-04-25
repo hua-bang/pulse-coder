@@ -28,7 +28,8 @@
     "skills"
   ],
   "dependencies": {
-    "commander": "^13.0.0"
+    "commander": "^13.0.0",
+    "pulse-coder-agent-teams": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.0.10",

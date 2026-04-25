@@ -92,6 +92,9 @@ importers:
       node-pty:
         specifier: ^1.1.0
         version: 1.1.0
+      pulse-coder-agent-teams:
+        specifier: workspace:*
+        version: link:../../packages/agent-teams
       pulse-coder-engine:
         specifier: workspace:*
         version: link:../../packages/engine
@@ -262,6 +265,9 @@ importers:
       commander:
         specifier: ^13.0.0
         version: 13.1.0
+      pulse-coder-agent-teams:
+        specifier: workspace:*
+        version: link:../agent-teams
     devDependencies:
       '@types/node':
         specifier: ^25.0.10

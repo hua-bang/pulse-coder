@@ -2,8 +2,12 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src",
-    "types": ["node"]
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "pulse-coder-agent-teams": ["../agent-teams/dist/index.d.ts"],
+      "pulse-coder-agent-teams/*": ["../agent-teams/dist/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["**/*.test.ts", "**/*.spec.ts"]
