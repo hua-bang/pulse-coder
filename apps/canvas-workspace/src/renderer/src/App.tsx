@@ -1,11 +1,14 @@
-import { useCallback, useState, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import './App.css';
 import { Canvas } from './components/Canvas';
+import { AppShellProvider, useAppShell } from './components/AppShellProvider';
 import { ChatPage, ChatPanel } from './components/chat';
 import { Sidebar } from './components/Sidebar';
 import { useWorkspaces } from './hooks/useWorkspaces';
+import { parseCanvasLocation } from './utils/canvasLinks';
 import type { CanvasNode } from './types';
+import type { CanvasNodeRenameRequest } from './types/ui-interaction';
 
 const DEFAULT_CHAT_WIDTH = 420;
 const MIN_CHAT_WIDTH = 280;
@@ -16,9 +19,16 @@ const ROUTE_CHAT = '/chat';
 
 type ActiveView = 'canvas' | 'chat';
 
-const App = () => {
+const AppContent = () => {
   const [location, setLocation] = useLocation();
-  const activeView: ActiveView = location === ROUTE_CHAT ? 'chat' : 'canvas';
+  const { path: routePath, params: routeParams } = useMemo(
+    () => parseCanvasLocation(location),
+    [location],
+  );
+  const activeView: ActiveView = routePath === ROUTE_CHAT ? 'chat' : 'canvas';
+  const routeQuery = routeParams.toString();
+
+  const { notify, updateToast, confirm, openShortcuts, isOverlayOpen } = useAppShell();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
@@ -26,10 +36,11 @@ const App = () => {
   const [allNodes, setAllNodes] = useState<Record<string, CanvasNode[]>>({});
   const [focusNodeId, setFocusNodeId] = useState<string | undefined>();
   const [deleteNodeId, setDeleteNodeId] = useState<string | undefined>();
+  const [renameNodeRequest, setRenameNodeRequest] = useState<CanvasNodeRenameRequest | undefined>();
   const resizing = useRef(false);
 
   const handleNodesChange = useCallback((canvasId: string, nodes: CanvasNode[]) => {
-    setAllNodes(prev => {
+    setAllNodes((prev) => {
       if (prev[canvasId] === nodes) return prev;
       return { ...prev, [canvasId]: nodes };
     });
@@ -38,9 +49,15 @@ const App = () => {
   const handleFocusComplete = useCallback(() => {
     setFocusNodeId(undefined);
   }, []);
+
   const handleDeleteComplete = useCallback(() => {
     setDeleteNodeId(undefined);
   }, []);
+
+  const handleRenameComplete = useCallback(() => {
+    setRenameNodeRequest(undefined);
+  }, []);
+
   const {
     workspaces,
     folders,
@@ -58,9 +75,24 @@ const App = () => {
     reorderFolder,
   } = useWorkspaces();
 
+  useEffect(() => {
+    if (!routeQuery) return;
+
+    const targetWorkspaceId = routeParams.get('workspaceId') ?? activeId;
+    const targetNodeId = routeParams.get('nodeId');
+    if (!targetWorkspaceId) return;
+    if (!workspaces.some((workspace) => workspace.id === targetWorkspaceId)) return;
+
+    if (activeId !== targetWorkspaceId) {
+      selectWorkspace(targetWorkspaceId);
+    }
+    if (targetNodeId) {
+      setFocusNodeId(targetNodeId);
+    }
+    setLocation(ROUTE_CANVAS);
+  }, [routeQuery, routeParams, activeId, workspaces, selectWorkspace, setLocation]);
+
   const enterChatView = useCallback(() => {
-    // When entering the full-screen page, also close the right-side panel so
-    // only one ChatView instance (and one set of IPC subscriptions) is live.
     setChatPanelOpen(false);
     setLocation(ROUTE_CHAT);
   }, [setLocation]);
@@ -69,26 +101,142 @@ const App = () => {
     setLocation(ROUTE_CANVAS);
   }, [setLocation]);
 
-  // Selecting a workspace from the sidebar also routes back to the canvas.
-  // This is the only Canvas affordance in the expanded sidebar (the explicit
-  // Canvas nav entry was intentionally removed).
   const handleSelectWorkspace = useCallback((id: string) => {
     selectWorkspace(id);
     setLocation(ROUTE_CANVAS);
   }, [selectWorkspace, setLocation]);
 
-  // Keyboard shortcuts:
-  //   Cmd/Ctrl+Shift+A → toggle right-side chat panel (canvas view only)
-  //   Cmd/Ctrl+Shift+L → toggle full-screen chat page
-  //   Esc (while on chat page) → return to canvas
+  const handleCreateWorkspace = useCallback((name: string) => {
+    const trimmed = name.trim() || 'Untitled';
+    const id = createWorkspace(name);
+    notify({
+      tone: 'success',
+      title: 'Workspace created',
+      description: trimmed,
+    });
+    return id;
+  }, [createWorkspace, notify]);
+
+  const handleRenameWorkspace = useCallback((id: string, name: string) => {
+    const workspace = workspaces.find((item) => item.id === id);
+    const trimmed = name.trim();
+    if (!workspace || !trimmed || workspace.name === trimmed) return;
+    renameWorkspace(id, trimmed);
+    notify({
+      tone: 'success',
+      title: 'Workspace renamed',
+      description: `${workspace.name} -> ${trimmed}`,
+    });
+  }, [workspaces, renameWorkspace, notify]);
+
+  const handleDeleteWorkspace = useCallback(async (id: string) => {
+    const workspace = workspaces.find((item) => item.id === id);
+    if (!workspace) return;
+
+    const accepted = await confirm({
+      intent: 'danger',
+      title: `Delete "${workspace.name}"?`,
+      description: 'This removes the workspace canvas and its saved workspace directory from disk. This action cannot be undone.',
+      confirmLabel: 'Delete workspace',
+    });
+    if (!accepted) return;
+
+    const toastId = notify({
+      tone: 'loading',
+      title: `Deleting ${workspace.name}...`,
+      description: 'Removing workspace data and saved canvas state.',
+    });
+
+    const result = await deleteWorkspace(id);
+    if (!result.ok) {
+      updateToast(toastId, {
+        tone: 'error',
+        title: 'Workspace deletion failed',
+        description: result.error ?? 'The workspace could not be deleted.',
+        autoCloseMs: 4200,
+      });
+      return;
+    }
+
+    updateToast(toastId, {
+      tone: 'success',
+      title: 'Workspace deleted',
+      description: workspace.name,
+      autoCloseMs: 2400,
+    });
+  }, [workspaces, confirm, notify, updateToast, deleteWorkspace]);
+
+  const handleCreateFolder = useCallback((name: string) => {
+    const trimmed = name.trim() || 'Untitled Folder';
+    const id = createFolder(name);
+    notify({
+      tone: 'success',
+      title: 'Folder created',
+      description: trimmed,
+    });
+    return id;
+  }, [createFolder, notify]);
+
+  const handleRenameFolder = useCallback((id: string, name: string) => {
+    const folder = folders.find((item) => item.id === id);
+    const trimmed = name.trim();
+    if (!folder || !trimmed || folder.name === trimmed) return;
+    renameFolder(id, trimmed);
+    notify({
+      tone: 'success',
+      title: 'Folder renamed',
+      description: `${folder.name} -> ${trimmed}`,
+    });
+  }, [folders, renameFolder, notify]);
+
+  const handleDeleteFolder = useCallback(async (id: string) => {
+    const folder = folders.find((item) => item.id === id);
+    if (!folder) return;
+
+    const accepted = await confirm({
+      intent: 'danger',
+      title: `Delete folder "${folder.name}"?`,
+      description: 'The folder will be removed and its workspaces will move back to the root list.',
+      confirmLabel: 'Delete folder',
+    });
+    if (!accepted) return;
+
+    deleteFolder(id);
+    notify({
+      tone: 'success',
+      title: 'Folder deleted',
+      description: `${folder.name} was removed. Nested workspaces were kept.`,
+    });
+  }, [folders, confirm, deleteFolder, notify]);
+
+  const handleNodeRename = useCallback((nodeId: string, title: string) => {
+    setRenameNodeRequest({ workspaceId: activeId, nodeId, title });
+  }, [activeId]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isEditable = Boolean(target) && (
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable
+      );
+
+      if (isOverlayOpen) return;
+
+      if (!isEditable && (e.key === '?' || (e.shiftKey && e.key === '/'))) {
+        e.preventDefault();
+        openShortcuts();
+        return;
+      }
+
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'a') {
         if (activeView !== 'canvas') return;
         e.preventDefault();
-        setChatPanelOpen(prev => !prev);
+        setChatPanelOpen((prev) => !prev);
         return;
       }
+
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'l') {
         e.preventDefault();
         if (activeView === 'chat') {
@@ -99,17 +247,15 @@ const App = () => {
         }
         return;
       }
-      if (e.key === 'Escape' && activeView === 'chat') {
-        // Don't swallow Esc if the user is typing in a text field (mention popup, etc.)
-        const target = e.target as HTMLElement | null;
-        const tag = target?.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+
+      if (e.key === 'Escape' && activeView === 'chat' && !isEditable) {
         setLocation(ROUTE_CANVAS);
       }
     };
+
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [activeView, setLocation]);
+  }, [activeView, isOverlayOpen, openShortcuts, setLocation]);
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -137,7 +283,6 @@ const App = () => {
     document.addEventListener('mouseup', onMouseUp);
   }, [chatWidth]);
 
-  // Jumping to a node from the chat page: focus it AND return to canvas.
   const handleNodeFocusFromChatPage = useCallback((nodeId: string) => {
     setFocusNodeId(nodeId);
     setLocation(ROUTE_CANVAS);
@@ -150,24 +295,25 @@ const App = () => {
       <div className="app-body">
         <Sidebar
           collapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed((c) => !c)}
+          onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)}
           workspaces={workspaces}
           folders={folders}
           activeId={activeId}
           onSelect={handleSelectWorkspace}
-          onCreate={createWorkspace}
-          onRename={renameWorkspace}
-          onDelete={deleteWorkspace}
+          onCreate={handleCreateWorkspace}
+          onRename={handleRenameWorkspace}
+          onDelete={handleDeleteWorkspace}
           onSetRootFolder={setRootFolder}
-          onCreateFolder={createFolder}
-          onRenameFolder={renameFolder}
-          onDeleteFolder={deleteFolder}
+          onCreateFolder={handleCreateFolder}
+          onRenameFolder={handleRenameFolder}
+          onDeleteFolder={handleDeleteFolder}
           onToggleFolder={toggleFolder}
           onMoveWorkspace={moveWorkspace}
           onReorderFolder={reorderFolder}
           activeNodes={allNodes[activeId] || []}
           onNodeFocus={setFocusNodeId}
           onNodeDelete={setDeleteNodeId}
+          onNodeRename={handleNodeRename}
           activeView={activeView}
           onEnterChat={enterChatView}
           onExitChat={exitChatView}
@@ -187,8 +333,10 @@ const App = () => {
                   onFocusComplete={handleFocusComplete}
                   deleteNodeId={ws.id === activeId ? deleteNodeId : undefined}
                   onDeleteComplete={handleDeleteComplete}
+                  renameRequest={ws.id === renameNodeRequest?.workspaceId ? renameNodeRequest : undefined}
+                  onRenameComplete={handleRenameComplete}
                   chatPanelOpen={chatPanelOpen}
-                  onChatToggle={() => setChatPanelOpen(prev => !prev)}
+                  onChatToggle={() => setChatPanelOpen((prev) => !prev)}
                 />
               ))}
             </div>
@@ -226,5 +374,11 @@ const App = () => {
     </div>
   );
 };
+
+const App = () => (
+  <AppShellProvider>
+    <AppContent />
+  </AppShellProvider>
+);
 
 export default App;

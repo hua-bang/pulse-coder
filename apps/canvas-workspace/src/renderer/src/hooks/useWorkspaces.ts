@@ -13,6 +13,11 @@ export interface FolderEntry {
   collapsed?: boolean;
 }
 
+export interface WorkspaceDeleteResult {
+  ok: boolean;
+  error?: string;
+}
+
 interface WorkspaceManifest {
   workspaces: WorkspaceEntry[];
   folders?: FolderEntry[];
@@ -27,6 +32,8 @@ export const useWorkspaces = () => {
   const [activeId, setActiveId] = useState('default');
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
+  const workspacesRef = useRef(workspaces);
+  workspacesRef.current = workspaces;
   const foldersRef = useRef(folders);
   foldersRef.current = folders;
 
@@ -106,18 +113,29 @@ export const useWorkspaces = () => {
   );
 
   const deleteWorkspace = useCallback(
-    (id: string) => {
+    async (id: string): Promise<WorkspaceDeleteResult> => {
       const api = window.canvasWorkspace?.store;
-      setWorkspaces((prev) => {
-        if (prev.length <= 1) return prev;
-        const next = prev.filter((w) => w.id !== id);
-        const newActiveId =
-          activeIdRef.current === id ? next[0].id : activeIdRef.current;
-        saveManifest(next, newActiveId);
-        if (activeIdRef.current === id) setActiveId(newActiveId);
-        if (api) void api.delete(id);
-        return next;
-      });
+      const current = workspacesRef.current;
+      if (current.length <= 1) {
+        return { ok: false, error: 'Cannot delete the only workspace.' };
+      }
+
+      if (api) {
+        const result = await api.delete(id);
+        if (!result.ok) {
+          return { ok: false, error: result.error };
+        }
+      }
+
+      const next = current.filter((w) => w.id !== id);
+      const newActiveId =
+        activeIdRef.current === id ? next[0].id : activeIdRef.current;
+
+      setWorkspaces(next);
+      saveManifest(next, newActiveId);
+      if (activeIdRef.current === id) setActiveId(newActiveId);
+
+      return { ok: true };
     },
     [saveManifest]
   );

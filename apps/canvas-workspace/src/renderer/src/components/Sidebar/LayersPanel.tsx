@@ -1,4 +1,4 @@
-import type { MouseEvent as ReactMouseEvent } from 'react';
+import type { MouseEvent as ReactMouseEvent, RefObject } from 'react';
 import type { LayerTreeNode } from './utils/layers';
 import { LayerItem } from './LayerItem';
 
@@ -12,6 +12,12 @@ interface LayersPanelProps {
   onContextMenu: (e: ReactMouseEvent, nodeId: string) => void;
   onToggleCollapse: (id: string) => void;
   onToggleAll: () => void;
+  renamingLayerId: string | null;
+  renameLayerValue: string;
+  renameLayerInputRef: RefObject<HTMLInputElement>;
+  onLayerRenameChange: (value: string) => void;
+  onLayerRenameCommit: () => void;
+  onLayerRenameCancel: () => void;
 }
 
 export const LayersPanel = ({
@@ -24,6 +30,12 @@ export const LayersPanel = ({
   onContextMenu,
   onToggleCollapse,
   onToggleAll,
+  renamingLayerId,
+  renameLayerValue,
+  renameLayerInputRef,
+  onLayerRenameChange,
+  onLayerRenameCommit,
+  onLayerRenameCancel,
 }: LayersPanelProps) => (
   <div className="sidebar-layers">
     <div className="sidebar-section-header">
@@ -71,6 +83,12 @@ export const LayersPanel = ({
           onFocus={onNodeFocus}
           onContextMenu={onContextMenu}
           onToggleCollapse={onToggleCollapse}
+          renamingLayerId={renamingLayerId}
+          renameLayerValue={renameLayerValue}
+          renameLayerInputRef={renameLayerInputRef}
+          onRenameChange={onLayerRenameChange}
+          onRenameCommit={onLayerRenameCommit}
+          onRenameCancel={onLayerRenameCancel}
         />
       ))}
     </div>
