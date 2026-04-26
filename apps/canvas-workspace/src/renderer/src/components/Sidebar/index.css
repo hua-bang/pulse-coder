@@ -555,6 +555,11 @@
   background: rgba(0, 0, 0, 0.04);
 }
 
+.sidebar-layer-item--editing {
+  cursor: default;
+  background: rgba(35, 131, 226, 0.08);
+}
+
 .sidebar-layer-icon {
   width: 18px;
   height: 18px;
@@ -571,6 +576,19 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.sidebar-layer-rename-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1.5px solid var(--accent-border);
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
 }
 
 .sidebar-layer-item--frame {
@@ -736,7 +754,7 @@
 .sidebar-layer-context-menu {
   position: fixed;
   z-index: 1000;
-  min-width: 140px;
+  min-width: 168px;
   padding: 4px;
   background: var(--bg, #ffffff);
   border: 1px solid var(--border-light);

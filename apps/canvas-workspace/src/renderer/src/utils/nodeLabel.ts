@@ -16,6 +16,9 @@ const TEXT_LABEL_MAX_CHARS = 10;
  */
 export function getNodeDisplayLabel(node: CanvasNode): string {
   if (node.type === "text") {
+    const explicitTitle = node.title.trim();
+    if (explicitTitle && explicitTitle !== 'Text') return explicitTitle;
+
     const preview = textContentPreview((node.data as TextNodeData).content);
     if (preview) return preview;
     return node.title || "Text";

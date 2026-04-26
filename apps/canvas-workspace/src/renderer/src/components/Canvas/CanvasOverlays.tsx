@@ -23,6 +23,7 @@ interface CanvasOverlaysProps {
   onChatToggle?: () => void;
   onCreateNode: (type: 'file' | 'terminal' | 'frame' | 'agent' | 'text' | 'iframe' | 'mindmap') => void;
   onCloseContextMenu: () => void;
+  onOpenShortcuts: () => void;
   onToolChange: (tool: string) => void;
   onAddNode: (type: 'file' | 'terminal' | 'frame' | 'agent' | 'text' | 'iframe' | 'mindmap') => void;
   onResetTransform: () => void;
@@ -66,6 +67,7 @@ export const CanvasOverlays = ({
   onChatToggle,
   onCreateNode,
   onCloseContextMenu,
+  onOpenShortcuts,
   onToolChange,
   onAddNode,
   onResetTransform,
@@ -85,7 +87,12 @@ export const CanvasOverlays = ({
   onCancelEditEdgeLabel,
 }: CanvasOverlaysProps) => (
   <>
-    {nodes.length === 0 && !contextMenu && <CanvasEmptyHint />}
+    {nodes.length === 0 && !contextMenu && (
+      <CanvasEmptyHint
+        onCreateNode={(type) => onAddNode(type)}
+        onOpenShortcuts={onOpenShortcuts}
+      />
+    )}
 
     {contextMenu && (
       <NodeContextMenu

@@ -129,12 +129,63 @@
   border-radius: 3px;
   color: var(--text);
   letter-spacing: -0.01em;
+  cursor: default;
+  min-width: 0;
 }
 
-.node-title:focus {
+.node-title[contenteditable="true"] {
+  cursor: text;
   background: rgba(0, 0, 0, 0.03);
+  box-shadow: 0 0 0 1.5px var(--accent-border);
 }
 
+/* Agent status label pill */
+.node-status-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.canvas-node:hover .node-status-label {
+  opacity: 1;
+}
+
+.node-status-label--running {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+}
+
+.node-status-label--done {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-muted);
+}
+
+.node-status-label--error {
+  background: rgba(224, 62, 62, 0.1);
+  color: #e03e3e;
+}
+
+/* Last active time label */
+.node-time-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.canvas-node:hover .node-time-label {
+  opacity: 1;
+}
+
+.node-copy,
 .node-focus,
 .node-close {
   width: 20px;
@@ -152,9 +203,20 @@
   transition: opacity 0.1s, background 0.1s, color 0.1s;
 }
 
+.canvas-node:hover .node-copy,
 .canvas-node:hover .node-focus,
 .canvas-node:hover .node-close {
   opacity: 1;
+}
+
+.node-copy:hover {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.node-copy--done {
+  color: #10b981 !important;
+  opacity: 1 !important;
 }
 
 .node-focus:hover {

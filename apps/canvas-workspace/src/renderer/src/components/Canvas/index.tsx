@@ -10,12 +10,47 @@ import { useCanvasKeyboard } from '../../hooks/useCanvasKeyboard';
 import { useCanvasImagePaste } from '../../hooks/useCanvasImagePaste';
 import { useEdgeInteraction } from '../../hooks/useEdgeInteraction';
 import { useShapeDraw } from '../../hooks/useShapeDraw';
+import { useAppShell } from '../AppShellProvider';
+import { NODE_TYPE_LABELS } from '../../constants/interaction';
 import type { CanvasNode } from '../../types';
 import { computeFrameDepths } from '../../utils/frameHierarchy';
+import { getNodeDisplayLabel } from '../../utils/nodeLabel';
+import type { CanvasNodeRenameRequest } from '../../types/ui-interaction';
 import { CanvasSurface } from './CanvasSurface';
 import { CanvasOverlays } from './CanvasOverlays';
 
-export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange, focusNodeId, onFocusComplete, deleteNodeId, onDeleteComplete, chatPanelOpen, onChatToggle }: { canvasId: string; canvasName?: string; rootFolder?: string; hidden?: boolean; onNodesChange?: (canvasId: string, nodes: CanvasNode[]) => void; focusNodeId?: string; onFocusComplete?: () => void; deleteNodeId?: string; onDeleteComplete?: () => void; chatPanelOpen?: boolean; onChatToggle?: () => void }) => {
+interface CanvasProps {
+  canvasId: string;
+  canvasName?: string;
+  rootFolder?: string;
+  hidden?: boolean;
+  onNodesChange?: (canvasId: string, nodes: CanvasNode[]) => void;
+  focusNodeId?: string;
+  onFocusComplete?: () => void;
+  deleteNodeId?: string;
+  onDeleteComplete?: () => void;
+  renameRequest?: CanvasNodeRenameRequest;
+  onRenameComplete?: () => void;
+  chatPanelOpen?: boolean;
+  onChatToggle?: () => void;
+}
+
+export const Canvas = ({
+  canvasId,
+  canvasName,
+  rootFolder,
+  hidden,
+  onNodesChange,
+  focusNodeId,
+  onFocusComplete,
+  deleteNodeId,
+  onDeleteComplete,
+  renameRequest,
+  onRenameComplete,
+  chatPanelOpen,
+  onChatToggle,
+}: CanvasProps) => {
+  const { confirm, notify, openShortcuts, isOverlayOpen } = useAppShell();
   const [activeTool, setActiveTool] = useState('select');
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [clipboardNodes, setClipboardNodes] = useState<CanvasNode[]>([]);
@@ -109,6 +144,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
 
   // Handle external focus request (e.g. from sidebar layers panel)
   useEffect(() => {
+    if (!loaded) return;
     if (!focusNodeId) return;
     const node = nodes.find((n) => n.id === focusNodeId);
     if (node) {
@@ -117,26 +153,90 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
       handleFocusNode(node);
     }
     onFocusComplete?.();
-  }, [focusNodeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [focusNodeId, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle external delete request (e.g. from sidebar layers context menu)
   useEffect(() => {
+    if (!loaded) return;
     if (!deleteNodeId) return;
     if (nodes.some((n) => n.id === deleteNodeId)) {
       removeNode(deleteNodeId);
       setSelectedNodeIds((ids) => ids.filter((id) => id !== deleteNodeId));
     }
     onDeleteComplete?.();
-  }, [deleteNodeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [deleteNodeId, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!loaded) return;
+    if (!renameRequest) return;
+    if (renameRequest.workspaceId !== canvasId) return;
+
+    const node = nodes.find((item) => item.id === renameRequest.nodeId);
+    if (node && node.title !== renameRequest.title) {
+      updateNode(node.id, { title: renameRequest.title });
+    }
+    onRenameComplete?.();
+  }, [renameRequest, loaded, canvasId, nodes, updateNode, onRenameComplete]);
+
+  const requestRemoveNodes = useCallback(async (ids: string[]) => {
+    const victims = nodes.filter((node) => ids.includes(node.id));
+    if (victims.length === 0) return;
+
+    const accepted = await confirm({
+      intent: 'danger',
+      title: victims.length === 1
+        ? `Delete "${getNodeDisplayLabel(victims[0])}"?`
+        : `Delete ${victims.length} selected nodes?`,
+      description: victims.length === 1
+        ? 'Connected arrows stay on the canvas and detach from the deleted node.'
+        : 'Connected arrows stay on the canvas and detach from the deleted nodes.',
+      confirmLabel: victims.length === 1 ? 'Delete node' : 'Delete nodes',
+    });
+    if (!accepted) return;
+
+    removeNodes(victims.map((node) => node.id));
+    const removedIds = new Set(victims.map((node) => node.id));
+    setSelectedNodeIds((current) => current.filter((id) => !removedIds.has(id)));
+    notify({
+      tone: 'success',
+      title: victims.length === 1 ? 'Node deleted' : 'Nodes deleted',
+      description: victims.length === 1
+        ? getNodeDisplayLabel(victims[0])
+        : `${victims.length} items were removed from the canvas.`,
+    });
+  }, [nodes, confirm, removeNodes, notify]);
+
+  const requestRemoveEdge = useCallback(async (id: string) => {
+    const edge = edges.find((item) => item.id === id);
+    if (!edge) return;
+
+    const accepted = await confirm({
+      intent: 'danger',
+      title: 'Delete this connection?',
+      description: 'This removes the arrow and its label from the canvas.',
+      confirmLabel: 'Delete connection',
+    });
+    if (!accepted) return;
+
+    removeEdge(id);
+    setSelectedEdgeId((current) => (current === id ? null : current));
+    if (editingEdgeLabelId === id) setEditingEdgeLabelId(null);
+    notify({
+      tone: 'success',
+      title: 'Connection deleted',
+      description: edge.label?.trim() ? edge.label : 'Arrow removed from the canvas.',
+    });
+  }, [edges, confirm, removeEdge, editingEdgeLabelId, notify]);
 
   useCanvasContext(rootFolder, nodes, canvasName);
 
   useCanvasKeyboard({
     undo, redo, nodes, selectedNodeIds, setSelectedNodeIds,
-    selectedEdgeId, setSelectedEdgeId, removeEdge,
-    duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, removeNodes,
+    selectedEdgeId, setSelectedEdgeId, removeEdge: requestRemoveEdge,
+    duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, removeNodes: requestRemoveNodes,
     searchOpen, setSearchOpen, contextMenu, setContextMenu,
     setHighlightedId, handleFocusNode,
+    keyboardLocked: isOverlayOpen,
   });
 
   useCanvasImagePaste({
@@ -331,8 +431,13 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
       const node = addNode(type, contextMenu.canvasX, contextMenu.canvasY);
       setSelectedNodeIds([node.id]);
       setContextMenu(null);
+      notify({
+        tone: 'success',
+        title: `${NODE_TYPE_LABELS[type]} added`,
+        description: 'Placed on the canvas.',
+      });
     },
-    [addNode, contextMenu]
+    [addNode, contextMenu, notify]
   );
 
   const handleToolbarAddNode = useCallback(
@@ -356,8 +461,13 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
         : 150;
       const node = addNode(type, pos.x - halfW, pos.y - halfH);
       setSelectedNodeIds([node.id]);
+      notify({
+        tone: 'success',
+        title: `${NODE_TYPE_LABELS[type]} added`,
+        description: 'Centered in the current viewport.',
+      });
     },
-    [addNode, screenToCanvas]
+    [addNode, screenToCanvas, notify]
   );
 
   const handleCanvasClick = useCallback(
@@ -451,7 +561,9 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
         onResizeStart={onResizeStart}
         onUpdate={updateNode}
         onAutoResize={resizeNode}
-        onRemove={removeNode}
+        onRemove={(id) => {
+          void requestRemoveNodes([id]);
+        }}
         onSelect={(id) => {
           setSelectedNodeIds([id]);
           setSelectedEdgeId(null);
@@ -476,6 +588,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
         onChatToggle={onChatToggle}
         onCreateNode={handleCreateNode}
         onCloseContextMenu={() => setContextMenu(null)}
+        onOpenShortcuts={openShortcuts}
         onToolChange={setActiveTool}
         onAddNode={handleToolbarAddNode}
         onResetTransform={resetTransform}
@@ -492,9 +605,7 @@ export const Canvas = ({ canvasId, canvasName, rootFolder, hidden, onNodesChange
           updateEdge(id, patch);
         }}
         onRemoveEdge={(id) => {
-          removeEdge(id);
-          setSelectedEdgeId(null);
-          if (editingEdgeLabelId === id) setEditingEdgeLabelId(null);
+          void requestRemoveEdge(id);
         }}
         edges={edges}
         editingEdgeLabelId={editingEdgeLabelId}

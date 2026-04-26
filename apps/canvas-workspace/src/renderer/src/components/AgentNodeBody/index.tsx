@@ -316,6 +316,20 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
     setLaunched(true);
   }, [selectedAgent, cwdInput, promptInput, rootFolder]);
 
+  const handleStop = useCallback(() => {
+    const api = window.canvasWorkspace?.pty;
+    if (api) api.kill(sessionId);
+    onUpdateRef.current(nodeIdRef.current, {
+      data: { ...dataRef.current, status: 'done' },
+    });
+  }, [sessionId]);
+
+  const handleSendPrompt = useCallback((prompt: string) => {
+    const api = window.canvasWorkspace?.pty;
+    if (!api) return;
+    api.write(sessionId, `\n${prompt}\n`);
+  }, [sessionId]);
+
   const handleRestart = useCallback(() => {
     if (saveTimerRef.current) clearInterval(saveTimerRef.current);
     cleanupRef.current?.();
@@ -368,6 +382,8 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
       containerRef={containerRef}
       status={status}
       onRestart={handleRestart}
+      onStop={handleStop}
+      onSendPrompt={handleSendPrompt}
     />
   );
 };

@@ -8,6 +8,10 @@ import { WorkspaceItem } from './WorkspaceItem';
 import { WorkspaceList } from './WorkspaceList';
 import { LayersPanel } from './LayersPanel';
 import { LayerContextMenu } from './LayerContextMenu';
+import { useAppShell } from '../AppShellProvider';
+import { getNodeDisplayLabel } from '../../utils/nodeLabel';
+import { buildCanvasNodeLink } from '../../utils/canvasLinks';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 interface Props {
   collapsed: boolean;
@@ -29,6 +33,7 @@ interface Props {
   activeNodes?: CanvasNode[];
   onNodeFocus?: (nodeId: string) => void;
   onNodeDelete?: (nodeId: string) => void;
+  onNodeRename?: (nodeId: string, title: string) => void;
   activeView: 'canvas' | 'chat';
   onEnterChat: () => void;
   onExitChat: () => void;
@@ -40,12 +45,15 @@ const FOLDER_DRAG = 'application/x-folder-id';
 export const Sidebar = ({
   collapsed, onToggle, workspaces, folders, activeId, onSelect, onCreate, onRename, onDelete,
   onCreateFolder, onRenameFolder, onDeleteFolder, onToggleFolder, onMoveWorkspace, onReorderFolder,
-  activeNodes = [], onNodeFocus, onNodeDelete, activeView, onEnterChat,
+  activeNodes = [], onNodeFocus, onNodeDelete, onNodeRename, activeView, onEnterChat,
 }: Props) => {
+  const { confirm, notify } = useAppShell();
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
   const [renameFolderValue, setRenameFolderValue] = useState('');
+  const [renamingLayerId, setRenamingLayerId] = useState<string | null>(null);
+  const [renameLayerValue, setRenameLayerValue] = useState('');
   const [inlineCreate, setInlineCreate] = useState<'workspace' | 'folder' | null>(null);
   const [inlineCreateValue, setInlineCreateValue] = useState('');
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -85,11 +93,13 @@ export const Sidebar = ({
 
   const renameInputRef = useRef<HTMLInputElement>(null);
   const renameFolderInputRef = useRef<HTMLInputElement>(null);
+  const renameLayerInputRef = useRef<HTMLInputElement>(null);
   const inlineCreateRef = useRef<HTMLInputElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (renamingId && renameInputRef.current) { renameInputRef.current.focus(); renameInputRef.current.select(); } }, [renamingId]);
   useEffect(() => { if (renamingFolderId && renameFolderInputRef.current) { renameFolderInputRef.current.focus(); renameFolderInputRef.current.select(); } }, [renamingFolderId]);
+  useEffect(() => { if (renamingLayerId && renameLayerInputRef.current) { renameLayerInputRef.current.focus(); renameLayerInputRef.current.select(); } }, [renamingLayerId]);
   useEffect(() => { if (inlineCreate && inlineCreateRef.current) inlineCreateRef.current.focus(); }, [inlineCreate]);
 
   useEffect(() => {
@@ -103,11 +113,71 @@ export const Sidebar = ({
   const commitRename = () => { if (renamingId && renameValue.trim()) onRename(renamingId, renameValue); setRenamingId(null); };
   const startFolderRename = (f: FolderEntry) => { setRenamingFolderId(f.id); setRenameFolderValue(f.name); };
   const commitFolderRename = () => { if (renamingFolderId && renameFolderValue.trim()) onRenameFolder(renamingFolderId, renameFolderValue); setRenamingFolderId(null); };
+  const startLayerRename = (nodeId: string) => {
+    const node = activeNodes.find((item) => item.id === nodeId);
+    if (!node) return;
+    setRenamingLayerId(nodeId);
+    setRenameLayerValue(node.title || getNodeDisplayLabel(node));
+  };
+  const commitLayerRename = () => {
+    if (!renamingLayerId) return;
+    const nextTitle = renameLayerValue.trim();
+    const node = activeNodes.find((item) => item.id === renamingLayerId);
+    setRenamingLayerId(null);
+    if (!node || !onNodeRename || !nextTitle || node.title === nextTitle) return;
+    onNodeRename(renamingLayerId, nextTitle);
+    notify({
+      tone: 'success',
+      title: 'Layer renamed',
+      description: `${getNodeDisplayLabel(node)} -> ${nextTitle}`,
+    });
+  };
   const commitInlineCreate = () => {
     const v = inlineCreateValue.trim();
     if (v) { if (inlineCreate === 'workspace') onCreate(v); else if (inlineCreate === 'folder') onCreateFolder(v); }
     setInlineCreate(null); setInlineCreateValue('');
   };
+
+  const handleLayerDelete = useCallback(async (nodeId: string) => {
+    const node = activeNodes.find((item) => item.id === nodeId);
+    if (!node || !onNodeDelete) return;
+
+    const accepted = await confirm({
+      intent: 'danger',
+      title: `Delete "${getNodeDisplayLabel(node)}"?`,
+      description: 'The node will be removed from the canvas. Connected arrows remain and detach from it.',
+      confirmLabel: 'Delete node',
+    });
+    if (!accepted) return;
+
+    onNodeDelete(nodeId);
+    notify({
+      tone: 'success',
+      title: 'Node deleted',
+      description: getNodeDisplayLabel(node),
+    });
+  }, [activeNodes, confirm, notify, onNodeDelete]);
+
+  const handleLayerCopyLink = useCallback(async (nodeId: string) => {
+    const node = activeNodes.find((item) => item.id === nodeId);
+    if (!node) return;
+
+    try {
+      await copyTextToClipboard(buildCanvasNodeLink(activeId, nodeId));
+      notify({
+        tone: 'success',
+        title: 'Node link copied',
+        description: getNodeDisplayLabel(node),
+      });
+    } catch (error) {
+      notify({
+        tone: 'error',
+        title: 'Copy failed',
+        description: error instanceof Error ? error.message : 'Unable to copy the node link.',
+        autoCloseMs: 4200,
+      });
+    }
+  }, [activeNodes, activeId, notify]);
 
   // Workspace drag
   const handleWsDragStart = (e: DragEvent, wsId: string) => {
@@ -212,6 +282,12 @@ export const Sidebar = ({
           onNodeFocus={(nodeId) => onNodeFocus?.(nodeId)}
           onContextMenu={handleLayerContextMenu} onToggleCollapse={toggleLayerCollapse}
           onToggleAll={toggleAllLayers}
+          renamingLayerId={renamingLayerId}
+          renameLayerValue={renameLayerValue}
+          renameLayerInputRef={renameLayerInputRef}
+          onLayerRenameChange={setRenameLayerValue}
+          onLayerRenameCommit={commitLayerRename}
+          onLayerRenameCancel={() => setRenamingLayerId(null)}
         />
       )}
 
@@ -219,7 +295,9 @@ export const Sidebar = ({
         <LayerContextMenu
           x={layerContextMenu.x} y={layerContextMenu.y} nodeId={layerContextMenu.nodeId}
           onFocus={(nodeId) => onNodeFocus?.(nodeId)}
-          onDelete={(nodeId) => onNodeDelete?.(nodeId)}
+          onRename={(nodeId) => startLayerRename(nodeId)}
+          onDelete={(nodeId) => { void handleLayerDelete(nodeId); }}
+          onCopyLink={(nodeId) => { void handleLayerCopyLink(nodeId); }}
           onClose={() => setLayerContextMenu(null)}
         />
       )}

@@ -285,6 +285,54 @@
   padding: 0 4px;
 }
 
+/* ── Quick action buttons (running state) ── */
+
+.agent-quick-actions {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  z-index: 10;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.agent-body-wrap:hover .agent-quick-actions {
+  opacity: 1;
+}
+
+.agent-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.agent-quick-btn:hover {
+  background: var(--surface);
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.agent-quick-btn--stop:hover {
+  background: rgba(224, 62, 62, 0.08);
+  border-color: #e03e3e;
+  color: #e03e3e;
+}
+
 /* ── Restart button (top-right of running body) ── */
 
 .agent-restart-btn {

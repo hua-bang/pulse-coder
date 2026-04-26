@@ -1,6 +1,6 @@
-import { useCallback } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import "./index.css";
-import type { CanvasNode, FrameNodeData, AgentNodeData, TextNodeData } from "../../types";
+import type { CanvasNode, FrameNodeData, AgentNodeData, TextNodeData, FileNodeData } from "../../types";
 import type { ResizeEdge } from "../../hooks/useNodeResize";
 import { FileNodeBody } from "../FileNodeBody";
 import { TerminalNodeBody } from "../TerminalNodeBody";
@@ -44,6 +44,42 @@ interface Props {
   onFocus: (node: CanvasNode) => void;
 }
 
+function formatRelativeTime(epochMs: number): string {
+  const diffSec = Math.floor((Date.now() - epochMs) / 1000);
+  if (diffSec < 60) return 'just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  return `${Math.floor(diffHr / 24)}d ago`;
+}
+
+function fallbackCopy(text: string) {
+  const el = document.createElement('textarea');
+  el.value = text;
+  el.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+  document.body.appendChild(el);
+  el.select();
+  try { document.execCommand('copy'); } catch { /* ignore */ }
+  document.body.removeChild(el);
+}
+
+function getNodeCopyContent(node: CanvasNode): string {
+  switch (node.type) {
+    case 'file': return (node.data as FileNodeData).content ?? '';
+    case 'text': return (node.data as TextNodeData).content ?? '';
+    case 'agent': return (node.data as AgentNodeData).scrollback ?? '';
+    default: return node.title;
+  }
+}
+
+const AGENT_STATUS_LABEL: Record<string, string> = {
+  running: 'Running',
+  done: 'Done',
+  error: 'Error',
+  idle: 'Idle',
+};
+
 export const CanvasNodeView = ({
   node,
   allNodes,
@@ -63,6 +99,18 @@ export const CanvasNodeView = ({
   onSelect,
   onFocus
 }: Props) => {
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [, setTick] = useState(0);
+  const titleRef = useRef<HTMLSpanElement>(null);
+
+  // Re-render every 30s so relative time stays fresh
+  useEffect(() => {
+    if (!node.updatedAt) return;
+    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, [node.updatedAt]);
+
   const handleHeaderMouseDown = useCallback(
     (e: React.MouseEvent) => {
       onSelect(node.id);
@@ -95,27 +143,77 @@ export const CanvasNodeView = ({
     [onFocus, node]
   );
 
-  const handleTitleChange = useCallback(
+  const handleTitleBlur = useCallback(
     (e: React.FocusEvent<HTMLSpanElement>) => {
       const newTitle = e.currentTarget.textContent?.trim();
       if (newTitle && newTitle !== node.title) {
         onUpdate(node.id, { title: newTitle });
       }
+      setIsEditingTitle(false);
     },
     [onUpdate, node.id, node.title]
+  );
+
+  const handleTitleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLSpanElement>) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        titleRef.current?.blur();
+      } else if (e.key === 'Escape') {
+        if (titleRef.current) titleRef.current.textContent = node.title;
+        titleRef.current?.blur();
+      }
+    },
+    [node.title]
+  );
+
+  const handleTitleDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setIsEditingTitle(true);
+      // Focus after state update renders contentEditable=true
+      requestAnimationFrame(() => {
+        if (titleRef.current) {
+          titleRef.current.focus();
+          const range = document.createRange();
+          range.selectNodeContents(titleRef.current);
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        }
+      });
+    },
+    []
+  );
+
+  const handleCopy = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const content = getNodeCopyContent(node);
+      const write = () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(content).then(write).catch(() => {
+          fallbackCopy(content);
+          write();
+        });
+      } else {
+        fallbackCopy(content);
+        write();
+      }
+    },
+    [node]
   );
 
   const makeResizeHandler = useCallback(
     (edge: ResizeEdge) => (e: React.MouseEvent) => {
       if (node.type === "text") {
-        // Dragging a resize handle on a text node switches it out of auto-size
-        // mode so the dragged width/height becomes the authoritative frame.
         const data = node.data as TextNodeData;
         if (data.autoSize !== false) {
           onUpdate(node.id, { data: { ...data, autoSize: false } });
         }
-        // Text labels should be shrinkable well below the standard 200×120
-        // floor — a tiny tag is a valid shape.
         onResizeStart(e, node.id, node.width, node.height, edge, 40, 28);
         return;
       }
@@ -139,6 +237,12 @@ export const CanvasNodeView = ({
   ]
     .filter(Boolean)
     .join(" ");
+
+  const agentStatus = node.type === "agent"
+    ? ((node.data as AgentNodeData).status ?? 'idle')
+    : null;
+
+  const relativeTime = node.updatedAt ? formatRelativeTime(node.updatedAt) : null;
 
   if (node.type === "image") {
     return (
@@ -218,10 +322,6 @@ export const CanvasNodeView = ({
   }
 
   if (node.type === "mindmap") {
-    // Mindmaps are fully chromeless and content-sized: no border, no
-    // hover/selected outline, no resize handles. MindmapNodeBody
-    // reports the rendered bounding box via `onAutoResize`, so the
-    // canvas node's width/height track the topic tree automatically.
     return (
       <div
         className={classes}
@@ -231,9 +331,6 @@ export const CanvasNodeView = ({
           height: node.height,
         }}
         onClick={handleNodeClick}
-        // The wrapper itself is the drag handle — topic pills inside
-        // stop propagation, so mousedown on the empty mindmap area
-        // bubbles here and starts a node drag.
         onMouseDown={(e) => {
           onSelect(node.id);
           onDragStart(e, node);
@@ -307,28 +404,57 @@ export const CanvasNodeView = ({
               <circle cx="9.5" cy="5" r="0.8" fill="currentColor" />
             </svg>
           )}
-          {node.type === "agent" && (() => {
-            const agentStatus = (node.data as AgentNodeData).status;
-            if (!agentStatus || agentStatus === "idle") return null;
-            return <span className={`node-status-dot node-status-dot--${agentStatus}`} />;
-          })()}
+          {node.type === "agent" && agentStatus && agentStatus !== "idle" && (
+            <span className={`node-status-dot node-status-dot--${agentStatus}`} />
+          )}
         </span>
         <span
+          ref={titleRef}
           className="node-title"
-          contentEditable
+          contentEditable={isEditingTitle}
           suppressContentEditableWarning
           spellCheck={false}
-          onBlur={handleTitleChange}
-          onMouseDown={(e) => e.stopPropagation()}
+          onBlur={handleTitleBlur}
+          onKeyDown={isEditingTitle ? handleTitleKeyDown : undefined}
+          onDoubleClick={handleTitleDoubleClick}
+          onMouseDown={(e) => {
+            if (isEditingTitle) e.stopPropagation();
+          }}
         >
           {node.title}
         </span>
+        {node.type === "agent" && agentStatus && agentStatus !== 'idle' && (
+          <span className={`node-status-label node-status-label--${agentStatus}`}>
+            {AGENT_STATUS_LABEL[agentStatus] ?? agentStatus}
+          </span>
+        )}
+        {relativeTime && !(node.type === "agent" && agentStatus && agentStatus !== 'idle') && (
+          <span className="node-time-label" title={new Date(node.updatedAt!).toLocaleString()}>
+            {relativeTime}
+          </span>
+        )}
         {node.type === "frame" && (
           <FrameColorPicker node={node} onUpdate={onUpdate} />
         )}
         {node.type === "text" && (
           <TextColorPicker node={node} onUpdate={onUpdate} />
         )}
+        <button
+          className={`node-copy${copied ? ' node-copy--done' : ''}`}
+          onClick={handleCopy}
+          title={copied ? 'Copied!' : 'Copy content'}
+        >
+          {copied ? (
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : (
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+              <rect x="5" y="1" width="9" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+              <path d="M11 4H3a1 1 0 00-1 1v9a1 1 0 001 1h8a1 1 0 001-1V4z" stroke="currentColor" strokeWidth="1.3" />
+            </svg>
+          )}
+        </button>
         <button className="node-focus" onClick={handleFocus} title="Focus">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <circle cx="6" cy="6" r="2" stroke="currentColor" strokeWidth="1.3" />
@@ -367,9 +493,6 @@ export const CanvasNodeView = ({
         className="resize-handle resize-handle--right"
         onMouseDown={makeResizeHandler("right")}
       />
-      {/* Text nodes grow vertically to fit content, so a bottom/corner
-          handle would either do nothing or fight the auto-height. Offer only
-          the right-edge handle as a wrap-width control. */}
       {node.type !== "text" && (
         <>
           <div

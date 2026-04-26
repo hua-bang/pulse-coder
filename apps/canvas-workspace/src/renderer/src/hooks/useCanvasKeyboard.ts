@@ -11,18 +11,19 @@ interface Options {
    *  deselects it before falling through to node-deselect. */
   selectedEdgeId: string | null;
   setSelectedEdgeId: (id: string | null) => void;
-  removeEdge: (id: string) => void;
+  removeEdge: (id: string) => void | Promise<void>;
   duplicateNode: (id: string) => CanvasNode | null;
   clipboardNodes: CanvasNode[];
   setClipboardNodes: (nodes: CanvasNode[]) => void;
   pasteNodes: (nodes: CanvasNode[]) => CanvasNode[];
-  removeNodes: (ids: string[]) => void;
+  removeNodes: (ids: string[]) => void | Promise<void>;
   searchOpen: boolean;
   setSearchOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   contextMenu: unknown;
   setContextMenu: (menu: null) => void;
   setHighlightedId: (id: string | null) => void;
   handleFocusNode: (node: CanvasNode) => void;
+  keyboardLocked?: boolean;
 }
 
 export const useCanvasKeyboard = ({
@@ -31,9 +32,12 @@ export const useCanvasKeyboard = ({
   duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, removeNodes,
   searchOpen, setSearchOpen, contextMenu, setContextMenu,
   setHighlightedId, handleFocusNode,
+  keyboardLocked = false,
 }: Options) => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (keyboardLocked) return;
+
       const active = document.activeElement;
       const isEditable = active && (
         active.tagName === 'INPUT' ||
@@ -93,14 +97,12 @@ export const useCanvasKeyboard = ({
       if ((e.key === 'Delete' || e.key === 'Backspace') && !isEditable) {
         if (selectedEdgeId) {
           e.preventDefault();
-          removeEdge(selectedEdgeId);
-          setSelectedEdgeId(null);
+          void removeEdge(selectedEdgeId);
           return;
         }
         if (selectedNodeIds.length > 0) {
           e.preventDefault();
-          removeNodes(selectedNodeIds);
-          setSelectedNodeIds([]);
+          void removeNodes(selectedNodeIds);
         }
         return;
       }
@@ -108,11 +110,13 @@ export const useCanvasKeyboard = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, nodes, selectedNodeIds, setSelectedNodeIds, selectedEdgeId, setSelectedEdgeId, removeEdge, duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, removeNodes, searchOpen, setSearchOpen, contextMenu, setContextMenu]);
+  }, [undo, redo, nodes, selectedNodeIds, setSelectedNodeIds, selectedEdgeId, setSelectedEdgeId, removeEdge, duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, removeNodes, searchOpen, setSearchOpen, contextMenu, setContextMenu, keyboardLocked]);
 
   // Cmd/Ctrl+Tab to cycle through nodes (Shift reverses direction)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (keyboardLocked) return;
+
       if ((e.metaKey || e.ctrlKey) && e.key === 'Tab') {
         const activeEl = document.activeElement;
         const isEditable = activeEl && (
@@ -138,5 +142,5 @@ export const useCanvasKeyboard = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nodes, selectedNodeIds, setSelectedNodeIds, setHighlightedId, handleFocusNode]);
+  }, [nodes, selectedNodeIds, setSelectedNodeIds, setHighlightedId, handleFocusNode, keyboardLocked]);
 };
