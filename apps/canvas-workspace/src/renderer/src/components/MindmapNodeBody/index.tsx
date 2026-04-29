@@ -419,6 +419,7 @@ export const MindmapNodeBody = ({ node, isSelected, onUpdate, onSelectNode, onAu
               }}
               onCommitText={(text) => renameTopic(t.id, text)}
               onExitEdit={() => setEditingId(null)}
+              onToggleCollapsed={() => toggle(t.id)}
               onKeyAction={(action) => {
                 switch (action.kind) {
                   case 'addChild':
@@ -479,6 +480,10 @@ interface TopicPillProps {
   onEnterEdit: () => void;
   onCommitText: (text: string) => void;
   onExitEdit: () => void;
+  /** Toggle this topic's `collapsed` flag. Wired to both the click
+   *  affordance rendered inside the pill and (via onKeyAction) the Space
+   *  key shortcut. */
+  onToggleCollapsed: () => void;
   onKeyAction: (action: KeyAction) => void;
 }
 
@@ -493,6 +498,7 @@ const TopicPill = ({
   onEnterEdit,
   onCommitText,
   onExitEdit,
+  onToggleCollapsed,
   onKeyAction,
 }: TopicPillProps) => {
   const editorRef = useRef<HTMLDivElement>(null);
@@ -719,14 +725,33 @@ const TopicPill = ({
       >
         {topic.text}
       </div>
-      {/* Collapsed-subtree hint: a small filled dot in the branch color
-          sitting just after the text, so users can see "something is
-          hidden here" without the heavy +/- button. */}
-      {topic.collapsed && topic.hasChildren && (
-        <span
-          className="mindmap-topic-collapsed-dot"
-          style={{ background: topic.color }}
-          aria-label="collapsed"
+      {/* Collapse/expand toggle. Renders for every non-root topic that has
+       *  children. Collapsed state reads as a filled colored dot (same
+       *  Heptabase-style hint as before) so the page still has a clean
+       *  "hidden subtree" cue at rest. Expanded state shows a faint hollow
+       *  ring that becomes opaque on hover, so the affordance only draws
+       *  attention when the user is reaching for it.
+       *
+       *  `onMouseDown` stops propagation so clicking the toggle never
+       *  starts a topic select / reorder drag on the parent pill; the
+       *  click handler then toggles. */}
+      {!isRoot && topic.hasChildren && (
+        <button
+          type="button"
+          className={[
+            'mindmap-topic-toggle',
+            topic.collapsed && 'mindmap-topic-toggle--collapsed',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          style={{ ['--mindmap-topic-toggle-color' as string]: topic.color }}
+          aria-label={topic.collapsed ? 'Expand subtree' : 'Collapse subtree'}
+          onMouseDown={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleCollapsed();
+          }}
         />
       )}
     </div>

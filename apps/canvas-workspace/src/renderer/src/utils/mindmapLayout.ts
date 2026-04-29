@@ -121,9 +121,11 @@ const TOPIC_MAX_WIDTH = 320;
 // (16px) and the inner `.mindmap-topic-text` adds `padding: 1px 3px` (6px),
 // for 22px total. Keep a small safety buffer for sub-pixel rounding.
 const TOPIC_HORIZONTAL_PADDING = 24;
-// Width reserved for the collapsed-state dot rendered next to the text:
-// `.mindmap-topic-collapsed-dot` is 6px wide + 6px margin-left.
-const COLLAPSED_DOT_RESERVE = 12;
+// Width reserved for the collapse/expand toggle rendered next to the text
+// of any non-root topic that has children. The toggle is always present
+// (collapsed → filled dot; expanded → hover ring) so it claims layout
+// space unconditionally, not just in the collapsed state.
+const TOGGLE_RESERVE = 12;
 
 export const layoutMindmap = (
   root: MindmapTopic,
@@ -143,12 +145,14 @@ export const layoutMindmap = (
     if (cached !== undefined) return cached;
     const fontSize = isRoot ? 20 : 14;
     const text = t.text || 'Untitled';
-    // Collapsed non-root topics render a dot next to the text inside the
-    // same flex row; reserve space for it so the text doesn't get squeezed.
-    const collapsedReserve =
-      !isRoot && t.collapsed && t.children.length > 0 ? COLLAPSED_DOT_RESERVE : 0;
+    // Non-root topics with children render an inline toggle button next
+    // to the text — reserve space for it whether expanded or collapsed,
+    // since the button is always present (the hover-only ring still
+    // claims layout width).
+    const toggleReserve =
+      !isRoot && t.children.length > 0 ? TOGGLE_RESERVE : 0;
     const estimated =
-      estimateTextWidth(text, fontSize) + TOPIC_HORIZONTAL_PADDING + collapsedReserve;
+      estimateTextWidth(text, fontSize) + TOPIC_HORIZONTAL_PADDING + toggleReserve;
     const min = isRoot ? ROOT_MIN_WIDTH : TOPIC_MIN_WIDTH;
     const w = Math.max(min, Math.min(TOPIC_MAX_WIDTH, Math.ceil(estimated)));
     widthOf.set(t.id, w);
@@ -172,11 +176,10 @@ export const layoutMindmap = (
     const fontSize = 14;
     const lineHeight = Math.ceil(fontSize * 1.3); // matches .mindmap-topic CSS
     const w = resolveWidth(t, false);
-    const collapsedReserve =
-      t.collapsed && t.children.length > 0 ? COLLAPSED_DOT_RESERVE : 0;
+    const toggleReserve = t.children.length > 0 ? TOGGLE_RESERVE : 0;
     const available = Math.max(
       lineHeight,
-      w - TOPIC_HORIZONTAL_PADDING - collapsedReserve,
+      w - TOPIC_HORIZONTAL_PADDING - toggleReserve,
     );
     const text = t.text || 'Untitled';
     const textWidth = estimateTextWidth(text, fontSize);

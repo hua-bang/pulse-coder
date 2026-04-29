@@ -155,18 +155,51 @@
 }
 
 /*
- * Collapsed-subtree hint: a small dot after the text. Signals "this
- * topic has hidden children" without the overhead of an explicit
- * expand/collapse button.
+ * Inline collapse/expand toggle for non-root topics with children.
+ *
+ * Resting visual:
+ *   - Collapsed → filled colored dot (same hint as the old static dot, so
+ *     a folded subtree still reads at-a-glance).
+ *   - Expanded  → faint hollow ring; opaque on pill hover so the
+ *     affordance shows up only when the user is reaching for it.
+ *
+ * Click toggles. We give it no border / no background outside the ring
+ * so it sits cleanly inside the chromeless pill.
  */
-.mindmap-topic-collapsed-dot {
+.mindmap-topic-toggle {
   flex: 0 0 auto;
   margin-left: 6px;
   margin-bottom: 3px;
   width: 6px;
   height: 6px;
+  padding: 0;
   border-radius: 50%;
+  border: 1px solid var(--mindmap-topic-toggle-color, currentColor);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.25;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.mindmap-topic:hover .mindmap-topic-toggle {
+  opacity: 0.85;
+}
+
+.mindmap-topic-toggle:hover {
+  opacity: 1;
+  transform: scale(1.15);
+}
+
+/* Collapsed: solid filled dot in the branch color. The filled state
+ * doubles as the "subtree is hidden" cue, so it's always visible
+ * regardless of pill hover. */
+.mindmap-topic-toggle--collapsed {
+  background: var(--mindmap-topic-toggle-color, currentColor);
   opacity: 0.9;
+}
+
+.mindmap-topic-toggle--collapsed:hover {
+  opacity: 1;
 }
 
 /* ---- Drag-reorder visuals ----
