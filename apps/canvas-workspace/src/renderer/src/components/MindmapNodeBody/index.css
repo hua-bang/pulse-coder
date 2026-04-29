@@ -168,3 +168,40 @@
   border-radius: 50%;
   opacity: 0.9;
 }
+
+/* ---- Drag-reorder visuals ----
+ *
+ * `--drag-source` dims the pill currently being dragged so the user can
+ * tell what's "lifted". `--drop-before/after` paint a thin accent line
+ * above/below the candidate sibling slot. `--drop-child` rings the pill
+ * to mean "drop here to make me a child of this topic".
+ */
+.mindmap-topic--drag-source {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+
+.mindmap-topic--drop-before::after,
+.mindmap-topic--drop-after::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--mindmap-topic-accent, #5b7cbf);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+.mindmap-topic--drop-before::after {
+  top: -3px;
+}
+
+.mindmap-topic--drop-after::after {
+  bottom: -3px;
+}
+
+.mindmap-topic--drop-child {
+  box-shadow: 0 0 0 2px var(--mindmap-topic-accent, #5b7cbf);
+  border-radius: 4px;
+}

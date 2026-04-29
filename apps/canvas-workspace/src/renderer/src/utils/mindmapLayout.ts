@@ -502,3 +502,99 @@ export const findParent = (
   };
   return walk(root);
 };
+
+/** True if `descendantId` lives anywhere in the subtree rooted at
+ *  `ancestorId`. Used to reject drag-reorders that would create a cycle
+ *  (dropping a topic into one of its own descendants). */
+export const isDescendant = (
+  root: MindmapTopic,
+  ancestorId: string,
+  descendantId: string,
+): boolean => {
+  if (ancestorId === descendantId) return false;
+  const findAncestor = (t: MindmapTopic): MindmapTopic | null => {
+    if (t.id === ancestorId) return t;
+    for (const c of t.children) {
+      const hit = findAncestor(c);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  const subtree = findAncestor(root);
+  if (!subtree) return false;
+  const walk = (t: MindmapTopic): boolean => {
+    if (t.id === descendantId) return true;
+    return t.children.some(walk);
+  };
+  return subtree.children.some(walk);
+};
+
+/**
+ * Drop target for a drag-reorder. `before` / `after` insert as a sibling
+ * of `anchorId`; `child` appends as the last child of `parentId`.
+ */
+export type DropTarget =
+  | { kind: 'before'; anchorId: string }
+  | { kind: 'after'; anchorId: string }
+  | { kind: 'child'; parentId: string };
+
+/**
+ * Move `sourceId` to `target`. Returns the new root, or `null` when the
+ * move is invalid (source is the root, target lives in source's subtree,
+ * or anchor/parent isn't found). Implementation: locate the source
+ * subtree, splice it out of its current parent, then insert it at the
+ * target. Handles the same-parent reorder case (where removing the
+ * source shifts the anchor's index) by computing the insertion index
+ * after the removal.
+ */
+export const moveTopic = (
+  root: MindmapTopic,
+  sourceId: string,
+  target: DropTarget,
+): MindmapTopic | null => {
+  if (sourceId === root.id) return null;
+  // No-op moves: dropping a topic onto itself or onto its current parent
+  // when the position wouldn't change.
+  if (target.kind !== 'child' && target.anchorId === sourceId) return null;
+  if (target.kind === 'child' && target.parentId === sourceId) return null;
+  if (isDescendant(root, sourceId, target.kind === 'child' ? target.parentId : target.anchorId)) {
+    return null;
+  }
+
+  // Lift the source subtree out of the tree.
+  const sourcePath = findTopicPath(root, sourceId);
+  if (!sourcePath) return null;
+  const sourceTopic = sourcePath[sourcePath.length - 1];
+  const removed = deleteTopic(root, sourceId);
+  if (!removed) return null;
+  let next = removed.root;
+
+  if (target.kind === 'child') {
+    next = insertChild(next, target.parentId, sourceTopic);
+    return next;
+  }
+
+  // Sibling drop: locate the anchor's parent in the post-removal tree.
+  const anchorParent = findParent(next, target.anchorId);
+  if (!anchorParent) return null;
+  const idx = anchorParent.children.findIndex((c) => c.id === target.anchorId);
+  if (idx < 0) return null;
+  const insertAfterId =
+    target.kind === 'after'
+      ? target.anchorId
+      : idx > 0
+        ? anchorParent.children[idx - 1].id
+        : undefined;
+  // `insertChild` with no afterId appends — we want to prepend when
+  // dropping `before` the first child. Handle that explicitly.
+  if (target.kind === 'before' && idx === 0) {
+    const walk = (t: MindmapTopic): MindmapTopic => {
+      if (t.id === anchorParent.id) {
+        return { ...t, children: [sourceTopic, ...t.children], collapsed: false };
+      }
+      return { ...t, children: t.children.map(walk) };
+    };
+    return walk(next);
+  }
+  return insertChild(next, anchorParent.id, sourceTopic, insertAfterId);
+};

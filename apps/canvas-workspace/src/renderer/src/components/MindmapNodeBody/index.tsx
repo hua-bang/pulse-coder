@@ -14,9 +14,12 @@ import {
   findParent,
   findTopicPath,
   insertChild,
+  isDescendant,
   layoutMindmap,
+  moveTopic,
   setTopicText,
   toggleCollapsed,
+  type DropTarget,
   type LaidOutTopic,
 } from '../../utils/mindmapLayout';
 
@@ -186,6 +189,111 @@ export const MindmapNodeBody = ({ node, isSelected, onUpdate, onSelectNode, onAu
     [applyRoot, root],
   );
 
+  /* ---- Drag-reorder ---- */
+
+  // While the user is dragging a topic, `reorder` carries the source id
+  // and the live drop target (or null when the cursor isn't over a valid
+  // landing spot). We render visual cues from this state and apply the
+  // mutation on mouseup.
+  const [reorder, setReorder] = useState<{
+    sourceId: string;
+    target: DropTarget | null;
+  } | null>(null);
+
+  const beginReorder = useCallback(
+    (sourceId: string, startEvent: React.MouseEvent) => {
+      // Root can't be moved (no parent to detach from). Bail early so we
+      // don't even attach window listeners — root's onMouseDown still
+      // selects normally.
+      if (sourceId === root.id) return;
+      const startX = startEvent.clientX;
+      const startY = startEvent.clientY;
+      const THRESHOLD = 5; // px of movement before we commit to "drag"
+      let started = false;
+      // Snapshot the root reference so the listeners always validate
+      // against the tree the drag began with — applyRoot replaces the
+      // node's data via parent state, but our captured `root` is fine
+      // for hit-tests because target ids stay stable mid-drag.
+      const dragRoot = root;
+
+      const hitTest = (clientX: number, clientY: number): DropTarget | null => {
+        const stack = document.elementsFromPoint(clientX, clientY);
+        let pillEl: HTMLElement | null = null;
+        for (const el of stack) {
+          if (el instanceof HTMLElement && el.classList.contains('mindmap-topic')) {
+            pillEl = el;
+            break;
+          }
+        }
+        if (!pillEl) return null;
+        const targetId = pillEl.getAttribute('data-topic-id');
+        if (!targetId || targetId === sourceId) return null;
+        // Reject drops into the source's own subtree — would create a cycle.
+        if (isDescendant(dragRoot, sourceId, targetId)) return null;
+
+        const rect = pillEl.getBoundingClientRect();
+        const relX = (clientX - rect.left) / Math.max(1, rect.width);
+        const relY = (clientY - rect.top) / Math.max(1, rect.height);
+        // Right third of the pill = "make me a child of this topic".
+        // Top half / bottom half of the remaining area = sibling before / after.
+        // Root can't accept sibling drops (no parent), but it can accept
+        // child drops — collapse the whole pill to a child zone for root.
+        if (targetId === dragRoot.id) {
+          return { kind: 'child', parentId: targetId };
+        }
+        if (relX > 0.66) return { kind: 'child', parentId: targetId };
+        if (relY < 0.5) return { kind: 'before', anchorId: targetId };
+        return { kind: 'after', anchorId: targetId };
+      };
+
+      const onMove = (e: MouseEvent) => {
+        if (!started) {
+          if (Math.hypot(e.clientX - startX, e.clientY - startY) < THRESHOLD) {
+            return;
+          }
+          started = true;
+          setReorder({ sourceId, target: null });
+        }
+        const target = hitTest(e.clientX, e.clientY);
+        setReorder((s) => (s ? { ...s, target } : null));
+      };
+
+      const onUp = (e: MouseEvent) => {
+        cleanup();
+        if (!started) return;
+        const target = hitTest(e.clientX, e.clientY);
+        setReorder(null);
+        if (!target) return;
+        const next = moveTopic(dragRoot, sourceId, target);
+        if (next) {
+          applyRoot(next);
+          // Keep focus on the moved topic so the user can keep navigating.
+          setSelectedId(sourceId);
+        }
+      };
+
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          cleanup();
+          setReorder(null);
+        }
+      };
+
+      // `function`-declared so onUp/onKey above can reference it without
+      // tripping TS's "used before declaration" check on a const arrow.
+      function cleanup() {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        window.removeEventListener('keydown', onKey);
+      }
+
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+      window.addEventListener('keydown', onKey);
+    },
+    [applyRoot, root],
+  );
+
   /* ---- Focus hand-off for freshly-created topics ---- */
 
   useLayoutEffect(() => {
@@ -284,6 +392,19 @@ export const MindmapNodeBody = ({ node, isSelected, onUpdate, onSelectNode, onAu
               topic={t}
               isSelected={selectedId === t.id}
               isEditing={editingId === t.id}
+              isDragSource={reorder?.sourceId === t.id}
+              dropHint={
+                reorder && reorder.target
+                  ? reorder.target.kind === 'child' && reorder.target.parentId === t.id
+                    ? 'child'
+                    : reorder.target.kind === 'before' && reorder.target.anchorId === t.id
+                      ? 'before'
+                      : reorder.target.kind === 'after' && reorder.target.anchorId === t.id
+                        ? 'after'
+                        : null
+                  : null
+              }
+              onBeginReorder={(e) => beginReorder(t.id, e)}
               onSelect={() => {
                 setSelectedId(t.id);
                 // Also mark the outer mindmap canvas node as selected so
@@ -346,6 +467,14 @@ interface TopicPillProps {
   topic: LaidOutTopic;
   isSelected: boolean;
   isEditing: boolean;
+  /** True while THIS topic is being dragged in a reorder gesture. */
+  isDragSource: boolean;
+  /** When set, this topic is the current drop target — render the matching
+   *  drop indicator (line above, line below, or "make child" outline). */
+  dropHint: 'before' | 'after' | 'child' | null;
+  /** Mousedown on the pill that should arm a reorder drag. The parent owns
+   *  the threshold + window listeners; we just hand off the initial event. */
+  onBeginReorder: (e: React.MouseEvent) => void;
   onSelect: () => void;
   onEnterEdit: () => void;
   onCommitText: (text: string) => void;
@@ -357,6 +486,9 @@ const TopicPill = ({
   topic,
   isSelected,
   isEditing,
+  isDragSource,
+  dropHint,
+  onBeginReorder,
   onSelect,
   onEnterEdit,
   onCommitText,
@@ -528,20 +660,40 @@ const TopicPill = ({
   return (
     <div
       ref={pillRef}
+      data-topic-id={topic.id}
       className={[
         'mindmap-topic',
         isRoot && 'mindmap-topic--root',
         isSelected && 'mindmap-topic--selected',
         isEditing && 'mindmap-topic--editing',
         topic.collapsed && 'mindmap-topic--collapsed',
+        isDragSource && 'mindmap-topic--drag-source',
+        dropHint === 'before' && 'mindmap-topic--drop-before',
+        dropHint === 'after' && 'mindmap-topic--drop-after',
+        dropHint === 'child' && 'mindmap-topic--drop-child',
       ]
         .filter(Boolean)
         .join(' ')}
       style={style}
       tabIndex={0}
       onMouseDown={(e) => {
+        // Pan-trigger gestures must reach the outer .canvas-container so
+        // the user can grab the canvas even when the cursor happens to
+        // land on a topic. We let middle-button, alt+left, and hand-tool
+        // mode bubble; everything else is a topic-interaction gesture, so
+        // we stop propagation to keep the outer mindmap card from also
+        // starting a node drag.
+        const handToolActive =
+          e.currentTarget.closest('.canvas-container--hand') != null;
+        const isPanGesture =
+          e.button === 1 ||
+          (e.button === 0 && (e.altKey || handToolActive));
+        if (isPanGesture) return;
         e.stopPropagation();
         onSelect();
+        // Don't arm a reorder drag while editing — the user is interacting
+        // with text inside contentEditable, not with the pill as a whole.
+        if (e.button === 0 && !isEditing) onBeginReorder(e);
       }}
       onDoubleClick={(e) => {
         e.stopPropagation();
