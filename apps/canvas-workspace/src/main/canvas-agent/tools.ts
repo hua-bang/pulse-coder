@@ -27,7 +27,46 @@ const STORE_DIR = join(homedir(), '.pulse-coder', 'canvas');
 
 // ─── Types mirrored from canvas-cli ────────────────────────────────
 
-type NodeType = 'file' | 'terminal' | 'frame' | 'agent' | 'text' | 'iframe' | 'shape';
+type NodeType = 'file' | 'terminal' | 'frame' | 'agent' | 'text' | 'iframe' | 'shape' | 'mindmap';
+
+interface MindmapTopic {
+  id: string;
+  text: string;
+  children: MindmapTopic[];
+  color?: string;
+  collapsed?: boolean;
+}
+
+interface RawMindmapTopic {
+  id?: string;
+  text?: string;
+  children?: RawMindmapTopic[];
+  color?: string;
+  collapsed?: boolean;
+}
+
+let topicIdCounter = 0;
+function genTopicId(): string {
+  return `topic-${Date.now()}-${++topicIdCounter}`;
+}
+
+/**
+ * Normalize an LLM-supplied topic tree into the renderer's `MindmapTopic`
+ * shape. We mint a fresh id when the model didn't supply one, default
+ * text/children to safe values, and recursively walk the children so the
+ * whole subtree is renderer-ready before it lands in canvas.json.
+ */
+function normalizeMindmapTopic(raw: RawMindmapTopic | null | undefined): MindmapTopic {
+  const safe = raw ?? {};
+  const topic: MindmapTopic = {
+    id: typeof safe.id === 'string' && safe.id ? safe.id : genTopicId(),
+    text: typeof safe.text === 'string' ? safe.text : '',
+    children: Array.isArray(safe.children) ? safe.children.map(normalizeMindmapTopic) : [],
+  };
+  if (typeof safe.color === 'string') topic.color = safe.color;
+  if (safe.collapsed) topic.collapsed = true;
+  return topic;
+}
 
 interface CanvasNode {
   id: string;
@@ -84,6 +123,7 @@ const DEFAULT_DIMENSIONS: Record<NodeType, { title: string; width: number; heigh
   text: { title: 'Text', width: 260, height: 120 },
   iframe: { title: 'Web', width: 520, height: 400 },
   shape: { title: 'Shape', width: 200, height: 140 },
+  mindmap: { title: 'Mindmap', width: 640, height: 420 },
 };
 
 // ─── Helpers ───────────────────────────────────────────────────────
@@ -438,9 +478,15 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
         '- **shape**: Draws a primitive geometric shape (rectangle or ellipse). ' +
         'Use `data.kind` ("rect" | "ellipse"), `data.fill` / `data.stroke` (hex or "transparent"), ' +
         'and `data.strokeWidth` (px). For precise sizing pass explicit `x`, `y`, and set width/height ' +
-        'via the dedicated `canvas_create_shape` tool — this generic one uses default dimensions.',
+        'via the dedicated `canvas_create_shape` tool — this generic one uses default dimensions.\n' +
+        '- **mindmap**: Creates a radial mindmap. Pass `data.root` as a recursive topic tree ' +
+        '`{ text: string, children?: Topic[], color?: string, collapsed?: boolean }`. ' +
+        'Topic ids are auto-generated; you do NOT need to supply them. ' +
+        'If `data.root` is omitted a single placeholder topic is inserted so the user can fill it in. ' +
+        'Use this whenever the user asks for a mindmap / brainstorm / outline that should be laid out radially ' +
+        'rather than as a flat text node.',
       inputSchema: z.object({
-        type: z.enum(['file', 'terminal', 'frame', 'agent', 'text', 'iframe', 'shape']).describe('Node type.'),
+        type: z.enum(['file', 'terminal', 'frame', 'agent', 'text', 'iframe', 'shape', 'mindmap']).describe('Node type.'),
         title: z.string().optional().describe('Node title.'),
         content: z.string().optional().describe('Initial content (for file and text nodes).'),
         x: z.number().optional().describe('X position (auto-placed if omitted).'),
@@ -452,7 +498,8 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
           '- frame: { color?: string, label?: string }\n' +
           '- text: { textColor?: string, backgroundColor?: string, fontSize?: number }\n' +
           '- iframe: { url?: string, html?: string, prompt?: string, mode?: "url"|"html"|"ai" }\n' +
-          '- shape: { kind?: "rect"|"rounded-rect"|"ellipse"|"triangle"|"diamond"|"hexagon"|"star", fill?: string, stroke?: string, strokeWidth?: number, text?: string, textColor?: string, fontSize?: number }',
+          '- shape: { kind?: "rect"|"rounded-rect"|"ellipse"|"triangle"|"diamond"|"hexagon"|"star", fill?: string, stroke?: string, strokeWidth?: number, text?: string, textColor?: string, fontSize?: number }\n' +
+          '- mindmap: { root?: { text: string, children?: Topic[], color?: string, collapsed?: boolean } } where Topic has the same recursive shape',
         ),
       }),
       execute: async (input) => {
@@ -562,6 +609,22 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
               text: (extraData.text as string) ?? (content || ''),
               textColor: extraData.textColor as string | undefined,
               fontSize: extraData.fontSize as number | undefined,
+            };
+            break;
+          }
+          case 'mindmap': {
+            const rawRoot = extraData.root as RawMindmapTopic | undefined;
+            const root = rawRoot
+              ? normalizeMindmapTopic(rawRoot)
+              : {
+                  id: genTopicId(),
+                  text: input.title ? title : 'Central topic',
+                  children: [],
+                };
+            nodeData = {
+              root,
+              layout: 'right',
+              rev: 0,
             };
             break;
           }
