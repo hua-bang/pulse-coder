@@ -130,9 +130,40 @@ export const CanvasNodeView = ({
   const handleClose = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      // Special path for team frames: instead of just removing the
+      // frame node, ask main to disband the team (kill teammate PTYs +
+      // remove member nodes + archive team state). Plain frames and
+      // non-team agent nodes fall through to the normal `onRemove`.
+      if (
+        node.type === "frame" &&
+        (node.data as FrameNodeData).teamMeta &&
+        workspaceId
+      ) {
+        const teamName =
+          (node.data as FrameNodeData).teamMeta?.teamName ?? node.title;
+        const ok = window.confirm(
+          `Disband team "${teamName}"?\n\n` +
+            `This will close all teammate terminals, remove the team's ` +
+            `agent nodes from the canvas, and archive the team's state ` +
+            `directory. Tasks and messages will be preserved in the archive.`,
+        );
+        if (!ok) return;
+        void window.canvasWorkspace?.team?.disband(workspaceId, node.id).then((res) => {
+          if (!res.ok) {
+            // Fall back to a simple delete if the disband path fails —
+            // better to leave a clean canvas than half a team behind.
+            console.error("[team] disband failed:", res.error);
+            onRemove(node.id);
+          }
+          // On success: main has already broadcast canvas:external-update,
+          // which the canvas hook will pick up and re-render. No further
+          // action needed here.
+        });
+        return;
+      }
       onRemove(node.id);
     },
-    [onRemove, node.id]
+    [node.id, node.type, node.data, node.title, workspaceId, onRemove]
   );
 
   const handleFocus = useCallback(
@@ -225,6 +256,17 @@ export const CanvasNodeView = ({
   const textAutoSize =
     node.type === "text" && (node.data as TextNodeData).autoSize !== false;
 
+  // Team membership / team frame badges. Picked off the same `data` blob
+  // we'd render anyway, so there's no extra prop drilling — `teamMeta` on
+  // a frame and `teamMembership` on an agent are documented in
+  // `apps/canvas-workspace/src/renderer/src/types.ts`.
+  const isTeamFrame =
+    node.type === "frame" && (node.data as FrameNodeData).teamMeta !== undefined;
+  const teamMembership =
+    node.type === "agent" ? (node.data as AgentNodeData).teamMembership : undefined;
+  const isTeamLead = teamMembership?.isLead === true;
+  const isTeamMember = teamMembership !== undefined && !isTeamLead;
+
   const classes = [
     "canvas-node",
     `canvas-node--${node.type}`,
@@ -233,7 +275,10 @@ export const CanvasNodeView = ({
     isSelected && "canvas-node--selected",
     isHighlighted && "canvas-node--highlighted",
     isAgentEdited && "canvas-node--agent-edited",
-    textAutoSize && "canvas-node--text-auto"
+    textAutoSize && "canvas-node--text-auto",
+    isTeamFrame && "canvas-node--team-frame",
+    isTeamLead && "canvas-node--team-lead",
+    isTeamMember && "canvas-node--team-member"
   ]
     .filter(Boolean)
     .join(" ");
@@ -408,6 +453,15 @@ export const CanvasNodeView = ({
             <span className={`node-status-dot node-status-dot--${agentStatus}`} />
           )}
         </span>
+        {isTeamFrame && (
+          <span className="node-team-badge" title="Team frame">🤝</span>
+        )}
+        {isTeamLead && (
+          <span className="node-team-badge node-team-badge--lead" title="Team lead">👑</span>
+        )}
+        {isTeamMember && (
+          <span className="node-team-badge node-team-badge--member" title="Teammate">·</span>
+        )}
         <span
           ref={titleRef}
           className="node-title"

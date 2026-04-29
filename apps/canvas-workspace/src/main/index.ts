@@ -13,6 +13,8 @@ import { setupSkillInstallerIpc } from "./skill-installer";
 import { setupCanvasAgentIpc, teardownCanvasAgent } from "./canvas-agent-ipc";
 import { setupWebviewRegistryIpc } from "./webview-registry";
 import { setupHtmlGeneratorIpc } from "./html-generator-ipc";
+import { stopAllTeamWatchers, watchAllExistingTeams } from "./team/markdown-renderer";
+import { setupTeamIpc } from "./team/team-ipc";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const preloadPath = join(currentDir, "../preload/index.mjs");
@@ -147,6 +149,12 @@ app.whenReady().then(() => {
   // startMCPServer();
   // void ensureMCPRegistered();
 
+  // Hydrate per-team tasks.md views for any teams already on disk so the
+  // canvas can render them as plain file nodes. New teams created via
+  // `canvas_create_team` invoke `watchTeam` directly inside the tool.
+  watchAllExistingTeams();
+  setupTeamIpc();
+
   createWindow();
 
   app.on("activate", () => {
@@ -161,6 +169,7 @@ app.on("window-all-closed", () => {
   teardownFileWatcher();
   teardownCanvasWatchers();
   teardownCanvasAgent();
+  stopAllTeamWatchers();
   if (process.platform !== "darwin") {
     app.quit();
   }

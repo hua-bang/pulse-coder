@@ -235,6 +235,20 @@ export function hasSession(sessionId: string): boolean {
 }
 
 /**
+ * Kill a PTY session by id and drop it from the registry.
+ * Returns true if a session was killed, false if no such session existed.
+ * Mirrors the `pty:kill` IPC handler so main-process callers (like the
+ * team disband flow) can release a PTY without going through IPC.
+ */
+export function killSession(sessionId: string): boolean {
+  const proc = sessions.get(sessionId);
+  if (!proc) return false;
+  proc.kill();
+  sessions.delete(sessionId);
+  return true;
+}
+
+/**
  * Write raw data to an existing PTY session (as if the user typed it).
  * Does NOT capture output — for command+output capture use execInSession.
  * Returns false if the session does not exist.

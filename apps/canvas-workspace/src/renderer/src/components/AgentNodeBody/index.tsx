@@ -156,11 +156,18 @@ export const AgentNodeBody = ({ node, rootFolder, workspaceId, onUpdate }: Props
         }
         const { inlinePrompt, promptFile, agentArgs } = dataRef.current;
         const effectivePrompt = inlinePromptOverride || inlinePrompt;
+        // `agentArgs` is always prepended (between the binary and any
+        // prompt arg) so that flags like `--dangerously-skip-permissions`
+        // / `--full-auto` survive even when the agent is launched with a
+        // prompt. Previously agentArgs was treated as an alternative to
+        // the prompt — that lost any flags the team coordinator wanted
+        // to bake in.
+        const argsPrefix = agentArgs ? `${agentArgs} ` : '';
         if (effectivePrompt) {
           const escaped = effectivePrompt.replace(/'/g, "'\\''");
-          api.write(sessionId, `${command} '${escaped}'\n`);
+          api.write(sessionId, `${command} ${argsPrefix}'${escaped}'\n`);
         } else if (promptFile) {
-          api.write(sessionId, `__prompt=$(cat ${promptFile}) && ${command} "$__prompt"\n`);
+          api.write(sessionId, `__prompt=$(cat ${promptFile}) && ${command} ${argsPrefix}"$__prompt"\n`);
         } else if (agentArgs) {
           api.write(sessionId, `${command} ${agentArgs}\n`);
         } else {

@@ -38,6 +38,28 @@ export interface TerminalNodeData {
 export interface FrameNodeData {
   color: string;
   label?: string;
+  /**
+   * Marks this frame as a Team container. Presence of this field is the
+   * sole signal that the frame coordinates an agent team — frames without
+   * it remain plain visual groups. The `teamId` is independent of frame.id
+   * so that copying/moving the frame does not disturb the team's state
+   * directory under `~/.pulse-coder/teams/{teamId}/`.
+   */
+  teamMeta?: TeamMeta;
+}
+
+export interface TeamMeta {
+  /** Globally-unique team id (UUID). Stable across frame copy/move. */
+  teamId: string;
+  /** Human-readable name shown in the frame header. */
+  teamName: string;
+  /** Node id of the agent node currently acting as Lead. */
+  leadNodeId?: string;
+  /** Absolute path to the team's state directory (tasks/, mailbox/, config.json). */
+  stateDir: string;
+  /** Node id of the auto-generated tasks.md view file node. */
+  tasksViewNodeId?: string;
+  createdAt: number;
 }
 
 export interface AgentNodeData {
@@ -51,6 +73,22 @@ export interface AgentNodeData {
   inlinePrompt?: string;
   /** Relative path to a prompt file in cwd for long prompts. */
   promptFile?: string;
+  /**
+   * Team membership. When set, this agent participates in the named team
+   * and its mailbox lives at `<team stateDir>/mailbox/{memberId}.json`.
+   * `memberId` is intentionally distinct from the canvas `nodeId` so that
+   * a teammate keeps the same mailbox file across PTY restarts and node
+   * duplications. Absence of this field means the agent is standalone.
+   */
+  teamMembership?: AgentTeamMembership;
+}
+
+export interface AgentTeamMembership {
+  teamId: string;
+  /** Stable id within the team; used as mailbox filename. */
+  memberId: string;
+  isLead: boolean;
+  joinedAt: number;
 }
 
 /**
@@ -309,6 +347,22 @@ export interface SkillsApi {
   install: () => Promise<SkillsInstallResult>;
 }
 
+/** Tear down a team that's been spawned via canvas_create_team:
+ *  kills member PTYs, removes the frame + member nodes from the canvas,
+ *  and archives the team's `~/.pulse-coder/teams/{teamId}/` state dir.
+ *  Implemented in `apps/canvas-workspace/src/main/team/team-ipc.ts`. */
+export interface TeamApi {
+  disband: (
+    workspaceId: string,
+    frameNodeId: string,
+  ) => Promise<{
+    ok: boolean;
+    removedNodeIds?: string[];
+    archivedTo?: string;
+    error?: string;
+  }>;
+}
+
 export interface AgentChatMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -430,6 +484,7 @@ export interface CanvasWorkspaceApi {
   file: FileApi;
   dialog: DialogApi;
   skills: SkillsApi;
+  team: TeamApi;
   agent: AgentApi;
   iframe: IframeApi;
   llm: LlmApi;

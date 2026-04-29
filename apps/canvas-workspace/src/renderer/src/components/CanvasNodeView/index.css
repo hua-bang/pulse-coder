@@ -427,3 +427,46 @@
     box-shadow: var(--shadow-card), 0 0 0 3px var(--accent), 0 0 20px rgba(35, 131, 226, 0.3);
   }
 }
+
+/* ─── Team frame & team agent badges ───────────────────────────────
+ *
+ * `canvas-node--team-frame` lifts a frame visually so users can spot it
+ * in a workspace cluttered with normal frames. The double border + soft
+ * outer glow mimics how Figma highlights live components.
+ *
+ * Lead/teammate agent badges share the same `node-team-badge` class so
+ * they line up consistently with the existing icon row in the header.
+ */
+.canvas-node--team-frame {
+  outline: 2px solid rgba(122, 167, 232, 0.55);
+  outline-offset: 4px;
+  box-shadow: var(--shadow-card), 0 0 24px rgba(122, 167, 232, 0.18);
+}
+.canvas-node--team-frame.canvas-node--selected {
+  outline-color: rgba(122, 167, 232, 0.95);
+}
+
+.canvas-node--team-lead {
+  box-shadow: var(--shadow-card), 0 0 0 2px rgba(245, 179, 107, 0.6);
+}
+.canvas-node--team-member {
+  box-shadow: var(--shadow-card), 0 0 0 1.5px rgba(122, 167, 232, 0.45);
+}
+
+.node-team-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  margin-right: 4px;
+  user-select: none;
+}
+.node-team-badge--lead {
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2));
+}
+.node-team-badge--member {
+  color: #6c757d;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1;
+}

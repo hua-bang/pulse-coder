@@ -22,6 +22,11 @@ import {
 } from './context-builder';
 import { hasSession, writeToSession } from '../pty-manager';
 import { generateHTML } from '../html-generator';
+import {
+  createTeam as createTeamRuntime,
+  addMember as addTeamMember,
+} from '@pulse-coder/canvas-cli/core';
+import { watchTeam } from '../team/markdown-renderer';
 
 const STORE_DIR = join(homedir(), '.pulse-coder', 'canvas');
 
@@ -252,6 +257,37 @@ function autoPlace(nodes: CanvasNode[]): { x: number; y: number } {
   return { x: maxRight + 40, y: bestY };
 }
 
+/**
+ * Render the env-var preamble that prefixes every team agent's initial
+ * prompt. The teammate's CLI loop reads these via `$PULSE_TEAM_*` (see
+ * `packages/canvas-cli/skills/team/SKILL.md`). Keeping this in one place
+ * means the lead and teammate prompts can never drift on variable names
+ * or quoting.
+ */
+function buildTeamEnvBlock(args: {
+  teamId: string;
+  teamName: string;
+  memberId: string;
+  leadMemberId: string;
+  role: 'lead' | 'teammate';
+}): string {
+  const escape = (v: string) => v.replace(/'/g, "'\\''");
+  return [
+    '# Team coordination context (auto-injected — do NOT edit)',
+    `export PULSE_TEAM_ID='${escape(args.teamId)}'`,
+    `export PULSE_TEAM_NAME='${escape(args.teamName)}'`,
+    `export PULSE_TEAM_MEMBER='${escape(args.memberId)}'`,
+    `export PULSE_TEAM_LEAD='${escape(args.leadMemberId)}'`,
+    `export PULSE_TEAM_ROLE='${args.role}'`,
+    '# Read the team SKILL doc for your coordination protocol:',
+    '#   ~/.pulse-coder/skills/team/SKILL.md  (or your CLI\'s skills dir)',
+    '# Quick refs:',
+    '#   pulse-canvas team status $PULSE_TEAM_ID',
+    '#   pulse-canvas team msg read $PULSE_TEAM_ID --member-id $PULSE_TEAM_MEMBER',
+    '#   pulse-canvas team task claim $PULSE_TEAM_ID --member-id $PULSE_TEAM_MEMBER',
+  ].join('\n');
+}
+
 // ─── Canvas Tool type (matches Engine's Tool interface) ────────────
 
 /**
@@ -280,6 +316,18 @@ export interface CanvasTool {
 
 /** Prompts shorter than this are passed directly as CLI args; longer ones go to a file. */
 const INLINE_PROMPT_THRESHOLD = 256;
+
+/**
+ * Per-agent CLI flag(s) that put the agent into "no permission prompts"
+ * mode. Mirrors `getUnattendedFlags` in renderer's `agentRegistry.ts` —
+ * we duplicate rather than cross the main↔renderer boundary because
+ * canvas-agent runs in main and the registry is renderer-side.
+ */
+const UNATTENDED_FLAGS: Record<string, string> = {
+  'claude-code': '--permission-mode bypassPermissions',
+  codex: '--full-auto',
+  'pulse-coder': '',
+};
 
 let edgeIdCounter = 0;
 function genEdgeId(): string {
@@ -814,6 +862,200 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
         broadcastUpdate(workspaceId, [nodeId]);
 
         return JSON.stringify({ ok: true, nodeId, agentType, title, autoLaunch });
+      },
+    },
+
+    // ─── Spawn a coordinated agent team (frame + lead + teammates) ──
+
+    canvas_create_team: {
+      name: 'canvas_create_team',
+      description:
+        'Create an agent team on the canvas. Spawns a Team Frame node, then 1 lead + N teammate ' +
+        'agent nodes inside it (claude-code / codex / pulse-coder), and registers everyone with the ' +
+        'shared task list & mailbox under ~/.pulse-coder/teams/{teamId}/. Each agent\'s initial prompt ' +
+        'is prefixed with environment variables ($PULSE_TEAM_ID etc.) and a pointer to the team SKILL ' +
+        'document so the CLI loop "Just Works".\n\n' +
+        'Use this when the user asks for parallel work that benefits from coordination — research with ' +
+        'multiple angles, debug with competing hypotheses, cross-layer feature implementation, etc. ' +
+        'For one-off delegation, prefer `canvas_create_agent_node` instead.',
+      inputSchema: z.object({
+        teamName: z.string().describe('Human-readable team name; shown in the frame header.'),
+        cwd: z.string().describe('Working directory for ALL agents in the team.'),
+        lead: z.object({
+          agentType: z.enum(['claude-code', 'codex', 'pulse-coder']).describe('Lead agent type. Recommend claude-code or pulse-coder.'),
+          prompt: z.string().describe('Lead bootstrap prompt — what the team is for, success criteria, etc.'),
+        }).describe('Lead agent configuration.'),
+        teammates: z.array(z.object({
+          agentType: z.enum(['claude-code', 'codex', 'pulse-coder']),
+          prompt: z.string().describe('Bootstrap prompt for this teammate — its role, what files to look at, what output is expected.'),
+        })).min(1).describe('Teammate configurations (1 or more).'),
+      }),
+      execute: async (input) => {
+        const teamName = input.teamName as string;
+        const cwd = input.cwd as string;
+        const leadCfg = input.lead as { agentType: string; prompt: string };
+        const teammates = input.teammates as Array<{ agentType: string; prompt: string }>;
+
+        const canvas = await loadCanvas(workspaceId);
+        if (!canvas) return 'Error: workspace not found';
+
+        // ─── 1. Create the team's state directory + TaskList/Mailbox ──
+        const teamRuntime = createTeamRuntime({ workspaceId, teamName });
+        const teamId = teamRuntime.config.teamId;
+        const stateDir = teamRuntime.stateDir;
+
+        // Start watching tasks.json so the derived tasks.md updates as
+        // teammates claim/complete tasks. Re-entrant — safe to call again.
+        watchTeam(stateDir);
+
+        // ─── 2. Layout: frame on the right of the canvas, members in a row inside ──
+        const framePos = autoPlace(canvas.nodes);
+        const FRAME_WIDTH = Math.max(640, 280 + (teammates.length + 1) * 280);
+        const FRAME_HEIGHT = 520;
+        const AGENT_WIDTH = 240;
+        const AGENT_HEIGHT = 360;
+        const AGENT_PAD_X = 20;
+        const AGENT_Y = framePos.y + 80; // leave room for the frame header
+
+        const frameNodeId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const newNodes: CanvasNode[] = [];
+
+        // Allocate the lead first so it gets memberId-m1 (matches the SKILL convention).
+        const leadNodeId = `node-${Date.now() + 1}-${Math.random().toString(36).slice(2, 8)}`;
+        const leadMember = addTeamMember(teamId, {
+          nodeId: leadNodeId,
+          agentType: leadCfg.agentType,
+          isLead: true,
+        });
+        if (!leadMember) return `Error: failed to register lead in team ${teamId}`;
+
+        // ─── 3. Build the lead agent node ─────────────────────────────
+        const leadEnvBlock = buildTeamEnvBlock({
+          teamId,
+          teamName,
+          memberId: leadMember.memberId,
+          leadMemberId: leadMember.memberId,
+          role: 'lead',
+        });
+        const leadInline = `${leadEnvBlock}\n\n${leadCfg.prompt}`;
+        const leadNode: CanvasNode = {
+          id: leadNodeId,
+          type: 'agent',
+          title: `👑 Lead (${leadCfg.agentType})`,
+          x: framePos.x + AGENT_PAD_X,
+          y: AGENT_Y,
+          width: AGENT_WIDTH,
+          height: AGENT_HEIGHT,
+          data: {
+            sessionId: '',
+            cwd,
+            agentType: leadCfg.agentType,
+            status: 'running',
+            agentArgs: UNATTENDED_FLAGS[leadCfg.agentType] ?? '',
+            inlinePrompt: leadInline,
+            promptFile: '',
+            teamMembership: {
+              teamId,
+              memberId: leadMember.memberId,
+              isLead: true,
+              joinedAt: leadMember.joinedAt,
+            },
+          } as Record<string, unknown>,
+          updatedAt: Date.now(),
+        };
+        newNodes.push(leadNode);
+
+        // ─── 4. Build the teammate agent nodes ────────────────────────
+        const teammateNodeIds: string[] = [];
+        for (let i = 0; i < teammates.length; i++) {
+          const tCfg = teammates[i];
+          const tNodeId = `node-${Date.now() + 2 + i}-${Math.random().toString(36).slice(2, 8)}`;
+          const tMember = addTeamMember(teamId, {
+            nodeId: tNodeId,
+            agentType: tCfg.agentType,
+            isLead: false,
+          });
+          if (!tMember) return `Error: failed to register teammate #${i + 1} in team ${teamId}`;
+
+          const tEnvBlock = buildTeamEnvBlock({
+            teamId,
+            teamName,
+            memberId: tMember.memberId,
+            leadMemberId: leadMember.memberId,
+            role: 'teammate',
+          });
+          const tInline = `${tEnvBlock}\n\n${tCfg.prompt}`;
+          newNodes.push({
+            id: tNodeId,
+            type: 'agent',
+            title: `${tCfg.agentType} (${tMember.memberId.split('-').pop()})`,
+            x: framePos.x + AGENT_PAD_X + (i + 1) * (AGENT_WIDTH + AGENT_PAD_X),
+            y: AGENT_Y,
+            width: AGENT_WIDTH,
+            height: AGENT_HEIGHT,
+            data: {
+              sessionId: '',
+              cwd,
+              agentType: tCfg.agentType,
+              status: 'running',
+              agentArgs: UNATTENDED_FLAGS[tCfg.agentType] ?? '',
+              inlinePrompt: tInline,
+              promptFile: '',
+              teamMembership: {
+                teamId,
+                memberId: tMember.memberId,
+                isLead: false,
+                joinedAt: tMember.joinedAt,
+              },
+            } as Record<string, unknown>,
+            updatedAt: Date.now(),
+          });
+          teammateNodeIds.push(tNodeId);
+        }
+
+        // ─── 5. Build the team frame (after agents so it knows its size) ──
+        const frameNode: CanvasNode = {
+          id: frameNodeId,
+          type: 'frame',
+          title: teamName,
+          x: framePos.x,
+          y: framePos.y,
+          width: FRAME_WIDTH,
+          height: FRAME_HEIGHT,
+          data: {
+            color: '#7AA7E8', // FigJam-style blue; deterministic dye comes in v1.1
+            label: teamName,
+            teamMeta: {
+              teamId,
+              teamName,
+              leadNodeId,
+              stateDir,
+              createdAt: teamRuntime.config.createdAt,
+            },
+          } as Record<string, unknown>,
+          updatedAt: Date.now(),
+        };
+        // Put frame BEFORE agents in the array so it renders behind them
+        // (frame stacking is z-index by array order in canvas-render).
+        newNodes.unshift(frameNode);
+
+        // ─── 6. Persist + broadcast ───────────────────────────────────
+        const fresh = (await loadCanvas(workspaceId)) ?? canvas;
+        fresh.nodes.push(...newNodes);
+        await saveCanvas(workspaceId, fresh);
+        broadcastUpdate(workspaceId, newNodes.map((n) => n.id));
+
+        return JSON.stringify({
+          ok: true,
+          teamId,
+          teamName,
+          stateDir,
+          frameNodeId,
+          leadNodeId,
+          leadMemberId: leadMember.memberId,
+          teammateNodeIds,
+          memberCount: 1 + teammates.length,
+        });
       },
     },
 

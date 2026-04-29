@@ -23,6 +23,9 @@ importers:
       '@ai-sdk/openai':
         specifier: ^3.0.21
         version: 3.0.21(zod@4.3.6)
+      '@pulse-coder/canvas-cli':
+        specifier: workspace:*
+        version: link:../../packages/canvas-cli
       '@tiptap/extension-bubble-menu':
         specifier: ^3.20.4
         version: 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))(@tiptap/pm@3.22.2)
@@ -92,6 +95,9 @@ importers:
       node-pty:
         specifier: ^1.1.0
         version: 1.1.0
+      pulse-coder-agent-teams:
+        specifier: workspace:*
+        version: link:../../packages/agent-teams
       pulse-coder-engine:
         specifier: workspace:*
         version: link:../../packages/engine
@@ -262,6 +268,9 @@ importers:
       commander:
         specifier: ^13.0.0
         version: 13.1.0
+      pulse-coder-agent-teams:
+        specifier: workspace:*
+        version: link:../agent-teams
     devDependencies:
       '@types/node':
         specifier: ^25.0.10

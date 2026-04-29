@@ -133,6 +133,11 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
     install: () => ipcRenderer.invoke("skills:install")
   },
 
+  team: {
+    disband: (workspaceId: string, frameNodeId: string) =>
+      ipcRenderer.invoke("team:disband", { workspaceId, frameNodeId })
+  },
+
   iframe: {
     registerWebview: (workspaceId: string, nodeId: string, webContentsId: number) =>
       ipcRenderer.invoke("iframe:register-webview", { workspaceId, nodeId, webContentsId }),

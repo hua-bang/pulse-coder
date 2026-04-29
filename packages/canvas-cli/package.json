@@ -14,6 +14,7 @@
     },
     "./core": {
       "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.mjs",
       "require": "./dist/core/index.cjs"
     }
   },
@@ -28,7 +29,8 @@
     "skills"
   ],
   "dependencies": {
-    "commander": "^13.0.0"
+    "commander": "^13.0.0",
+    "pulse-coder-agent-teams": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.0.10",
