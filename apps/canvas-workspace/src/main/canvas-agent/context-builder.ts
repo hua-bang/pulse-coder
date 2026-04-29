@@ -242,6 +242,42 @@ function textNodePreview(content: string | undefined, maxChars = 40): string {
   return stripped.length <= maxChars ? stripped : `${stripped.slice(0, maxChars)}…`;
 }
 
+// ─── Mindmap helpers ───────────────────────────────────────────────
+
+interface MindmapTopic {
+  id: string;
+  text: string;
+  children?: MindmapTopic[];
+  collapsed?: boolean;
+}
+
+/** Count every topic in the tree, root included. */
+function countMindmapTopics(topic: MindmapTopic | undefined): number {
+  if (!topic) return 0;
+  let n = 1;
+  for (const child of topic.children ?? []) n += countMindmapTopics(child);
+  return n;
+}
+
+/**
+ * Flatten a mindmap tree into an indented bullet list so the agent can
+ * read the structure as plain text. Marks collapsed branches but still
+ * walks them — the agent should see the content even if the user hid it
+ * in the UI.
+ */
+function flattenMindmapTopics(topic: MindmapTopic | undefined, depth = 0): string {
+  if (!topic) return '';
+  const lines: string[] = [];
+  const indent = '  '.repeat(depth);
+  const text = topic.text?.trim() || '(empty topic)';
+  const collapsedHint = topic.collapsed ? ' [collapsed in UI]' : '';
+  lines.push(`${indent}- ${text}${collapsedHint}`);
+  for (const child of topic.children ?? []) {
+    lines.push(flattenMindmapTopics(child, depth + 1));
+  }
+  return lines.join('\n');
+}
+
 function summarizeNode(node: CanvasNode): NodeSummary {
   const summary: NodeSummary = {
     id: node.id,
@@ -281,6 +317,19 @@ function summarizeNode(node: CanvasNode): NodeSummary {
         summary.title = textNodePreview(node.data.content as string) || 'Text';
       }
       break;
+    case 'mindmap': {
+      // Mindmap nodes carry a topic tree under data.root. The on-canvas
+      // title is always "Mindmap" — useless for the agent — so fall back
+      // to the root topic's text.
+      const root = node.data.root as MindmapTopic | undefined;
+      const rootText = root?.text?.trim();
+      if (rootText) summary.rootText = rootText;
+      summary.topicCount = countMindmapTopics(root);
+      if (!summary.title || summary.title === 'Mindmap') {
+        summary.title = rootText || 'Mindmap';
+      }
+      break;
+    }
   }
 
   return summary;
@@ -421,6 +470,11 @@ export async function buildDetailedContext(workspaceId: string): Promise<Detaile
       case 'text':
         detailed.content = (node.data.content as string) ?? '';
         break;
+      case 'mindmap': {
+        const root = node.data.root as MindmapTopic | undefined;
+        detailed.content = root ? flattenMindmapTopics(root) : '';
+        break;
+      }
     }
 
     nodes.push(detailed);
@@ -491,6 +545,11 @@ export async function readNodeDetail(workspaceId: string, nodeId: string): Promi
     case 'text':
       detailed.content = (node.data.content as string) ?? '';
       break;
+    case 'mindmap': {
+      const root = node.data.root as MindmapTopic | undefined;
+      detailed.content = root ? flattenMindmapTopics(root) : '';
+      break;
+    }
   }
 
   return detailed;
@@ -562,6 +621,19 @@ export function formatSummaryForPrompt(summary: WorkspaceSummary): string {
     lines.push('## Text Nodes');
     for (const n of byType.text) {
       lines.push(`- [${n.id}] **${n.title}**`);
+    }
+    lines.push('');
+  }
+
+  if (byType.mindmap?.length) {
+    lines.push('## Mindmaps');
+    lines.push(
+      '_Tree of topics rooted at the listed text. Use `canvas_read_node` to ' +
+      'get the full indented topic tree._',
+    );
+    for (const n of byType.mindmap) {
+      const countHint = n.topicCount ? ` (${n.topicCount} topics)` : '';
+      lines.push(`- [${n.id}] **${n.title}**${countHint}`);
     }
     lines.push('');
   }
