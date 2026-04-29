@@ -212,6 +212,22 @@ export const NodeTypeIcon = ({ type, size = 14, className }: NodeTypeIconProps) 
           />
         </svg>
       );
+    case 'mindmap':
+      // Root node on the left with three children branching to the right
+      return (
+        <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+          <circle cx="4" cy="8" r="1.6" stroke="currentColor" strokeWidth="1.2" />
+          <circle cx="12" cy="3.5" r="1.4" stroke="currentColor" strokeWidth="1.2" />
+          <circle cx="12" cy="8" r="1.4" stroke="currentColor" strokeWidth="1.2" />
+          <circle cx="12" cy="12.5" r="1.4" stroke="currentColor" strokeWidth="1.2" />
+          <path
+            d="M5.6 8L10.6 3.7M5.6 8H10.6M5.6 8L10.6 12.3"
+            stroke="currentColor"
+            strokeWidth="1.1"
+            strokeLinecap="round"
+          />
+        </svg>
+      );
     default:
       return (
         <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>

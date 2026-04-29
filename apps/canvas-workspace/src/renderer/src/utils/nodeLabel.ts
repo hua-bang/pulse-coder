@@ -1,6 +1,7 @@
-import type { CanvasNode, TextNodeData } from "../types";
+import type { CanvasNode, MindmapNodeData, TextNodeData } from "../types";
 
 const TEXT_LABEL_MAX_CHARS = 10;
+const MINDMAP_LABEL_MAX_CHARS = 16;
 
 /**
  * Resolve the display label for a canvas node.
@@ -23,6 +24,15 @@ export function getNodeDisplayLabel(node: CanvasNode): string {
     if (preview) return preview;
     return node.title || "Text";
   }
+
+  if (node.type === "mindmap") {
+    const rootText = (node.data as MindmapNodeData).root?.text?.trim();
+    if (!rootText) return node.title || "Mindmap";
+    return rootText.length <= MINDMAP_LABEL_MAX_CHARS
+      ? rootText
+      : `${rootText.slice(0, MINDMAP_LABEL_MAX_CHARS)}…`;
+  }
+
   return node.title;
 }
 

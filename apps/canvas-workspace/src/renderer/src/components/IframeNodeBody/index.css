@@ -118,6 +118,22 @@
   100% { background-position: 200% 0; }
 }
 
+/* ── Resize-time pointer shield ─────────────────────────────────────────
+ *
+ * Covers the iframe/webview while the node is being resized so the
+ * embedded document can't capture mousemove/mouseup. Transparent +
+ * pointer-events:auto means the cursor hits the shield (which sits in
+ * the parent DOM) and the canvas's resize listeners keep firing. */
+
+.iframe-pointer-shield {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: transparent;
+  pointer-events: auto;
+  cursor: inherit;
+}
+
 /* ── The iframe/webview itself ──────────────────────────────────────── */
 
 .iframe-frame {

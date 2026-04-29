@@ -8,6 +8,11 @@ interface Props {
   node: CanvasNode;
   workspaceId?: string;
   onUpdate: (id: string, patch: Partial<CanvasNode>) => void;
+  /** When true, overlay a transparent shield above the iframe/webview so
+   *  the parent canvas keeps receiving mousemove/mouseup during resize.
+   *  Without it, cross-origin iframes (and especially Electron `<webview>`)
+   *  swallow the cursor's events and the resize handler stops updating. */
+  isResizing?: boolean;
 }
 
 // ── Streaming shell ──────────────────────────────────────────────────
@@ -62,7 +67,7 @@ window.parent.postMessage({type:"morph-ready"},"*");
 
 // ── Component ────────────────────────────────────────────────────────
 
-export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
+export const IframeNodeBody = ({ node, workspaceId, onUpdate, isResizing }: Props) => {
   const data = node.data as IframeNodeData;
   const mode = data.mode ?? "url";
   const url = data.url ?? "";
@@ -572,6 +577,7 @@ export const IframeNodeBody = ({ node, workspaceId, onUpdate }: Props) => {
 
       <div className={`iframe-frame-wrapper${streamingActive ? " iframe-frame-wrapper--streaming" : ""}`}>
         {streamingActive && <div className="iframe-shimmer-bar" />}
+        {isResizing && <div className="iframe-pointer-shield" aria-hidden="true" />}
         {renderMode === "url" ? (
           <webview
             ref={webviewRef as unknown as React.Ref<HTMLWebViewElement>}
