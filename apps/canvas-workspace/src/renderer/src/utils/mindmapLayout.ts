@@ -98,25 +98,32 @@ const ROOT_COLOR = '#1F2328';
  * stays synchronous, which matters because `layoutMindmap` runs in a
  * `useMemo` on every tree mutation.
  *
- * The canvas app ships a monospace-leaning UI font, so Latin chars at
- * the topic font sizes (14 / 20px) run ~0.6em wide; CJK chars are
- * ~0.95em. We pick a slightly pessimistic multiplier so the estimated
- * slot never ends up narrower than the rendered text — if it did, the
- * text would either wrap (for pre-wrap) or overshoot its slot and clip
- * into the neighbouring branch.
+ * Real CJK glyphs in the system UI fallback fonts (PingFang / Noto Sans
+ * CJK) render at ~1.0em — a touch wider once you account for inter-glyph
+ * advance. The earlier 0.98 multiplier was tuned for a hypothetical
+ * monospace-leaning font and consistently undersized Chinese topics by a
+ * few px, which combined with `overflow-wrap: anywhere` to drop the last
+ * character onto a new line. Bias the estimate slightly above 1.0 so the
+ * slot is never narrower than the rendered text.
  */
 const CJK_RANGE = /[　-鿿＀-￯぀-ヿ]/;
 const estimateTextWidth = (text: string, fontSize: number): number => {
   if (!text) return 0;
   const hasCJK = CJK_RANGE.test(text);
-  const avg = hasCJK ? fontSize * 0.98 : fontSize * 0.65;
+  const avg = hasCJK ? fontSize * 1.05 : fontSize * 0.65;
   return text.length * avg;
 };
 
 const ROOT_MIN_WIDTH = 120;
 const TOPIC_MIN_WIDTH = 90;
-const TOPIC_MAX_WIDTH = 260;
-const TOPIC_HORIZONTAL_PADDING = 18;
+const TOPIC_MAX_WIDTH = 320;
+// Horizontal chrome around the text: `.mindmap-topic` has `padding: 0 8px`
+// (16px) and the inner `.mindmap-topic-text` adds `padding: 1px 3px` (6px),
+// for 22px total. Keep a small safety buffer for sub-pixel rounding.
+const TOPIC_HORIZONTAL_PADDING = 24;
+// Width reserved for the collapsed-state dot rendered next to the text:
+// `.mindmap-topic-collapsed-dot` is 6px wide + 6px margin-left.
+const COLLAPSED_DOT_RESERVE = 12;
 
 export const layoutMindmap = (
   root: MindmapTopic,
@@ -136,7 +143,12 @@ export const layoutMindmap = (
     if (cached !== undefined) return cached;
     const fontSize = isRoot ? 20 : 14;
     const text = t.text || 'Untitled';
-    const estimated = estimateTextWidth(text, fontSize) + TOPIC_HORIZONTAL_PADDING;
+    // Collapsed non-root topics render a dot next to the text inside the
+    // same flex row; reserve space for it so the text doesn't get squeezed.
+    const collapsedReserve =
+      !isRoot && t.collapsed && t.children.length > 0 ? COLLAPSED_DOT_RESERVE : 0;
+    const estimated =
+      estimateTextWidth(text, fontSize) + TOPIC_HORIZONTAL_PADDING + collapsedReserve;
     const min = isRoot ? ROOT_MIN_WIDTH : TOPIC_MIN_WIDTH;
     const w = Math.max(min, Math.min(TOPIC_MAX_WIDTH, Math.ceil(estimated)));
     widthOf.set(t.id, w);

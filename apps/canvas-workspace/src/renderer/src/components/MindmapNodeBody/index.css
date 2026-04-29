@@ -120,7 +120,12 @@
   padding: 1px 3px;
   outline: none;
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  /* `break-word` keeps natural word boundaries (and CJK runs) intact and
+   * only breaks mid-word when a single token genuinely cannot fit. The
+   * earlier `anywhere` value would drop the last character of short
+   * Chinese topics onto a second line as soon as the layout estimate was
+   * off by 1–2px. */
+  overflow-wrap: break-word;
   user-select: text;
   caret-color: currentColor;
   color: inherit;
