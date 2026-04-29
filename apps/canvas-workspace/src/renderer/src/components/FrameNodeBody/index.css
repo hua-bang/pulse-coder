@@ -52,11 +52,17 @@
   padding: 0 8px;
   /* Dark text derived from frame color — readable on every preset hue. */
   color: color-mix(in srgb, var(--frame-color, #A8B0BD) 70%, #111111);
-  /* Counter-scale the header so it stays roughly screen-native when zoomed in,
-   * but cap at 1 so it never grows larger than its CSS size when zoomed out
-   * (otherwise the header dwarfs the frame body). Floor at 0.6 so it stays
-   * readable even at heavy zoom-out. */
-  transform: scale(clamp(0.6, 1 / var(--canvas-scale, 1), 1));
+  /* The header lives inside .canvas-transform, so its visual screen size is
+   * (this scale) × canvas-scale. We want the *visual* size clamped to
+   * [0.6, 1] of native — readable but never bigger than CSS-native. So the
+   * CSS scale here = clamp(0.6, canvas-scale, 1) / canvas-scale:
+   *  - zoom-in  (>1): CSS scale <1 → keeps header at screen-native size.
+   *  - zoom 1×:       CSS scale = 1 → native size.
+   *  - zoom-out (<1): CSS scale >1, capped so visual size won't go below 0.6×
+   *    (otherwise the title becomes unreadable at deep zoom-out — the prior
+   *    `min(1, 1/scale)` form let it shrink all the way to 0.19× with the
+   *    canvas, which is exactly what we don't want here). */
+  transform: scale(calc(clamp(0.6, var(--canvas-scale, 1), 1) / var(--canvas-scale, 1)));
   transform-origin: left bottom;
   z-index: 2;
 }
