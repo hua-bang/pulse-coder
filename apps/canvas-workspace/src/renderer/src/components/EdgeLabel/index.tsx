@@ -85,10 +85,19 @@ export const EdgeLabel = ({
     }
   };
 
+  // Shrink the chip with the canvas when zoomed out so it doesn't dwarf the
+  // (also-shrinking) edge stroke. Cap at 1 so it never grows past native size
+  // when zoomed in, and floor at 0.6 so deep zoom-out keeps the text legible.
+  const labelScale = Math.min(1, Math.max(0.6, transform.scale));
+
   return (
     <div
       className={`edge-label${isEditing ? ' edge-label--editing' : ''}`}
-      style={{ left: screenPos.x, top: screenPos.y }}
+      style={{
+        left: screenPos.x,
+        top: screenPos.y,
+        ['--edge-label-scale' as string]: labelScale,
+      }}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.stopPropagation()}

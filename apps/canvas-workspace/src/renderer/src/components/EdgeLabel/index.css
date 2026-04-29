@@ -13,7 +13,13 @@
    .canvas-transform — font stays crisp at any zoom. */
 .edge-label {
   position: absolute;
-  transform: translate(-50%, 10px);
+  /* The scale factor is supplied as --edge-label-scale by EdgeLabel.tsx,
+     clamped to [0.6, 1] against the canvas zoom so the chip shrinks with
+     the (also-shrinking) edge stroke at low zoom but never grows past
+     native size when zoomed in. translate-then-scale order keeps the
+     chip's anchor (top-center) aligned with the edge midpoint. */
+  transform: translate(-50%, 10px) scale(var(--edge-label-scale, 1));
+  transform-origin: top center;
   display: inline-flex;
   align-items: center;
   justify-content: center;
