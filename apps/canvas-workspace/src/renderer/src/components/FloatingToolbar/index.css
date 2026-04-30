@@ -12,6 +12,11 @@
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-float);
   z-index: 500;
+  /* Cap to the viewport so a narrow canvas-viewport (e.g. wide chat panel)
+   * can't push the toolbar past the edges where overflow:hidden would
+   * silently clip it. The inner groups handle their own overflow if hit. */
+  max-width: calc(100% - 32px);
+  overflow-x: auto;
 }
 
 .toolbar-group {

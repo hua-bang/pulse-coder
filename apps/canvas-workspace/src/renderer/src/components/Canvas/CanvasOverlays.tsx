@@ -19,6 +19,10 @@ interface CanvasOverlaysProps {
   searchOpen: boolean;
   activeTool: string;
   scale: number;
+  /** True when this Canvas isn't the active workspace. The toolbar
+   *  portals into `.canvas-viewport`, escaping the parent's
+   *  `visibility: hidden`, so we have to gate rendering ourselves. */
+  hidden?: boolean;
   chatPanelOpen?: boolean;
   onChatToggle?: () => void;
   onCreateNode: (type: 'file' | 'terminal' | 'frame' | 'agent' | 'text' | 'iframe' | 'mindmap') => void;
@@ -63,6 +67,7 @@ export const CanvasOverlays = ({
   searchOpen,
   activeTool,
   scale,
+  hidden,
   chatPanelOpen,
   onChatToggle,
   onCreateNode,
@@ -141,13 +146,15 @@ export const CanvasOverlays = ({
       />
     )}
 
-    <FloatingToolbar
-      activeTool={activeTool}
-      onToolChange={onToolChange}
-      onAddNode={onAddNode}
-      chatPanelOpen={chatPanelOpen}
-      onChatToggle={onChatToggle}
-    />
+    {!hidden && (
+      <FloatingToolbar
+        activeTool={activeTool}
+        onToolChange={onToolChange}
+        onAddNode={onAddNode}
+        chatPanelOpen={chatPanelOpen}
+        onChatToggle={onChatToggle}
+      />
+    )}
 
     {selectedEdge && onUpdateEdge && onRemoveEdge && (
       <EdgeStylePanel
