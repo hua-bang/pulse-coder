@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import './index.css';
 import { ShapeToolButton } from './ShapeToolButton';
 
@@ -64,7 +66,17 @@ export const FloatingToolbar = ({
   chatPanelOpen,
   onChatToggle,
 }: Props) => {
-  return (
+  // Portal into `.canvas-viewport` so the toolbar always positions against
+  // the stable viewport box rather than `.canvas-container`, whose absolute
+  // bounds can drift if a hook mutates inline styles or a webview node
+  // perturbs layout. Falls back to body if the viewport isn't mounted yet.
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setPortalTarget(document.querySelector('.canvas-viewport'));
+  }, []);
+  if (!portalTarget) return null;
+
+  return createPortal(
     <div className="floating-toolbar">
       {onChatToggle && (
         <>
@@ -218,6 +230,7 @@ export const FloatingToolbar = ({
           <span className="toolbar-btn-label">Mindmap</span>
         </button>
       </div>
-    </div>
+    </div>,
+    portalTarget,
   );
 };

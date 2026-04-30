@@ -584,6 +584,7 @@ export const Canvas = ({
         searchOpen={searchOpen}
         activeTool={activeTool}
         scale={transform.scale}
+        hidden={hidden}
         chatPanelOpen={chatPanelOpen}
         onChatToggle={onChatToggle}
         onCreateNode={handleCreateNode}
