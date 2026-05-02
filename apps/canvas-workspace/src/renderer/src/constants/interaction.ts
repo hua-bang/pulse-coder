@@ -77,6 +77,7 @@ export const SHORTCUT_SECTIONS: ShortcutSection[] = [
       { combo: 'Ctrl/Cmd + A', description: 'Select all nodes.' },
       { combo: 'Ctrl/Cmd + D', description: 'Duplicate the selected node.' },
       { combo: 'Ctrl/Cmd + C / V', description: 'Copy and paste selected nodes.' },
+      { combo: 'Ctrl/Cmd + G', description: 'Wrap the selected nodes in a new frame.' },
       { combo: 'Delete / Backspace', description: 'Delete the current selection with confirmation.' },
       { combo: 'Ctrl/Cmd + Z', description: 'Undo the last change.' },
       { combo: 'Ctrl/Cmd + Shift + Z', description: 'Redo the last undone change.' },

@@ -16,6 +16,8 @@ interface Options {
   clipboardNodes: CanvasNode[];
   setClipboardNodes: (nodes: CanvasNode[]) => void;
   pasteNodes: (nodes: CanvasNode[]) => CanvasNode[];
+  /** Wrap the current node selection in a new frame. */
+  groupSelectedNodes: () => void;
   removeNodes: (ids: string[]) => void | Promise<void>;
   searchOpen: boolean;
   setSearchOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
@@ -29,7 +31,7 @@ interface Options {
 export const useCanvasKeyboard = ({
   undo, redo, nodes, selectedNodeIds, setSelectedNodeIds,
   selectedEdgeId, setSelectedEdgeId, removeEdge,
-  duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, removeNodes,
+  duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, groupSelectedNodes, removeNodes,
   searchOpen, setSearchOpen, contextMenu, setContextMenu,
   setHighlightedId, handleFocusNode,
   keyboardLocked = false,
@@ -79,6 +81,11 @@ export const useCanvasKeyboard = ({
         if (selected.length > 0) setClipboardNodes(selected);
         return;
       }
+      if (isMod && (e.key === 'g' || e.key === 'G') && !e.shiftKey && !isEditable) {
+        e.preventDefault();
+        if (selectedNodeIds.length > 0) groupSelectedNodes();
+        return;
+      }
       if (isMod && e.key === 'v' && !isEditable) {
         if (clipboardNodes.length > 0) {
           e.preventDefault();
@@ -110,7 +117,7 @@ export const useCanvasKeyboard = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, nodes, selectedNodeIds, setSelectedNodeIds, selectedEdgeId, setSelectedEdgeId, removeEdge, duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, removeNodes, searchOpen, setSearchOpen, contextMenu, setContextMenu, keyboardLocked]);
+  }, [undo, redo, nodes, selectedNodeIds, setSelectedNodeIds, selectedEdgeId, setSelectedEdgeId, removeEdge, duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, groupSelectedNodes, removeNodes, searchOpen, setSearchOpen, contextMenu, setContextMenu, keyboardLocked]);
 
   // Cmd/Ctrl+Tab to cycle through nodes (Shift reverses direction)
   useEffect(() => {

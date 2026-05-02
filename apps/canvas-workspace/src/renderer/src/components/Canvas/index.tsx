@@ -103,6 +103,7 @@ export const Canvas = ({
     redo,
     duplicateNode,
     pasteNodes,
+    groupNodes,
   } = useNodes(canvasId, () => {});
 
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
@@ -230,10 +231,23 @@ export const Canvas = ({
 
   useCanvasContext(rootFolder, nodes, canvasName);
 
+  const groupSelectedNodes = useCallback(() => {
+    if (selectedNodeIds.length === 0) return;
+    const frame = groupNodes(selectedNodeIds);
+    if (!frame) return;
+    setSelectedNodeIds([frame.id]);
+    notify({
+      tone: 'success',
+      title: 'Nodes grouped',
+      description: `Wrapped ${selectedNodeIds.length} node${selectedNodeIds.length === 1 ? '' : 's'} in a new frame.`,
+    });
+  }, [groupNodes, selectedNodeIds, notify]);
+
   useCanvasKeyboard({
     undo, redo, nodes, selectedNodeIds, setSelectedNodeIds,
     selectedEdgeId, setSelectedEdgeId, removeEdge: requestRemoveEdge,
-    duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, removeNodes: requestRemoveNodes,
+    duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, groupSelectedNodes,
+    removeNodes: requestRemoveNodes,
     searchOpen, setSearchOpen, contextMenu, setContextMenu,
     setHighlightedId, handleFocusNode,
     keyboardLocked: isOverlayOpen,
