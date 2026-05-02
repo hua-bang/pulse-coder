@@ -1,0 +1,174 @@
+.command-palette-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 15vh;
+  z-index: 2000;
+  animation: fadeIn 0.12s ease;
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+
+.command-palette {
+  width: 540px;
+  max-height: 70vh;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float), 0 8px 32px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.command-palette-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.command-palette-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.command-palette-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  font-family: var(--font);
+  color: var(--text);
+}
+
+.command-palette-input::placeholder {
+  color: var(--text-muted);
+}
+
+.command-palette-results {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 420px;
+}
+
+.command-palette-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.command-palette-section {
+  padding: 4px 0;
+}
+
+.command-palette-section + .command-palette-section {
+  border-top: 1px solid var(--border-light);
+}
+
+.command-palette-section-label {
+  padding: 8px 18px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.command-palette-row {
+  padding: 8px 18px;
+  min-height: 38px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: background 0.08s;
+}
+
+.command-palette-row:hover,
+.command-palette-row.selected {
+  background: var(--accent-light);
+}
+
+.command-palette-row.selected {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.command-palette-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.command-palette-row-title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-row-hint {
+  padding-left: 60px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-shortcut {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  background: var(--surface-hover);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+.command-palette-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+  width: 52px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.command-palette-badge--file    { background: rgba(217, 115, 13, 0.1); color: var(--accent-file); }
+.command-palette-badge--terminal{ background: rgba(15, 123, 108, 0.1); color: var(--accent-term); }
+.command-palette-badge--frame   { background: rgba(103, 58, 183, 0.1); color: #673ab7; }
+.command-palette-badge--agent   { background: rgba(33, 150, 243, 0.1); color: #2196f3; }
+.command-palette-badge--text    { background: rgba(96, 125, 139, 0.1); color: #607d8b; }
+.command-palette-badge--iframe  { background: rgba(233, 30, 99, 0.1); color: #e91e63; }
+.command-palette-badge--image   { background: rgba(76, 175, 80, 0.1); color: #4caf50; }
+.command-palette-badge--shape   { background: rgba(91, 124, 191, 0.1); color: #5b7cbf; }
+.command-palette-badge--mindmap { background: rgba(255, 152, 0, 0.1); color: #ff9800; }
+.command-palette-badge--cmd     { background: var(--surface-hover); color: var(--text-secondary); }
+
+.command-palette-hint {
+  display: flex;
+  gap: 16px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border-light);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.command-palette-hint span {
+  opacity: 0.7;
+}

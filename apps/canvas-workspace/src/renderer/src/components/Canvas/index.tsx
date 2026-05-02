@@ -14,6 +14,7 @@ import { useMarqueeSelect } from '../../hooks/useMarqueeSelect';
 import { useAppShell } from '../AppShellProvider';
 import { NODE_TYPE_LABELS } from '../../constants/interaction';
 import type { CanvasNode } from '../../types';
+import type { PaletteCommand } from '../CommandPalette';
 import { computeFrameDepths } from '../../utils/frameHierarchy';
 import { getNodeDisplayLabel } from '../../utils/nodeLabel';
 import type { CanvasNodeRenameRequest } from '../../types/ui-interaction';
@@ -530,6 +531,148 @@ export const Canvas = ({
     [addNode, screenToCanvas, notify]
   );
 
+  // Command catalog for Cmd+K. Built lazily so each command captures
+  // the latest selection / tool / chat state — the palette is only
+  // mounted while open, so the cost of rebuilding on every render is
+  // negligible compared to the clarity of inlining the bindings here.
+  const paletteCommands = useMemo<PaletteCommand[]>(() => {
+    const selectionCount = selectedNodeIds.length;
+    const list: PaletteCommand[] = [
+      // Selection-dependent commands (rendered first when active so
+      // batch operations are one keypress away from a multi-selection).
+      {
+        id: 'duplicate-selection',
+        group: 'edit',
+        title: selectionCount > 1
+          ? `Duplicate ${selectionCount} selected nodes`
+          : 'Duplicate selected node',
+        shortcut: 'Cmd+D',
+        enabled: selectionCount > 0,
+        run: () => {
+          const created: string[] = [];
+          for (const id of selectedNodeIds) {
+            const copy = duplicateNode(id);
+            if (copy) created.push(copy.id);
+          }
+          if (created.length > 0) setSelectedNodeIds(created);
+        },
+      },
+      {
+        id: 'delete-selection',
+        group: 'edit',
+        title: selectionCount > 1
+          ? `Delete ${selectionCount} selected nodes`
+          : 'Delete selected node',
+        shortcut: 'Del',
+        enabled: selectionCount > 0,
+        run: () => {
+          void requestRemoveNodes(selectedNodeIds);
+        },
+      },
+      // Create — one entry per node type. Aliases catch the common
+      // alternative names users type ("markdown" → file, "ai" → agent).
+      {
+        id: 'create-note',
+        group: 'create',
+        title: 'New note',
+        hint: 'Markdown file backed by disk',
+        aliases: ['file', 'markdown', 'doc', 'md'],
+        run: () => handleToolbarAddNode('file'),
+      },
+      {
+        id: 'create-terminal',
+        group: 'create',
+        title: 'Open terminal',
+        aliases: ['shell', 'pty', 'console', 'bash'],
+        run: () => handleToolbarAddNode('terminal'),
+      },
+      {
+        id: 'create-agent',
+        group: 'create',
+        title: 'Create agent',
+        hint: 'Run an AI coding agent in a PTY',
+        aliases: ['ai', 'chat', 'assistant', 'claude'],
+        run: () => handleToolbarAddNode('agent'),
+      },
+      {
+        id: 'create-text',
+        group: 'create',
+        title: 'Add text',
+        aliases: ['label', 'sticky', 'note'],
+        run: () => handleToolbarAddNode('text'),
+      },
+      {
+        id: 'create-frame',
+        group: 'create',
+        title: 'Add frame',
+        hint: 'Visual grouping rectangle',
+        aliases: ['group', 'box', 'container'],
+        run: () => handleToolbarAddNode('frame'),
+      },
+      {
+        id: 'create-link',
+        group: 'create',
+        title: 'Embed link',
+        aliases: ['iframe', 'web', 'url', 'browser'],
+        run: () => handleToolbarAddNode('iframe'),
+      },
+      {
+        id: 'create-mindmap',
+        group: 'create',
+        title: 'New mindmap',
+        aliases: ['tree', 'topic', 'outline'],
+        run: () => handleToolbarAddNode('mindmap'),
+      },
+      // Navigate / View
+      {
+        id: 'fit-all',
+        group: 'navigate',
+        title: 'Fit all nodes in view',
+        hint: 'Zoom and center to show every node',
+        aliases: ['zoom', 'overview', 'show all'],
+        enabled: nodes.length > 0,
+        run: () => fitAllNodes(nodes),
+      },
+      {
+        id: 'reset-zoom',
+        group: 'navigate',
+        title: 'Reset zoom to 100%',
+        aliases: ['1:1', 'actual size'],
+        run: () => resetTransform(),
+      },
+      {
+        id: 'toggle-chat',
+        group: 'view',
+        title: chatPanelOpen ? 'Hide chat panel' : 'Show chat panel',
+        shortcut: 'Cmd+Shift+A',
+        aliases: ['ai', 'sidebar', 'assistant'],
+        enabled: !!onChatToggle,
+        run: () => onChatToggle?.(),
+      },
+      // Help
+      {
+        id: 'shortcuts',
+        group: 'help',
+        title: 'Show keyboard shortcuts',
+        shortcut: '?',
+        aliases: ['keys', 'bindings', 'cheatsheet'],
+        run: () => openShortcuts(),
+      },
+    ];
+    return list;
+  }, [
+    selectedNodeIds,
+    duplicateNode,
+    requestRemoveNodes,
+    handleToolbarAddNode,
+    fitAllNodes,
+    nodes,
+    resetTransform,
+    chatPanelOpen,
+    onChatToggle,
+    openShortcuts,
+  ]);
+
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent) => {
       if (contextMenu) setContextMenu(null);
@@ -707,6 +850,7 @@ export const Canvas = ({
         onToolChange={setActiveTool}
         onAddNode={handleToolbarAddNode}
         onResetTransform={resetTransform}
+        paletteCommands={paletteCommands}
         onSearchSelect={handleSearchSelect}
         onCloseSearch={() => setSearchOpen(false)}
         onConnectMouseDown={handleConnectOverlayMouseDown}
