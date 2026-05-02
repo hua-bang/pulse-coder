@@ -523,6 +523,50 @@ export const useNodes = (
     [applyNodes, scheduleSave, canvasId, setNodes, nodesRef]
   );
 
+  /**
+   * Wrap the given nodes in a new frame sized to their bounding box plus
+   * a uniform padding. Frame parent/child relationships are positional
+   * (see `frameHierarchy.ts`), so the resulting frame automatically
+   * "owns" anything whose center sits inside the new bbox. Returns the
+   * created frame, or null when the selection resolves to no nodes.
+   */
+  const groupNodes = useCallback(
+    (ids: string[]): CanvasNode | null => {
+      if (ids.length === 0) return null;
+      const idSet = new Set(ids);
+      const targets = nodesRef.current.filter((n) => idSet.has(n.id));
+      if (targets.length === 0) return null;
+
+      const PADDING = 40;
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const n of targets) {
+        if (n.x < minX) minX = n.x;
+        if (n.y < minY) minY = n.y;
+        if (n.x + n.width > maxX) maxX = n.x + n.width;
+        if (n.y + n.height > maxY) maxY = n.y + n.height;
+      }
+
+      const frame: CanvasNode = {
+        id: genId(),
+        type: 'frame',
+        title: 'Group',
+        x: minX - PADDING,
+        y: minY - PADDING,
+        width: maxX - minX + PADDING * 2,
+        height: maxY - minY + PADDING * 2,
+        data: createNodeData('frame'),
+        updatedAt: Date.now(),
+      };
+
+      applyNodes([...nodesRef.current, frame]);
+      return frame;
+    },
+    [applyNodes, nodesRef]
+  );
+
   const addEdge = useCallback(
     (edge: CanvasEdge) => {
       applyEdges([...edgesRef.current, edge]);
@@ -582,5 +626,6 @@ export const useNodes = (
     redo,
     duplicateNode,
     pasteNodes,
+    groupNodes,
   };
 };

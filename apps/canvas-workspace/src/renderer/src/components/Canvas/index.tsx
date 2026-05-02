@@ -110,6 +110,7 @@ export const Canvas = ({
     redo,
     duplicateNode,
     pasteNodes,
+    groupNodes,
   } = useNodes(canvasId, () => {});
 
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
@@ -237,10 +238,23 @@ export const Canvas = ({
 
   useCanvasContext(rootFolder, nodes, canvasName);
 
+  const groupSelectedNodes = useCallback(() => {
+    if (selectedNodeIds.length === 0) return;
+    const frame = groupNodes(selectedNodeIds);
+    if (!frame) return;
+    setSelectedNodeIds([frame.id]);
+    notify({
+      tone: 'success',
+      title: 'Nodes grouped',
+      description: `Wrapped ${selectedNodeIds.length} node${selectedNodeIds.length === 1 ? '' : 's'} in a new frame.`,
+    });
+  }, [groupNodes, selectedNodeIds, notify]);
+
   useCanvasKeyboard({
     undo, redo, nodes, selectedNodeIds, setSelectedNodeIds,
     selectedEdgeId, setSelectedEdgeId, removeEdge: requestRemoveEdge,
-    duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, removeNodes: requestRemoveNodes,
+    duplicateNode, clipboardNodes, setClipboardNodes, pasteNodes, groupSelectedNodes,
+    removeNodes: requestRemoveNodes,
     moveNodes, commitHistory,
     searchOpen, setSearchOpen, contextMenu, setContextMenu,
     setHighlightedId, handleFocusNode,
@@ -569,6 +583,19 @@ export const Canvas = ({
           void requestRemoveNodes(selectedNodeIds);
         },
       },
+      {
+        id: 'group-selection',
+        group: 'edit',
+        title: selectionCount > 1
+          ? `Group ${selectionCount} selected nodes in a frame`
+          : 'Wrap selected node in a frame',
+        shortcut: 'Cmd+G',
+        aliases: ['frame', 'wrap'],
+        enabled: selectionCount > 0,
+        run: () => {
+          groupSelectedNodes();
+        },
+      },
       // Create — one entry per node type. Aliases catch the common
       // alternative names users type ("markdown" → file, "ai" → agent).
       {
@@ -664,6 +691,7 @@ export const Canvas = ({
     selectedNodeIds,
     duplicateNode,
     requestRemoveNodes,
+    groupSelectedNodes,
     handleToolbarAddNode,
     fitAllNodes,
     nodes,
