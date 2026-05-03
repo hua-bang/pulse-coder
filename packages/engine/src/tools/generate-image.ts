@@ -47,7 +47,7 @@ interface GenerateRequestTarget {
 
 type ImageProvider = 'gemini' | 'openai';
 type OutputFormat = 'png' | 'jpeg' | 'webp';
-type OpenAIImageApiMode = 'images' | 'responses_stream' | 'auto';
+type OpenAIImageApiMode = 'images' | 'responses' | 'responses_stream' | 'auto';
 
 interface OpenAIResponsesImageCandidate {
   base64?: string;
@@ -89,7 +89,7 @@ export const GenerateImageTool: Tool<
 > = {
   name: 'generate_image',
   description:
-    'Generate an image with GPT/OpenAI by default and save it to local disk. Uses OPENAI_API_KEY plus OPENAI_BASE_URL/OPENAI_API_BASE_URL/OPENAI_API_URL. Defaults to OPENAI_IMAGE_MODEL or the latest GPT image model gpt-image-2. For OpenAI-compatible providers, image API mode defaults to responses streaming at {baseUrl}/responses. Other providers are available only when explicitly requested.',
+    'Generate an image with GPT/OpenAI by default and save it to local disk. Uses OPENAI_API_KEY plus OPENAI_BASE_URL/OPENAI_API_BASE_URL/OPENAI_API_URL. Defaults to OPENAI_IMAGE_MODEL or the latest GPT image model gpt-image-2. For OpenAI-compatible providers, image API mode defaults to synchronous Responses image generation at {baseUrl}/responses. Other providers are available only when explicitly requested.',
   defer_loading: true,
   inputSchema: z.object({
     prompt: z.string().describe('The prompts for image generation need to describe in detail the content, style, and composition of the image you want to generate.'),
@@ -123,9 +123,9 @@ export const GenerateImageTool: Tool<
       .optional()
       .describe('OpenAI/GPT output format. Only sent for OpenAI-compatible requests.'),
     imageApiMode: z
-      .enum(['images', 'responses_stream', 'auto'])
+      .enum(['images', 'responses', 'responses_stream', 'auto'])
       .optional()
-      .describe('OpenAI/GPT image API mode. "images" uses {baseUrl}/images/generations, "responses_stream" uses {baseUrl}/responses with image_generation streaming, and "auto" falls back to responses_stream if images fails. Defaults to OPENAI_IMAGE_API_MODE or responses_stream.'),
+      .describe('OpenAI/GPT image API mode. "responses" uses synchronous {baseUrl}/responses image_generation, "responses_stream" uses streaming {baseUrl}/responses image_generation, "images" uses {baseUrl}/images/generations, and "auto" falls back to responses if images fails. Defaults to OPENAI_IMAGE_API_MODE or responses.'),
   }),
   execute: async ({ prompt, provider, model, outputPath, includeBase64 = false, timeout = DEFAULT_TIMEOUT, size, quality, outputFormat, imageApiMode }) => {
     if (!prompt.trim()) {
@@ -302,6 +302,13 @@ async function generateOpenAIImage({
     baseUrl,
   };
 
+  if (mode === 'responses') {
+    return generateOpenAIResponsesImage({
+      ...options,
+      model: responsesModel,
+    });
+  }
+
   if (mode === 'responses_stream') {
     return generateOpenAIResponsesStreamImage({
       ...options,
@@ -316,7 +323,7 @@ async function generateOpenAIImage({
         model: imageModel,
       });
     } catch (error) {
-      return generateOpenAIResponsesStreamImage({
+      return generateOpenAIResponsesImage({
         ...options,
         model: responsesModel,
         previousError: error,
@@ -426,6 +433,93 @@ async function generateOpenAIImagesApiImage({
     outputPath,
     includeBase64,
   });
+}
+
+async function generateOpenAIResponsesImage({
+  prompt,
+  model,
+  outputPath,
+  includeBase64,
+  timeout,
+  size,
+  quality,
+  outputFormat,
+  apiKey,
+  baseUrl,
+  previousError,
+}: {
+  prompt: string;
+  model: string;
+  outputPath?: string;
+  includeBase64: boolean;
+  timeout: number;
+  size?: string;
+  quality?: string;
+  outputFormat?: OutputFormat;
+  apiKey: string;
+  baseUrl: string;
+  previousError?: unknown;
+}): Promise<{
+  provider: ImageProvider;
+  model: string;
+  text: string;
+  mimeType: string;
+  outputPath: string;
+  bytes: number;
+  base64?: string;
+}> {
+  const endpoint = buildOpenAIResponsesEndpoint(baseUrl);
+  const requestBody: Record<string, unknown> = {
+    model,
+    input: prompt,
+    tools: [buildResponsesImageGenerationTool({ size, quality, outputFormat })],
+    tool_choice: { type: 'image_generation' },
+    stream: false,
+  };
+
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), timeout);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+      signal: abortController.signal,
+    });
+
+    const responseText = await response.text();
+    const data = parseJson(responseText);
+    if (!response.ok) {
+      throw new Error(`OpenAI responses image API error: ${response.status} ${response.statusText} - ${extractErrorMessage(data) || responseText}${formatPreviousError(previousError)}`);
+    }
+
+    const imageResult = findImageGenerationResult(data);
+    if (!imageResult?.result) {
+      throw new Error(`OpenAI responses image response did not include image data${formatPreviousError(previousError)}`);
+    }
+
+    return saveImageResult({
+      provider: 'openai',
+      model,
+      text: imageResult.revisedPrompt || findResponsesOutputText(data),
+      base64: imageResult.result,
+      mimeType: outputFormatToMimeType(imageResult.outputFormat || outputFormat),
+      outputPath,
+      includeBase64,
+    });
+  } catch (error) {
+    const isAbort = error instanceof Error && error.name === 'AbortError';
+    if (isAbort) {
+      throw new Error(`OpenAI responses image request timed out after ${timeout}ms${formatPreviousError(previousError)}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function generateOpenAIResponsesStreamImage({
@@ -541,10 +635,10 @@ function resolveProvider(provider: ImageProvider | 'gpt' | undefined, model: str
 function resolveOpenAIImageApiMode(mode: OpenAIImageApiMode | undefined): OpenAIImageApiMode {
   const fromEnv = process.env.OPENAI_IMAGE_API_MODE?.trim().toLowerCase();
   const value = mode || fromEnv;
-  if (value === 'responses_stream' || value === 'images' || value === 'auto') {
+  if (value === 'responses' || value === 'responses_stream' || value === 'images' || value === 'auto') {
     return value;
   }
-  return 'responses_stream';
+  return 'responses';
 }
 
 function isOpenAIImageModel(model: string): boolean {
@@ -581,6 +675,56 @@ function parseOpenAIImagesResponse(responseText: string): OpenAIImagesResponse |
     return JSON.parse(responseText) as OpenAIImagesResponse;
   } catch {
     return null;
+  }
+}
+
+function parseJson(responseText: string): unknown {
+  try {
+    return JSON.parse(responseText);
+  } catch {
+    return null;
+  }
+}
+
+function extractErrorMessage(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return '';
+  }
+
+  const error = (value as Record<string, unknown>).error;
+  if (!error || typeof error !== 'object' || Array.isArray(error)) {
+    return '';
+  }
+
+  const message = (error as Record<string, unknown>).message;
+  return typeof message === 'string' ? message : '';
+}
+
+function findResponsesOutputText(value: unknown): string {
+  const chunks: string[] = [];
+  collectResponsesOutputText(value, chunks);
+  return chunks.join('\n').trim();
+}
+
+function collectResponsesOutputText(value: unknown, chunks: string[]): void {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectResponsesOutputText(item, chunks);
+    }
+    return;
+  }
+
+  const record = value as Record<string, unknown>;
+  if ((record.type === 'output_text' || record.type === 'text') && typeof record.text === 'string' && record.text.trim()) {
+    chunks.push(record.text.trim());
+  }
+
+  for (const child of Object.values(record)) {
+    collectResponsesOutputText(child, chunks);
   }
 }
 
