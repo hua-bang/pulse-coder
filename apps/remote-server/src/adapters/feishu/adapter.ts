@@ -4,7 +4,7 @@ import type { PlatformAdapter, IncomingMessage, StreamHandle } from '../../core/
 import type { ClarificationRequest } from '../../core/types.js';
 import { clarificationQueue } from '../../core/clarification-queue.js';
 import { getActiveStreamId } from '../../core/active-run-store.js';
-import { extractGeminiImageResult } from './image-result.js';
+import { extractGeneratedImageResult } from './image-result.js';
 import {
   createLarkClient,
   addMessageReaction,
@@ -292,7 +292,7 @@ export class FeishuAdapter implements PlatformAdapter {
       },
 
       async onToolResult(toolResult) {
-        const imageResult = extractGeminiImageResult(toolResult);
+        const imageResult = extractGeneratedImageResult(toolResult);
         if (!imageResult) {
           return;
         }

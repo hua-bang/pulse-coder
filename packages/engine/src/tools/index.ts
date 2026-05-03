@@ -5,7 +5,7 @@ import { GrepTool } from './grep';
 import { LsTool } from './ls';
 import { BashTool } from './bash';
 import { TavilyTool, TavilyExtractTool, TavilyCrawlTool, TavilyMapTool } from './tavily';
-import { GeminiProImageTool } from './gemini-pro-image';
+import { GenerateImageTool } from './generate-image';
 import { ClarifyTool } from './clarify';
 import { Tool } from 'ai';
 import { deferDemoTool } from './defer-demo';
@@ -22,7 +22,7 @@ export const BuiltinTools = [
   TavilyExtractTool,
   TavilyCrawlTool,
   TavilyMapTool,
-  GeminiProImageTool,
+  GenerateImageTool,
   ClarifyTool,
   deferDemoTool
 ] as const;
@@ -50,7 +50,7 @@ export {
   TavilyExtractTool,
   TavilyCrawlTool,
   TavilyMapTool,
-  GeminiProImageTool,
+  GenerateImageTool,
   ClarifyTool,
 };
 

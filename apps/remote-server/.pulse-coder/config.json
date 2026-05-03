@@ -1,6 +1,6 @@
 {
   "current_model": "gpt-5.5",
-  "provider_type": "claude",
+  "provider_type": "openai",
   "options": [
     {
       "name": "gpt-5-codex",
@@ -44,7 +44,7 @@
     },
     {
       "name": "gpt-5.5",
-      "provider_type": "claude"
+      "provider_type": "openai"
     },
     {
       "name": "claude-opus-4-6",

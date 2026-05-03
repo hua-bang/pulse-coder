@@ -1,9 +1,9 @@
-interface GeminiImageResult {
+interface GeneratedImageResult {
   outputPath: string;
   mimeType?: string;
 }
 
-export function extractGeminiImageResult(toolResult: unknown): GeminiImageResult | null {
+export function extractGeneratedImageResult(toolResult: unknown): GeneratedImageResult | null {
   const toolName = extractToolName(toolResult);
   const payload = extractToolPayload(toolResult);
 
@@ -18,11 +18,11 @@ export function extractGeminiImageResult(toolResult: unknown): GeminiImageResult
 
   const mimeType = asString(payload.mimeType) ?? undefined;
 
-  if (toolName && toolName !== 'gemini_pro_image') {
+  if (toolName && toolName !== 'generate_image') {
     return null;
   }
 
-  if (!toolName && !looksLikeGeminiImagePayload(payload)) {
+  if (!toolName && !looksLikeGeneratedImagePayload(payload)) {
     return null;
   }
 
@@ -66,7 +66,7 @@ function extractToolPayload(toolResult: unknown): unknown {
   return toolResult;
 }
 
-function looksLikeGeminiImagePayload(payload: Record<string, unknown>): boolean {
+function looksLikeGeneratedImagePayload(payload: Record<string, unknown>): boolean {
   return (
     asString(payload.model) !== null
     && asString(payload.outputPath) !== null

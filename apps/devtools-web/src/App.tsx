@@ -985,9 +985,11 @@ export default function App() {
                   <tr>
                     <th>Index</th>
                     <th>Duration</th>
-                    <th>TTFT</th>
-                    <th>TTFB</th>
-                    <th>Stream</th>
+                    <th title="Engine preparation before HTTP request (includes connection establishment)">Eng Prep</th>
+                    <th title="Time from HTTP request sent to first chunk received (network + model latency)">TTFB</th>
+                    <th title="Time from LLM call start to first chunk (= Eng Prep + TTFB)">TTFT</th>
+                    <th title="Time from HTTP request sent to first text token (excludes tool-call-only chunks)">TTFT Text</th>
+                    <th title="Time from first chunk to last chunk (stream transfer duration)">Stream</th>
                     <th>Tool Wait</th>
                     <th>Finish</th>
                     <th>Text Len</th>
@@ -1001,6 +1003,9 @@ export default function App() {
                 </thead>
                 <tbody>
                   {selectedRun.llmSpans.map((span) => {
+                    const enginePrep =
+                      span.enginePrepMs ??
+                      (span.requestStartAt && span.startedAt ? Math.max(0, span.requestStartAt - span.startedAt) : undefined);
                     const ttft =
                       span.ttftMs ??
                       (span.firstChunkAt && span.startedAt ? Math.max(0, span.firstChunkAt - span.startedAt) : undefined);
@@ -1008,6 +1013,11 @@ export default function App() {
                       span.ttfbMs ??
                       (span.firstChunkAt
                         ? Math.max(0, span.firstChunkAt - (span.requestStartAt ?? span.startedAt))
+                        : undefined);
+                    const ttftText =
+                      span.ttftTextMs ??
+                      (span.firstTextAt
+                        ? Math.max(0, span.firstTextAt - (span.requestStartAt ?? span.startedAt))
                         : undefined);
                     const stream =
                       span.streamDurationMs ??
@@ -1020,8 +1030,10 @@ export default function App() {
                     <tr key={span.index}>
                       <td>#{span.index}</td>
                       <td>{formatDuration(span.durationMs)}</td>
-                      <td>{ttft !== undefined ? formatDuration(ttft) : 'n/a'}</td>
+                      <td>{enginePrep !== undefined ? formatDuration(enginePrep) : 'n/a'}</td>
                       <td>{ttfb !== undefined ? formatDuration(ttfb) : 'n/a'}</td>
+                      <td>{ttft !== undefined ? formatDuration(ttft) : 'n/a'}</td>
+                      <td>{ttftText !== undefined ? formatDuration(ttftText) : '—'}</td>
                       <td>{stream !== undefined ? formatDuration(stream) : 'n/a'}</td>
                       <td>{toolWait !== undefined ? formatDuration(toolWait) : 'n/a'}</td>
                       <td>{span.finishReason || 'n/a'}</td>

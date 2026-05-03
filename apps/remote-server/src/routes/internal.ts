@@ -3,7 +3,7 @@ import { existsSync } from 'fs';
 import { Hono, type Context } from 'hono';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { createLarkClient, sendImageMessage, sendTextMessage } from '../adapters/feishu/client.js';
-import { extractGeminiImageResult } from '../adapters/feishu/image-result.js';
+import { extractGeneratedImageResult } from '../adapters/feishu/image-result.js';
 import { getDiscordGatewayStatus, restartDiscordGateway } from '../adapters/discord/gateway-manager.js';
 import { DiscordClient } from '../adapters/discord/client.js';
 import { executeAgentTurn, formatCompactionEvents, type CompactionSnapshot } from '../core/agent-runner.js';
@@ -153,7 +153,7 @@ internalRouter.post('/agent/run', async (c) => {
             return;
           }
 
-          const imageResult = extractGeminiImageResult(toolResult);
+          const imageResult = extractGeneratedImageResult(toolResult);
           if (!imageResult) {
             return;
           }

@@ -6,7 +6,7 @@ import type { PlatformAdapter, IncomingMessage, StreamHandle } from '../../core/
 import type { ClarificationRequest } from '../../core/types.js';
 import { clarificationQueue } from '../../core/clarification-queue.js';
 import { getActiveStreamId } from '../../core/active-run-store.js';
-import { extractGeminiImageResult } from '../feishu/image-result.js';
+import { extractGeneratedImageResult } from '../feishu/image-result.js';
 import { DiscordClient } from './client.js';
 import { buildDiscordMemoryKey, buildDiscordPlatformKey, isDiscordThreadChannelType } from './platform-key.js';
 
@@ -395,7 +395,7 @@ export class DiscordAdapter implements PlatformAdapter {
       },
 
       async onToolResult(toolResult) {
-        const imageResult = extractGeminiImageResult(toolResult);
+        const imageResult = extractGeneratedImageResult(toolResult);
         if (!imageResult) {
           return;
         }
