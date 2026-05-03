@@ -39,8 +39,25 @@ interface OpenAIChatCompletionResponse {
   };
 }
 
+interface OpenAIResponsesResponse {
+  output?: Array<{
+    type?: string;
+    role?: string;
+    content?: Array<{
+      type?: string;
+      text?: string;
+    }>;
+  }>;
+  error?: {
+    message?: string;
+    type?: string;
+    code?: string;
+  };
+}
+
 type AnalysisProvider = 'openai' | 'gemini';
 type DetailLevel = 'auto' | 'low' | 'high';
+type OpenAIVisionApiMode = 'responses' | 'chat_completions' | 'auto';
 
 const toolSchema = z.object({
   prompt: z.string().optional().describe('Question or instruction for the image analysis. Defaults to a concise Chinese image analysis prompt.'),
@@ -51,8 +68,12 @@ const toolSchema = z.object({
     .enum(['openai', 'gpt', 'gemini'])
     .optional()
     .describe('Vision provider. Defaults to "openai"/"gpt". Set "gemini" to use Gemini explicitly.'),
-  model: z.string().optional().describe('Vision model name. Defaults to OPENAI_VISION_MODEL or gpt-4.1-mini for OpenAI; GEMINI_VISION_MODEL or gemini-2.5-flash for Gemini.'),
+  model: z.string().optional().describe('Vision model name. Defaults to OPENAI_VISION_MODEL or gpt-5.4 for OpenAI; GEMINI_VISION_MODEL or gemini-2.5-flash for Gemini.'),
   detail: z.enum(['auto', 'low', 'high']).optional().describe('OpenAI image detail level. Only sent for OpenAI/GPT requests. Defaults to "auto".'),
+  visionApiMode: z
+    .enum(['responses', 'chat_completions', 'auto'])
+    .optional()
+    .describe('OpenAI/GPT vision API mode. "responses" uses {baseUrl}/responses input_image, "chat_completions" uses {baseUrl}/chat/completions image_url, and "auto" falls back to chat_completions if responses fails. Defaults to OPENAI_VISION_API_MODE or responses.'),
 });
 
 type AnalyzeImageInput = z.infer<typeof toolSchema>;
@@ -75,7 +96,7 @@ interface AnalyzeImageToolContext extends ToolExecutionContext {
 const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
-const DEFAULT_OPENAI_MODEL = 'gpt-4.1-mini';
+const DEFAULT_OPENAI_MODEL = 'gpt-5.4';
 const DEFAULT_TIMEOUT_MS = 120000;
 const DEFAULT_MAX_IMAGES = 6;
 const DEFAULT_PROMPT = '请按图片顺序描述关键信息，识别文字，提取主体内容，并结合用户上下文回答问题。如果存在多个图片，先分别概述，再总结。';
@@ -89,7 +110,7 @@ interface ResolvedImage {
 export const analyzeImageTool: Tool<AnalyzeImageInput, AnalyzeImageResult> = {
   name: 'analyze_image',
   description:
-    'Analyze one or more local images. Defaults to OpenAI/GPT vision (uses OPENAI_API_KEY plus OPENAI_BASE_URL/OPENAI_API_BASE_URL/OPENAI_API_URL, model OPENAI_VISION_MODEL or gpt-4.1-mini). Set provider="gemini" to use Gemini instead. If imagePaths are omitted, automatically uses runContext.latestAttachments from the latest image message.',
+    'Analyze one or more local images. Defaults to OpenAI/GPT vision (uses OPENAI_API_KEY plus OPENAI_BASE_URL/OPENAI_API_BASE_URL/OPENAI_API_URL, model OPENAI_VISION_MODEL or gpt-5.4) via {baseUrl}/responses input_image. Set provider="gemini" to use Gemini instead. If imagePaths are omitted, automatically uses runContext.latestAttachments from the latest image message.',
   defer_loading: true,
   inputSchema: toolSchema,
   execute: async (input: AnalyzeImageInput, context?: AnalyzeImageToolContext): Promise<AnalyzeImageResult> => {
@@ -128,6 +149,7 @@ export const analyzeImageTool: Tool<AnalyzeImageInput, AnalyzeImageResult> = {
         timeoutMs,
         model: input.model,
         detail: input.detail ?? 'auto',
+        visionApiMode: input.visionApiMode,
         source,
       });
     }
@@ -148,6 +170,7 @@ async function analyzeWithOpenAI({
   timeoutMs,
   model,
   detail,
+  visionApiMode,
   source,
 }: {
   prompt: string;
@@ -155,6 +178,7 @@ async function analyzeWithOpenAI({
   timeoutMs: number;
   model?: string;
   detail: DetailLevel;
+  visionApiMode?: OpenAIVisionApiMode;
   source: AnalyzeImageResult['source'];
 }): Promise<AnalyzeImageResult> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
@@ -168,10 +192,121 @@ async function analyzeWithOpenAI({
     process.env.OPENAI_ANALYZE_IMAGE_MODEL?.trim() ||
     DEFAULT_OPENAI_MODEL;
   const baseUrl = resolveOpenAIBaseUrl();
-  const endpoint = buildOpenAIChatCompletionsEndpoint(baseUrl);
-
-  const requestBody = {
+  const mode = resolveOpenAIVisionApiMode(visionApiMode);
+  const options = {
+    prompt,
+    images,
+    timeoutMs,
     model: resolvedModel,
+    detail,
+    source,
+    apiKey,
+    baseUrl,
+  };
+
+  if (mode === 'chat_completions') {
+    return analyzeWithOpenAIChatCompletions(options);
+  }
+
+  if (mode === 'auto') {
+    try {
+      return await analyzeWithOpenAIResponses(options);
+    } catch (error) {
+      return analyzeWithOpenAIChatCompletions({
+        ...options,
+        previousError: error,
+      });
+    }
+  }
+
+  return analyzeWithOpenAIResponses(options);
+}
+
+async function analyzeWithOpenAIResponses({
+  prompt,
+  images,
+  timeoutMs,
+  model,
+  detail,
+  source,
+  apiKey,
+  baseUrl,
+}: {
+  prompt: string;
+  images: ResolvedImage[];
+  timeoutMs: number;
+  model: string;
+  detail: DetailLevel;
+  source: AnalyzeImageResult['source'];
+  apiKey: string;
+  baseUrl: string;
+}): Promise<AnalyzeImageResult> {
+  const endpoint = buildOpenAIResponsesEndpoint(baseUrl);
+  const requestBody = {
+    model,
+    input: [
+      {
+        role: 'user',
+        content: [
+          { type: 'input_text', text: prompt },
+          ...images.map((image) => ({
+            type: 'input_image',
+            image_url: `data:${image.mimeType};base64,${image.base64}`,
+            detail,
+          })),
+        ],
+      },
+    ],
+  };
+
+  const responseText = await postOpenAIJson(endpoint, apiKey, requestBody, timeoutMs, 'OpenAI responses image analysis');
+  const data = parseOpenAIResponsesResponse(responseText.body);
+  if (!responseText.ok) {
+    const errorMessage = data?.error?.message || responseText.body;
+    throw new Error(`OpenAI responses image analysis API error: ${responseText.status} ${responseText.statusText} - ${errorMessage}`);
+  }
+
+  const text = extractOpenAIResponsesText(data);
+  if (!text) {
+    throw new Error('OpenAI responses image analysis response did not include text');
+  }
+
+  return {
+    ok: true,
+    provider: 'openai',
+    model,
+    prompt,
+    imageCount: images.length,
+    imagePaths: images.map((image) => image.path),
+    text,
+    source,
+  };
+}
+
+async function analyzeWithOpenAIChatCompletions({
+  prompt,
+  images,
+  timeoutMs,
+  model,
+  detail,
+  source,
+  apiKey,
+  baseUrl,
+  previousError,
+}: {
+  prompt: string;
+  images: ResolvedImage[];
+  timeoutMs: number;
+  model: string;
+  detail: DetailLevel;
+  source: AnalyzeImageResult['source'];
+  apiKey: string;
+  baseUrl: string;
+  previousError?: unknown;
+}): Promise<AnalyzeImageResult> {
+  const endpoint = buildOpenAIChatCompletionsEndpoint(baseUrl);
+  const requestBody = {
+    model,
     messages: [
       {
         role: 'user',
@@ -189,12 +324,42 @@ async function analyzeWithOpenAI({
     ],
   };
 
+  const responseText = await postOpenAIJson(endpoint, apiKey, requestBody, timeoutMs, 'OpenAI chat completions image analysis');
+  const data = parseOpenAIChatCompletionResponse(responseText.body);
+  if (!responseText.ok) {
+    const errorMessage = data?.error?.message || responseText.body;
+    throw new Error(`OpenAI chat completions image analysis API error: ${responseText.status} ${responseText.statusText} - ${errorMessage}${formatPreviousOpenAIError(previousError)}`);
+  }
+
+  const text = extractOpenAIChatCompletionText(data);
+  if (!text) {
+    throw new Error(`OpenAI chat completions image analysis response did not include text${formatPreviousOpenAIError(previousError)}`);
+  }
+
+  return {
+    ok: true,
+    provider: 'openai',
+    model,
+    prompt,
+    imageCount: images.length,
+    imagePaths: images.map((image) => image.path),
+    text,
+    source,
+  };
+}
+
+async function postOpenAIJson(
+  endpoint: string,
+  apiKey: string,
+  requestBody: unknown,
+  timeoutMs: number,
+  label: string,
+): Promise<{ ok: boolean; status: number; statusText: string; body: string }> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  let response: Response;
   try {
-    response = (await fetch(endpoint, {
+    const response = (await fetch(endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -203,38 +368,22 @@ async function analyzeWithOpenAI({
       body: JSON.stringify(requestBody),
       signal: controller.signal,
     })) as unknown as Response;
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      body: await response.text(),
+    };
   } catch (error) {
     const isAbort = error instanceof Error && error.name === 'AbortError';
     if (isAbort) {
-      throw new Error(`OpenAI image analysis request timed out after ${timeoutMs}ms`);
+      throw new Error(`${label} request timed out after ${timeoutMs}ms`);
     }
     throw error;
   } finally {
     clearTimeout(timeoutId);
   }
-
-  const responseText = await response.text();
-  const data = parseOpenAIResponse(responseText);
-  if (!response.ok) {
-    const errorMessage = data?.error?.message || responseText;
-    throw new Error(`OpenAI image analysis API error: ${response.status} ${response.statusText} - ${errorMessage}`);
-  }
-
-  const text = extractOpenAIText(data);
-  if (!text) {
-    throw new Error('OpenAI image analysis response did not include text');
-  }
-
-  return {
-    ok: true,
-    provider: 'openai',
-    model: resolvedModel,
-    prompt,
-    imageCount: images.length,
-    imagePaths: images.map((image) => image.path),
-    text,
-    source,
-  };
 }
 
 async function analyzeWithGemini({
@@ -356,11 +505,64 @@ function resolveOpenAIBaseUrl(): string {
   ).replace(/\/$/, '');
 }
 
+function buildOpenAIResponsesEndpoint(baseUrl: string): string {
+  return `${baseUrl}/responses`;
+}
+
 function buildOpenAIChatCompletionsEndpoint(baseUrl: string): string {
   if (/\/v\d+(?:\.\d+)?$/.test(baseUrl)) {
     return `${baseUrl}/chat/completions`;
   }
   return `${baseUrl}/v1/chat/completions`;
+}
+
+function parseOpenAIResponsesResponse(responseText: string): OpenAIResponsesResponse | null {
+  try {
+    return JSON.parse(responseText) as OpenAIResponsesResponse;
+  } catch {
+    return null;
+  }
+}
+
+function parseOpenAIChatCompletionResponse(responseText: string): OpenAIChatCompletionResponse | null {
+  return parseOpenAIResponse(responseText);
+}
+
+function extractOpenAIResponsesText(data: OpenAIResponsesResponse | null): string {
+  if (!data?.output?.length) {
+    return '';
+  }
+
+  const chunks: string[] = [];
+  for (const output of data.output) {
+    for (const content of output.content ?? []) {
+      if ((content.type === 'output_text' || content.type === 'text') && content.text?.trim()) {
+        chunks.push(content.text.trim());
+      }
+    }
+  }
+
+  return chunks.join('\n').trim();
+}
+
+function extractOpenAIChatCompletionText(data: OpenAIChatCompletionResponse | null): string {
+  return extractOpenAIText(data);
+}
+
+function resolveOpenAIVisionApiMode(input?: OpenAIVisionApiMode): OpenAIVisionApiMode {
+  const raw = input || process.env.OPENAI_VISION_API_MODE?.trim();
+  if (raw === 'responses' || raw === 'chat_completions' || raw === 'auto') {
+    return raw;
+  }
+  return 'responses';
+}
+
+function formatPreviousOpenAIError(error: unknown): string {
+  if (!error) {
+    return '';
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return ` (previous responses error: ${message})`;
 }
 
 function parseOpenAIResponse(responseText: string): OpenAIChatCompletionResponse | null {

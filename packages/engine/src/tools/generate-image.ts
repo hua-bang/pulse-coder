@@ -47,6 +47,15 @@ interface GenerateRequestTarget {
 
 type ImageProvider = 'gemini' | 'openai';
 type OutputFormat = 'png' | 'jpeg' | 'webp';
+type OpenAIImageApiMode = 'images' | 'responses_stream' | 'auto';
+
+interface OpenAIResponsesImageCandidate {
+  base64?: string;
+  resultBase64?: string;
+  revisedPrompt?: string;
+  outputFormat?: OutputFormat;
+  textChunks: string[];
+}
 
 const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash-preview-image-generation';
@@ -66,6 +75,7 @@ export const GenerateImageTool: Tool<
     size?: string;
     quality?: string;
     outputFormat?: OutputFormat;
+    imageApiMode?: OpenAIImageApiMode;
   },
   {
     provider: ImageProvider;
@@ -79,7 +89,7 @@ export const GenerateImageTool: Tool<
 > = {
   name: 'generate_image',
   description:
-    'Generate an image with GPT/OpenAI by default and save it to local disk. Uses OPENAI_API_KEY plus OPENAI_BASE_URL/OPENAI_API_BASE_URL/OPENAI_API_URL. Defaults to OPENAI_IMAGE_MODEL or the latest GPT image model gpt-image-2. Other providers are available only when explicitly requested.',
+    'Generate an image with GPT/OpenAI by default and save it to local disk. Uses OPENAI_API_KEY plus OPENAI_BASE_URL/OPENAI_API_BASE_URL/OPENAI_API_URL. Defaults to OPENAI_IMAGE_MODEL or the latest GPT image model gpt-image-2. For OpenAI-compatible providers, image API mode defaults to responses streaming at {baseUrl}/responses. Other providers are available only when explicitly requested.',
   defer_loading: true,
   inputSchema: z.object({
     prompt: z.string().describe('The prompts for image generation need to describe in detail the content, style, and composition of the image you want to generate.'),
@@ -112,8 +122,12 @@ export const GenerateImageTool: Tool<
       .enum(['png', 'jpeg', 'webp'])
       .optional()
       .describe('OpenAI/GPT output format. Only sent for OpenAI-compatible requests.'),
+    imageApiMode: z
+      .enum(['images', 'responses_stream', 'auto'])
+      .optional()
+      .describe('OpenAI/GPT image API mode. "images" uses {baseUrl}/images/generations, "responses_stream" uses {baseUrl}/responses with image_generation streaming, and "auto" falls back to responses_stream if images fails. Defaults to OPENAI_IMAGE_API_MODE or responses_stream.'),
   }),
-  execute: async ({ prompt, provider, model, outputPath, includeBase64 = false, timeout = DEFAULT_TIMEOUT, size, quality, outputFormat }) => {
+  execute: async ({ prompt, provider, model, outputPath, includeBase64 = false, timeout = DEFAULT_TIMEOUT, size, quality, outputFormat, imageApiMode }) => {
     if (!prompt.trim()) {
       throw new Error('prompt is required');
     }
@@ -134,6 +148,7 @@ export const GenerateImageTool: Tool<
         size,
         quality,
         outputFormat,
+        imageApiMode,
       });
     }
 
@@ -244,6 +259,7 @@ async function generateOpenAIImage({
   size,
   quality,
   outputFormat,
+  imageApiMode,
 }: {
   prompt: string;
   model?: string;
@@ -253,6 +269,7 @@ async function generateOpenAIImage({
   size?: string;
   quality?: string;
   outputFormat?: OutputFormat;
+  imageApiMode?: OpenAIImageApiMode;
 }): Promise<{
   provider: ImageProvider;
   model: string;
@@ -267,12 +284,87 @@ async function generateOpenAIImage({
     throw new Error('OPENAI_API_KEY environment variable is not set');
   }
 
-  const resolvedModel = model?.trim() || process.env.OPENAI_IMAGE_MODEL?.trim() || DEFAULT_OPENAI_MODEL;
+  const requestedModel = model?.trim();
+  const imageModel = requestedModel || process.env.OPENAI_IMAGE_MODEL?.trim() || DEFAULT_OPENAI_MODEL;
+  const responsesModel = requestedModel || process.env.OPENAI_IMAGE_RESPONSES_MODEL?.trim() || process.env.OPENAI_RESPONSES_MODEL?.trim() || imageModel;
   const baseUrl = resolveOpenAIBaseUrl();
+  const mode = resolveOpenAIImageApiMode(imageApiMode);
+
+  const options = {
+    prompt,
+    outputPath,
+    includeBase64,
+    timeout,
+    size,
+    quality,
+    outputFormat,
+    apiKey,
+    baseUrl,
+  };
+
+  if (mode === 'responses_stream') {
+    return generateOpenAIResponsesStreamImage({
+      ...options,
+      model: responsesModel,
+    });
+  }
+
+  if (mode === 'auto') {
+    try {
+      return await generateOpenAIImagesApiImage({
+        ...options,
+        model: imageModel,
+      });
+    } catch (error) {
+      return generateOpenAIResponsesStreamImage({
+        ...options,
+        model: responsesModel,
+        previousError: error,
+      });
+    }
+  }
+
+  return generateOpenAIImagesApiImage({
+    ...options,
+    model: imageModel,
+  });
+}
+
+async function generateOpenAIImagesApiImage({
+  prompt,
+  model,
+  outputPath,
+  includeBase64,
+  timeout,
+  size,
+  quality,
+  outputFormat,
+  apiKey,
+  baseUrl,
+}: {
+  prompt: string;
+  model: string;
+  outputPath?: string;
+  includeBase64: boolean;
+  timeout: number;
+  size?: string;
+  quality?: string;
+  outputFormat?: OutputFormat;
+  apiKey: string;
+  baseUrl: string;
+}): Promise<{
+  provider: ImageProvider;
+  model: string;
+  text: string;
+  mimeType: string;
+  outputPath: string;
+  bytes: number;
+  base64?: string;
+}> {
   const endpoint = buildOpenAIImagesEndpoint(baseUrl);
 
   const requestBody: Record<string, unknown> = {
-    model: resolvedModel,
+    model,
     prompt,
   };
 
@@ -327,13 +419,102 @@ async function generateOpenAIImage({
   const text = data?.data?.find((item) => item.revised_prompt?.trim())?.revised_prompt?.trim() || '';
   return saveImageResult({
     provider: 'openai',
-    model: resolvedModel,
+    model,
     text,
     base64: image.base64,
     mimeType: image.mimeType,
     outputPath,
     includeBase64,
   });
+}
+
+async function generateOpenAIResponsesStreamImage({
+  prompt,
+  model,
+  outputPath,
+  includeBase64,
+  timeout,
+  size,
+  quality,
+  outputFormat,
+  apiKey,
+  baseUrl,
+  previousError,
+}: {
+  prompt: string;
+  model: string;
+  outputPath?: string;
+  includeBase64: boolean;
+  timeout: number;
+  size?: string;
+  quality?: string;
+  outputFormat?: OutputFormat;
+  apiKey: string;
+  baseUrl: string;
+  previousError?: unknown;
+}): Promise<{
+  provider: ImageProvider;
+  model: string;
+  text: string;
+  mimeType: string;
+  outputPath: string;
+  bytes: number;
+  base64?: string;
+}> {
+  const endpoint = buildOpenAIResponsesEndpoint(baseUrl);
+  const requestBody: Record<string, unknown> = {
+    model,
+    input: prompt,
+    tools: [buildResponsesImageGenerationTool({ size, quality, outputFormat })],
+    tool_choice: { type: 'image_generation' },
+    stream: true,
+  };
+
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), timeout);
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      },
+      body: JSON.stringify(requestBody),
+      signal: abortController.signal,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`OpenAI responses image stream API error: ${response.status} ${response.statusText} - ${errorBody}${formatPreviousError(previousError)}`);
+    }
+
+    const candidate = await parseOpenAIResponsesImageStream(response.body);
+    const base64 = candidate.resultBase64 || candidate.base64;
+    if (!base64) {
+      throw new Error(`OpenAI responses image stream did not include image data${formatPreviousError(previousError)}`);
+    }
+
+    return saveImageResult({
+      provider: 'openai',
+      model,
+      text: candidate.revisedPrompt || candidate.textChunks.join('').trim(),
+      base64,
+      mimeType: outputFormatToMimeType(candidate.outputFormat || outputFormat),
+      outputPath,
+      includeBase64,
+    });
+  } catch (error) {
+    const isAbort = error instanceof Error && error.name === 'AbortError';
+    if (isAbort) {
+      throw new Error(`OpenAI responses image stream request timed out after ${timeout}ms${formatPreviousError(previousError)}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function resolveProvider(provider: ImageProvider | 'gpt' | undefined, model: string | undefined): ImageProvider {
@@ -355,6 +536,15 @@ function resolveProvider(provider: ImageProvider | 'gpt' | undefined, model: str
   }
 
   return 'openai';
+}
+
+function resolveOpenAIImageApiMode(mode: OpenAIImageApiMode | undefined): OpenAIImageApiMode {
+  const fromEnv = process.env.OPENAI_IMAGE_API_MODE?.trim().toLowerCase();
+  const value = mode || fromEnv;
+  if (value === 'responses_stream' || value === 'images' || value === 'auto') {
+    return value;
+  }
+  return 'responses_stream';
 }
 
 function isOpenAIImageModel(model: string): boolean {
@@ -382,12 +572,237 @@ function buildOpenAIImagesEndpoint(baseUrl: string): string {
   return `${baseUrl}/v1/images/generations`;
 }
 
+function buildOpenAIResponsesEndpoint(baseUrl: string): string {
+  return `${baseUrl}/responses`;
+}
+
 function parseOpenAIImagesResponse(responseText: string): OpenAIImagesResponse | null {
   try {
     return JSON.parse(responseText) as OpenAIImagesResponse;
   } catch {
     return null;
   }
+}
+
+function buildResponsesImageGenerationTool({
+  size,
+  quality,
+  outputFormat,
+}: {
+  size?: string;
+  quality?: string;
+  outputFormat?: OutputFormat;
+}): Record<string, unknown> {
+  const tool: Record<string, unknown> = { type: 'image_generation' };
+  if (size?.trim()) {
+    tool.size = size.trim();
+  }
+  if (quality?.trim()) {
+    tool.quality = quality.trim();
+  }
+  if (outputFormat) {
+    tool.output_format = outputFormat;
+  }
+  return tool;
+}
+
+async function parseOpenAIResponsesImageStream(body: Response['body']): Promise<OpenAIResponsesImageCandidate> {
+  if (!body) {
+    throw new Error('OpenAI responses image stream response did not include a body');
+  }
+
+  const candidate: OpenAIResponsesImageCandidate = { textChunks: [] };
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  for await (const chunk of body as AsyncIterable<Uint8Array>) {
+    buffer += decoder.decode(chunk, { stream: true });
+    buffer = consumeOpenAIResponsesSseBuffer(buffer, candidate);
+  }
+
+  buffer += decoder.decode();
+  consumeOpenAIResponsesSseBuffer(buffer, candidate, true);
+  return candidate;
+}
+
+function consumeOpenAIResponsesSseBuffer(
+  buffer: string,
+  candidate: OpenAIResponsesImageCandidate,
+  consumeAll = false,
+): string {
+  let separatorIndex = findSseEventSeparator(buffer);
+  while (separatorIndex !== -1) {
+    const rawEvent = buffer.slice(0, separatorIndex);
+    buffer = buffer.slice(buffer[separatorIndex] === '\r' ? separatorIndex + 4 : separatorIndex + 2);
+    consumeOpenAIResponsesSseEvent(rawEvent, candidate);
+    separatorIndex = findSseEventSeparator(buffer);
+  }
+
+  if (consumeAll && buffer.trim()) {
+    consumeOpenAIResponsesSseEvent(buffer, candidate);
+    return '';
+  }
+
+  return buffer;
+}
+
+function findSseEventSeparator(buffer: string): number {
+  const crlf = buffer.indexOf('\r\n\r\n');
+  const lf = buffer.indexOf('\n\n');
+  if (crlf === -1) {
+    return lf;
+  }
+  if (lf === -1) {
+    return crlf;
+  }
+  return Math.min(crlf, lf);
+}
+
+function consumeOpenAIResponsesSseEvent(rawEvent: string, candidate: OpenAIResponsesImageCandidate): void {
+  const dataLines = rawEvent
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trimStart());
+
+  if (dataLines.length === 0) {
+    return;
+  }
+
+  const payload = dataLines.join('\n').trim();
+  if (!payload || payload === '[DONE]') {
+    return;
+  }
+
+  let event: unknown;
+  try {
+    event = JSON.parse(payload);
+  } catch {
+    return;
+  }
+
+  updateOpenAIResponsesImageCandidate(event, candidate);
+}
+
+function updateOpenAIResponsesImageCandidate(event: unknown, candidate: OpenAIResponsesImageCandidate): void {
+  const partial = findStringByKey(event, 'partial_image_b64');
+  if (partial) {
+    candidate.base64 = partial;
+  }
+
+  const imageResult = findImageGenerationResult(event);
+  if (imageResult?.result) {
+    candidate.resultBase64 = imageResult.result;
+  }
+  if (imageResult?.revisedPrompt) {
+    candidate.revisedPrompt = imageResult.revisedPrompt;
+  }
+  if (imageResult?.outputFormat) {
+    candidate.outputFormat = imageResult.outputFormat;
+  }
+
+  const partialOutputFormat = normalizeOutputFormat(findStringByKey(event, 'output_format'));
+  if (partialOutputFormat) {
+    candidate.outputFormat = partialOutputFormat;
+  }
+
+  const textDelta = findTextDelta(event);
+  if (textDelta) {
+    candidate.textChunks.push(textDelta);
+  }
+}
+
+function findImageGenerationResult(value: unknown): { result: string; revisedPrompt?: string; outputFormat?: OutputFormat } | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findImageGenerationResult(item);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (record.type === 'image_generation_call' && typeof record.result === 'string') {
+    return {
+      result: record.result,
+      revisedPrompt: typeof record.revised_prompt === 'string' ? record.revised_prompt : undefined,
+      outputFormat: normalizeOutputFormat(record.output_format),
+    };
+  }
+
+  for (const child of Object.values(record)) {
+    const found = findImageGenerationResult(child);
+    if (found) {
+      return found;
+    }
+  }
+
+  return null;
+}
+
+function findStringByKey(value: unknown, key: string): string | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findStringByKey(item, key);
+      if (found) {
+        return found;
+      }
+    }
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (typeof record[key] === 'string') {
+    return record[key];
+  }
+
+  for (const child of Object.values(record)) {
+    const found = findStringByKey(child, key);
+    if (found) {
+      return found;
+    }
+  }
+
+  return undefined;
+}
+
+function findTextDelta(event: unknown): string | undefined {
+  if (!event || typeof event !== 'object' || Array.isArray(event)) {
+    return undefined;
+  }
+
+  const record = event as Record<string, unknown>;
+  if (record.type === 'response.output_text.delta' && typeof record.delta === 'string') {
+    return record.delta;
+  }
+
+  return undefined;
+}
+
+function normalizeOutputFormat(value: unknown): OutputFormat | undefined {
+  if (value === 'png' || value === 'jpeg' || value === 'webp') {
+    return value;
+  }
+  return undefined;
+}
+
+function formatPreviousError(error: unknown): string {
+  if (!error) {
+    return '';
+  }
+  if (error instanceof Error) {
+    return ` (after /v1/images/generations failed: ${error.message})`;
+  }
+  return ' (after /v1/images/generations failed)';
 }
 
 async function extractOpenAIImage(
