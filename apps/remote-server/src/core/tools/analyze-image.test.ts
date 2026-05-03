@@ -24,16 +24,19 @@ describe('analyzeImageTool', () => {
     explicitPath = join(tempDir, 'explicit.jpg');
     await writeFile(attachmentPath, 'attachment-image');
     await writeFile(explicitPath, 'explicit-image');
-    process.env.GEMINI_API_KEY = 'test-key';
+    process.env.OPENAI_API_KEY = 'test-key';
+    process.env.OPENAI_API_URL = 'http://localhost:18080';
+    delete process.env.GEMINI_API_KEY;
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({
       ok: true,
-      json: async () => ({
-        candidates: [
+      status: 200,
+      statusText: 'OK',
+      text: async () => JSON.stringify({
+        output: [
           {
-            content: {
-              parts: [{ text: 'analysis result' }],
-            },
+            type: 'message',
+            content: [{ type: 'output_text', text: 'analysis result' }],
           },
         ],
       }),
@@ -41,6 +44,8 @@ describe('analyzeImageTool', () => {
   });
 
   afterEach(async () => {
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_URL;
     delete process.env.GEMINI_API_KEY;
     await rm(tempDir, { recursive: true, force: true });
     vi.restoreAllMocks();
@@ -65,13 +70,16 @@ describe('analyzeImageTool', () => {
 
     expect(result.source).toBe('runContext.latestAttachments');
     expect(result.imagePaths).toEqual([attachmentPath]);
-    expect(result.text).toBe('analysis result');
     expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    const requestUrl = String(mockFetch.mock.calls[0]?.[0]);
+    expect(requestUrl).toBe('http://localhost:18080/responses');
 
     const request = mockFetch.mock.calls[0]?.[1];
     const body = JSON.parse(String(request?.body));
-    expect(body.contents[0].parts[0].text).toBe('describe it');
-    expect(body.contents[0].parts[1].inlineData.mimeType).toBe('image/png');
+    expect(body.input[0].content[0].text).toBe('describe it');
+    expect(body.input[0].content[1].type).toBe('input_image');
+    expect(body.input[0].content[1].image_url).toContain('data:image/png;base64,');
   });
 
   it('prefers explicit imagePaths over runContext attachments', async () => {
@@ -96,7 +104,7 @@ describe('analyzeImageTool', () => {
 
     const request = mockFetch.mock.calls[0]?.[1];
     const body = JSON.parse(String(request?.body));
-    expect(body.contents[0].parts[1].inlineData.mimeType).toBe('image/jpeg');
+    expect(body.input[0].content[1].image_url).toContain('data:image/jpeg;base64,');
   });
 
   it('throws when neither imagePaths nor latestAttachments are available', async () => {
