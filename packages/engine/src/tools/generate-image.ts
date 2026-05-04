@@ -1,8 +1,35 @@
 import { randomUUID } from 'crypto';
 import { mkdir, writeFile } from 'fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'path';
+import { Agent } from 'undici';
 import z from 'zod';
 import type { Tool } from '../shared/types';
+
+// Local-only dispatcher used to bypass the global EnvHttpProxyAgent (enabled by
+// NODE_USE_ENV_PROXY=1) when the OpenAI base URL points at a loopback host.
+// Routing requests to a local mock/proxy through an HTTP/SOCKS proxy is both
+// unnecessary and unstable for large response bodies, so we explicitly opt out
+// for those targets only. Remote endpoints continue to use the global proxy.
+const localLoopbackDispatcher = new Agent({
+  keepAliveTimeout: 5_000,
+  connect: { timeout: 10_000 },
+  headersTimeout: 30_000,
+  bodyTimeout: 0,
+});
+
+function shouldBypassProxyForUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    return host === 'localhost'
+      || host === '127.0.0.1'
+      || host === '::1'
+      || host === '[::1]'
+      || host.endsWith('.local');
+  } catch {
+    return false;
+  }
+}
 
 interface GeminiGenerateResponse {
   candidates?: Array<{
@@ -413,7 +440,8 @@ async function generateOpenAIImagesApiImage({
       },
       body: JSON.stringify(requestBody),
       signal: abortController.signal,
-    });
+      ...(shouldBypassProxyForUrl(endpoint) ? { dispatcher: localLoopbackDispatcher } : {}),
+    } as RequestInit);
   } catch (error) {
     const isAbort = error instanceof Error && error.name === 'AbortError';
     if (isAbort) {
@@ -502,7 +530,8 @@ async function generateOpenAIResponsesImage({
       },
       body: JSON.stringify(requestBody),
       signal: abortController.signal,
-    });
+      ...(shouldBypassProxyForUrl(endpoint) ? { dispatcher: localLoopbackDispatcher } : {}),
+    } as RequestInit);
 
     const responseText = await response.text();
     const data = parseJson(responseText);
@@ -591,7 +620,8 @@ async function generateOpenAIResponsesStreamImage({
       },
       body: JSON.stringify(requestBody),
       signal: abortController.signal,
-    });
+      ...(shouldBypassProxyForUrl(endpoint) ? { dispatcher: localLoopbackDispatcher } : {}),
+    } as RequestInit);
 
     if (!response.ok) {
       const errorBody = await response.text();

@@ -1,8 +1,46 @@
 import { promises as fs } from 'fs';
-import { fetch } from 'undici';
+import { fetch, Agent } from 'undici';
 import z from 'zod';
 import type { Tool, ToolExecutionContext } from 'pulse-coder-engine';
 import type { StoredAttachment } from '../attachments.js';
+
+const localLoopbackDispatcher = new Agent({
+  keepAliveTimeout: 5_000,
+  connect: { timeout: 10_000 },
+  headersTimeout: 30_000,
+  bodyTimeout: 0,
+});
+
+function shouldBypassProxyForUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    return host === 'localhost'
+      || host === '127.0.0.1'
+      || host === '::1'
+      || host === '[::1]'
+      || host.endsWith('.local');
+  } catch {
+    return false;
+  }
+}
+
+function isAbortLikeError(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) {
+    return true;
+  }
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if (error.name === 'AbortError') {
+    return true;
+  }
+  const cause = (error as { cause?: unknown }).cause;
+  if (cause instanceof Error && cause.name === 'AbortError') {
+    return true;
+  }
+  return false;
+}
 
 interface AnalyzeImageRequestTarget {
   endpoint: string;
@@ -367,6 +405,7 @@ async function postOpenAIJson(
       },
       body: JSON.stringify(requestBody),
       signal: controller.signal,
+      ...(shouldBypassProxyForUrl(endpoint) ? { dispatcher: localLoopbackDispatcher } : {}),
     })) as unknown as Response;
 
     return {
@@ -376,8 +415,7 @@ async function postOpenAIJson(
       body: await response.text(),
     };
   } catch (error) {
-    const isAbort = error instanceof Error && error.name === 'AbortError';
-    if (isAbort) {
+    if (isAbortLikeError(error, controller.signal)) {
       throw new Error(`${label} request timed out after ${timeoutMs}ms`);
     }
     throw error;

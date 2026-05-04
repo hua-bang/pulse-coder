@@ -51,6 +51,7 @@
     "gray-matter": "^4.0.3",
     "yaml": "^2.8.2",
     "pulse-coder-orchestrator": "workspace:*",
+    "undici": "^6.23.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
