@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { CacheTimeline, type CacheTimelineSpan } from './CacheTimeline';
 
 type RunStatus = 'running' | 'finished';
-type PageView = 'runs' | 'stats' | 'tools' | 'errors';
+type PageView = 'runs' | 'stats' | 'tools' | 'errors' | 'cache';
 type StatsRange = 'today' | 'week' | 'month' | 'custom';
 type StatsGranularity = 'hour' | 'day' | 'week';
 type StatsGroupBy = 'none' | 'model' | 'session';
@@ -293,7 +294,7 @@ export default function App() {
   const [groupBy, setGroupBy] = useState<'none' | 'session'>('none');
   const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'finished'>('all');
   const [sortBy, setSortBy] = useState<'recent' | 'duration' | 'lastEvent'>('recent');
-  const [detailTab, setDetailTab] = useState<'llm' | 'plugins' | 'timeline' | 'prompt'>('llm');
+  const [detailTab, setDetailTab] = useState<'llm' | 'plugins' | 'timeline' | 'prompt' | 'cache'>('llm');
   const [timelineRange, setTimelineRange] = useState({ from: 1, to: 1 });
 
   const apiBase = useMemo(() => sanitizeBaseUrl(baseUrl), [baseUrl]);
@@ -778,6 +779,12 @@ export default function App() {
           >
             Engine Plugins
           </button>
+          <button
+            className={`tab-button ${detailTab === 'cache' ? 'active' : ''}`}
+            onClick={() => setDetailTab('cache')}
+          >
+            Cache
+          </button>
         </div>
 
         {detailTab === 'llm' ? (
@@ -1228,6 +1235,26 @@ export default function App() {
               )}
             </section>
           </>
+        ) : detailTab === 'cache' ? (
+          <section className="section">
+            <h2>Cache Timeline (this run)</h2>
+            <p className="muted" style={{ marginTop: 0 }}>
+              Each bar = one LLM call. Green = cache read (hit), blue = cache write (new), gray = fresh input.
+              ⚡ marks where consecutive cache contents shrank significantly (likely cache breakpoint).
+            </p>
+            <CacheTimeline
+              spans={selectedRun.llmSpans.map<CacheTimelineSpan>((span) => ({
+                spanIndex: span.index,
+                runId: selectedRun.runId,
+                startedAt: span.startedAt,
+                model: span.model,
+                inputTokens: span.inputTokens,
+                cacheReadTokens: span.cacheReadTokens,
+                cacheWriteTokens: span.cacheWriteTokens,
+              }))}
+              emptyHint="No LLM calls in this run yet."
+            />
+          </section>
         ) : (
           <>
             <section className="section">
@@ -1452,7 +1479,7 @@ export default function App() {
       </header>
 
       <div className="page-nav">
-        {(['runs', 'stats', 'tools', 'errors'] as const).map((p) => (
+        {(['runs', 'stats', 'cache', 'tools', 'errors'] as const).map((p) => (
           <button
             key={p}
             className={`page-nav-btn ${page === p ? 'active' : ''}`}
@@ -1462,6 +1489,8 @@ export default function App() {
               ? '⚡ Runs'
               : p === 'stats'
               ? '📊 Stats'
+              : p === 'cache'
+              ? '🧊 Cache'
               : p === 'tools'
               ? '🧰 Tools'
               : '⚠️ Errors'}
@@ -1471,6 +1500,8 @@ export default function App() {
 
       {page === 'stats' ? (
         <StatsView apiBase={apiBase} />
+      ) : page === 'cache' ? (
+        <CacheView apiBase={apiBase} />
       ) : page === 'tools' ? (
         <ToolsView apiBase={apiBase} />
       ) : page === 'errors' ? (
@@ -3067,5 +3098,217 @@ function ErrorsView({ apiBase }: { apiBase: string }) {
         </>
       )}
     </div>
+  );
+}
+
+// ── Cache View (per session / per run lookup) ─────────────────────────────
+
+interface SessionDetailLlmCall {
+  runId: string;
+  runStartedAt: number;
+  spanIndex: number;
+  startedAt: number;
+  model?: string;
+  inputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+}
+
+interface SessionDetailResponse {
+  ok: boolean;
+  sessionId: string;
+  aggregate?: {
+    sessionId: string;
+    runCount: number;
+    llmCallCount: number;
+    inputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    cacheHitRate: number;
+    firstRunAt: number;
+    lastRunAt: number;
+    models: string[];
+  };
+  runs?: Array<{
+    runId: string;
+    startedAt: number;
+    userTextPreview?: string;
+    llmCalls: number;
+    totalCacheReadTokens?: number;
+  }>;
+  llmCalls?: SessionDetailLlmCall[];
+  error?: string;
+}
+
+interface RunDetailResponse {
+  ok: boolean;
+  run?: {
+    runId: string;
+    sessionId?: string;
+    llmSpans: Array<{
+      index: number;
+      startedAt: number;
+      model?: string;
+      inputTokens?: number;
+      cacheReadTokens?: number;
+      cacheWriteTokens?: number;
+    }>;
+  };
+  error?: string;
+}
+
+function CacheView({ apiBase }: { apiBase: string }) {
+  const [mode, setMode] = useState<'session' | 'run'>('session');
+  const [sessionId, setSessionId] = useState('');
+  const [runId, setRunId] = useState('');
+  const [range, setRange] = useState<'today' | 'week' | 'month'>('week');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sessionData, setSessionData] = useState<SessionDetailResponse | null>(null);
+  const [runData, setRunData] = useState<RunDetailResponse | null>(null);
+
+  const submit = async (event?: React.FormEvent) => {
+    event?.preventDefault();
+    setError(null);
+    setLoading(true);
+    setSessionData(null);
+    setRunData(null);
+    try {
+      if (mode === 'session') {
+        const id = sessionId.trim();
+        if (!id) {
+          setError('Please input a sessionId');
+          return;
+        }
+        const res = await fetch(`${apiBase}/sessions/${encodeURIComponent(id)}?range=${range}`);
+        const data: SessionDetailResponse = await res.json();
+        if (!data.ok) {
+          setError(data.error || 'Failed to load session');
+          return;
+        }
+        setSessionData(data);
+      } else {
+        const id = runId.trim();
+        if (!id) {
+          setError('Please input a runId');
+          return;
+        }
+        const res = await fetch(`${apiBase}/runs/${encodeURIComponent(id)}`);
+        const data: RunDetailResponse = await res.json();
+        if (!data.ok) {
+          setError(data.error || 'Failed to load run');
+          return;
+        }
+        setRunData(data);
+      }
+    } catch (e: any) {
+      setError(String(e?.message ?? e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const sessionSpans = useMemo<CacheTimelineSpan[]>(() => {
+    if (!sessionData?.llmCalls) return [];
+    return sessionData.llmCalls
+      .slice()
+      .sort((a, b) => a.startedAt - b.startedAt)
+      .map((call) => ({
+        spanIndex: call.spanIndex,
+        runId: call.runId,
+        startedAt: call.startedAt,
+        model: call.model,
+        inputTokens: call.inputTokens,
+        cacheReadTokens: call.cacheReadTokens,
+        cacheWriteTokens: call.cacheWriteTokens,
+      }));
+  }, [sessionData]);
+
+  const runSpans = useMemo<CacheTimelineSpan[]>(() => {
+    if (!runData?.run?.llmSpans) return [];
+    return runData.run.llmSpans.map((s) => ({
+      spanIndex: s.index,
+      runId: runData.run!.runId,
+      startedAt: s.startedAt,
+      model: s.model,
+      inputTokens: s.inputTokens,
+      cacheReadTokens: s.cacheReadTokens,
+      cacheWriteTokens: s.cacheWriteTokens,
+    }));
+  }, [runData]);
+
+  return (
+    <main style={{ padding: 20 }}>
+      <div className="panel" style={{ padding: 20 }}>
+        <h2 style={{ marginTop: 0 }}>Cache Inspector</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          Inspect prompt-cache behavior across a session or within a single run, and locate where
+          the cache "broke" between consecutive LLM calls.
+        </p>
+
+        <form onSubmit={submit} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 16 }}>
+          <select value={mode} onChange={(e) => setMode(e.target.value as 'session' | 'run')}>
+            <option value="session">By sessionId</option>
+            <option value="run">By runId</option>
+          </select>
+          {mode === 'session' ? (
+            <>
+              <input
+                type="text"
+                placeholder="sessionId"
+                value={sessionId}
+                onChange={(e) => setSessionId(e.target.value)}
+                style={{ flex: '1 1 240px', minWidth: 240, padding: '6px 10px' }}
+              />
+              <select value={range} onChange={(e) => setRange(e.target.value as any)}>
+                <option value="today">Today</option>
+                <option value="week">7 days</option>
+                <option value="month">30 days</option>
+              </select>
+            </>
+          ) : (
+            <input
+              type="text"
+              placeholder="runId"
+              value={runId}
+              onChange={(e) => setRunId(e.target.value)}
+              style={{ flex: '1 1 320px', minWidth: 320, padding: '6px 10px' }}
+            />
+          )}
+          <button type="submit" className="primary" disabled={loading}>
+            {loading ? 'Loading…' : 'Inspect'}
+          </button>
+        </form>
+
+        {error ? <div className="error">{error}</div> : null}
+      </div>
+
+      {sessionData?.aggregate ? (
+        <div className="panel" style={{ padding: 20, marginTop: 16 }}>
+          <h3 style={{ marginTop: 0 }}>Session: {sessionData.sessionId}</h3>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
+            {sessionData.aggregate.runCount} runs · {sessionData.aggregate.llmCallCount} LLM calls ·
+            {' '}models: {sessionData.aggregate.models.join(', ') || 'n/a'}
+          </div>
+          <CacheTimeline
+            spans={sessionSpans}
+            showRunBands
+            emptyHint="No LLM calls in this session within the selected range."
+          />
+        </div>
+      ) : null}
+
+      {runData?.run ? (
+        <div className="panel" style={{ padding: 20, marginTop: 16 }}>
+          <h3 style={{ marginTop: 0 }}>Run: {runData.run.runId}</h3>
+          {runData.run.sessionId ? (
+            <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
+              Session: {runData.run.sessionId}
+            </div>
+          ) : null}
+          <CacheTimeline spans={runSpans} emptyHint="No LLM calls in this run." />
+        </div>
+      ) : null}
+    </main>
   );
 }

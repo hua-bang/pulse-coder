@@ -305,6 +305,184 @@ export interface DevtoolsIntegration {
   initialize(): Promise<void>;
 }
 
+// ── Cache Timeline Analysis ─────────────────────────────────────────────────
+
+export interface CacheTimelinePoint {
+  /** Sequential position along the timeline (1-based). */
+  position: number;
+  /** Original spanIndex within its run. */
+  spanIndex: number;
+  /** Run identifier (useful for cross-run / session views). */
+  runId?: string;
+  startedAt?: number;
+  model?: string;
+  /** Fresh (non-cached) input tokens. */
+  freshInput: number;
+  /** Tokens served from prompt cache. */
+  cacheRead: number;
+  /** Tokens newly written to prompt cache by this call. */
+  cacheWrite: number;
+  /** Sum of the three above (best-effort total input volume). */
+  total: number;
+  /** Cache hit ratio for this single call: cacheRead / (freshInput + cacheRead). */
+  hitRate: number;
+  /** Whether usage data was missing (fields all undefined). */
+  missing: boolean;
+}
+
+export interface CacheBreakpoint {
+  /** Position of the call where the breakpoint was detected (the "current" call). */
+  position: number;
+  spanIndex: number;
+  runId?: string;
+  /** Position of the previous call used for comparison. */
+  prevPosition: number;
+  prevSpanIndex: number;
+  prevRunId?: string;
+  /** Expected minimum cacheRead = prev.cacheRead + prev.cacheWrite. */
+  expected: number;
+  /** Actual cacheRead observed. */
+  actual: number;
+  /** max(0, expected - actual) — tokens that "should have" been cached but weren't. */
+  lostTokens: number;
+  /** 'full' when actual=0 while expected>0; otherwise 'partial'. */
+  severity: 'partial' | 'full';
+  /** True when prev and current belong to different runs (cross-run boundary). */
+  crossRun: boolean;
+}
+
+export interface CacheTimelineSummary {
+  callCount: number;
+  freshInput: number;
+  cacheRead: number;
+  cacheWrite: number;
+  hitRate: number;
+  breakpointCount: number;
+  fullBreakpointCount: number;
+  totalLostTokens: number;
+}
+
+export interface CacheTimelineResult {
+  points: CacheTimelinePoint[];
+  breakpoints: CacheBreakpoint[];
+  summary: CacheTimelineSummary;
+}
+
+export interface CacheTimelineOptions {
+  /** Absolute lost-tokens threshold to flag as a breakpoint. Default: 1000. */
+  minLostTokens?: number;
+  /** Relative threshold vs prev (cacheRead+cacheWrite). Default: 0.05 (5%). */
+  minLostRatio?: number;
+}
+
+export interface CacheTimelineSpanInput {
+  spanIndex: number;
+  runId?: string;
+  startedAt?: number;
+  model?: string;
+  inputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+}
+
+/**
+ * Build a cache-aware timeline across one run or many runs (already ordered).
+ *
+ * Breakpoint semantics: for two consecutive calls (prev, curr):
+ *   expected = prev.cacheRead + prev.cacheWrite
+ *   actual   = curr.cacheRead
+ *   lost     = max(0, expected - actual)
+ * lost is flagged when it exceeds max(minLostTokens, expected * minLostRatio).
+ * If actual=0 && expected>0 the severity is 'full' (cache fully invalidated).
+ */
+export function analyzeCacheTimeline(
+  spans: CacheTimelineSpanInput[],
+  options: CacheTimelineOptions = {},
+): CacheTimelineResult {
+  const minLostTokens = options.minLostTokens ?? 1000;
+  const minLostRatio = options.minLostRatio ?? 0.05;
+
+  const points: CacheTimelinePoint[] = spans.map((span, idx) => {
+    const cacheRead = span.cacheReadTokens ?? 0;
+    const cacheWrite = span.cacheWriteTokens ?? 0;
+    // The devtools store treats inputTokens as fresh/non-cache input tokens.
+    // Current providers we observed expose cache read/write in separate fields.
+    const freshInput = span.inputTokens ?? 0;
+    const denom = freshInput + cacheRead;
+    const hitRate = denom > 0 ? cacheRead / denom : 0;
+    const missing =
+      span.inputTokens === undefined &&
+      span.cacheReadTokens === undefined &&
+      span.cacheWriteTokens === undefined;
+    return {
+      position: idx + 1,
+      spanIndex: span.spanIndex,
+      runId: span.runId,
+      startedAt: span.startedAt,
+      model: span.model,
+      freshInput,
+      cacheRead,
+      cacheWrite,
+      total: freshInput + cacheRead + cacheWrite,
+      hitRate,
+      missing,
+    };
+  });
+
+  const breakpoints: CacheBreakpoint[] = [];
+  for (let i = 1; i < points.length; i += 1) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    if (prev.missing || curr.missing) continue;
+    const expected = prev.cacheRead + prev.cacheWrite;
+    if (expected <= 0) continue;
+    const actual = curr.cacheRead;
+    const lost = Math.max(0, expected - actual);
+    const threshold = Math.max(minLostTokens, expected * minLostRatio);
+    if (lost < threshold) continue;
+    breakpoints.push({
+      position: curr.position,
+      spanIndex: curr.spanIndex,
+      runId: curr.runId,
+      prevPosition: prev.position,
+      prevSpanIndex: prev.spanIndex,
+      prevRunId: prev.runId,
+      expected,
+      actual,
+      lostTokens: lost,
+      severity: actual === 0 ? 'full' : 'partial',
+      crossRun: !!(prev.runId && curr.runId && prev.runId !== curr.runId),
+    });
+  }
+
+  let freshInput = 0;
+  let cacheRead = 0;
+  let cacheWrite = 0;
+  let totalLost = 0;
+  for (const p of points) {
+    freshInput += p.freshInput;
+    cacheRead += p.cacheRead;
+    cacheWrite += p.cacheWrite;
+  }
+  for (const b of breakpoints) totalLost += b.lostTokens;
+  const denom = freshInput + cacheRead;
+
+  return {
+    points,
+    breakpoints,
+    summary: {
+      callCount: points.length,
+      freshInput,
+      cacheRead,
+      cacheWrite,
+      hitRate: denom > 0 ? cacheRead / denom : 0,
+      breakpointCount: breakpoints.length,
+      fullBreakpointCount: breakpoints.filter((b) => b.severity === 'full').length,
+      totalLostTokens: totalLost,
+    },
+  };
+}
+
 const DEFAULT_FLUSH_DELAY_MS = 200;
 const DEFAULT_MAX_INDEX_ENTRIES = 500;
 const DEFAULT_PROMPT_SNAPSHOT_LIMIT_BYTES = 256 * 1024;
