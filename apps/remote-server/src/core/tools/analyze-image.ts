@@ -7,7 +7,7 @@ import type { StoredAttachment } from '../attachments.js';
 const localLoopbackDispatcher = new Agent({
   keepAliveTimeout: 5_000,
   connect: { timeout: 10_000 },
-  headersTimeout: 30_000,
+  headersTimeout: 300_000,
   bodyTimeout: 0,
 });
 

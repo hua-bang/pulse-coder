@@ -137,4 +137,11 @@ describe('analyzeImageTool', () => {
     expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 300000);
     expect(setTimeoutSpy).not.toHaveBeenCalledWith(expect.any(Function), 60000);
   });
+
+  it('configures loopback requests with a 5 minute headers timeout', () => {
+    expect(vi.mocked(Agent)).toHaveBeenCalledWith(expect.objectContaining({
+      headersTimeout: 300000,
+      bodyTimeout: 0,
+    }));
+  });
 });
