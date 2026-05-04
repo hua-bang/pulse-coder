@@ -101,7 +101,7 @@ const toolSchema = z.object({
   prompt: z.string().optional().describe('Question or instruction for the image analysis. Defaults to a concise Chinese image analysis prompt.'),
   imagePaths: z.array(z.string().min(1)).optional().describe('Optional local image paths. When omitted, the tool uses runContext.latestAttachments.'),
   maxImages: z.number().int().positive().max(10).optional().describe('Maximum number of images to analyze. Defaults to 6.'),
-  timeoutMs: z.number().int().positive().max(600000).optional().describe('Request timeout in milliseconds. Defaults to 120000.'),
+  timeoutMs: z.number().int().positive().max(600000).optional().describe('Ignored. Image analysis requests always use a fixed 300000ms timeout.'),
   provider: z
     .enum(['openai', 'gpt', 'gemini'])
     .optional()
@@ -111,7 +111,7 @@ const toolSchema = z.object({
   visionApiMode: z
     .enum(['responses', 'chat_completions', 'auto'])
     .optional()
-    .describe('OpenAI/GPT vision API mode. "responses" uses {baseUrl}/responses input_image, "chat_completions" uses {baseUrl}/chat/completions image_url, and "auto" falls back to chat_completions if responses fails. Defaults to OPENAI_VISION_API_MODE or responses.'),
+    .describe('OpenAI/GPT vision API mode. "responses" uses {apiUrl}/responses input_image, "chat_completions" uses {apiUrl}/chat/completions image_url, and "auto" falls back to chat_completions if responses fails. Defaults to OPENAI_VISION_API_MODE or responses.'),
 });
 
 type AnalyzeImageInput = z.infer<typeof toolSchema>;
@@ -133,9 +133,9 @@ interface AnalyzeImageToolContext extends ToolExecutionContext {
 
 const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
-const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
+const DEFAULT_OPENAI_API_URL = 'https://api.openai.com/v1';
 const DEFAULT_OPENAI_MODEL = 'gpt-5.4';
-const DEFAULT_TIMEOUT_MS = 120000;
+const FIXED_TIMEOUT_MS = 300000;
 const DEFAULT_MAX_IMAGES = 6;
 const DEFAULT_PROMPT = '请按图片顺序描述关键信息，识别文字，提取主体内容，并结合用户上下文回答问题。如果存在多个图片，先分别概述，再总结。';
 
@@ -148,11 +148,11 @@ interface ResolvedImage {
 export const analyzeImageTool: Tool<AnalyzeImageInput, AnalyzeImageResult> = {
   name: 'analyze_image',
   description:
-    'Analyze one or more local images. Defaults to OpenAI/GPT vision (uses OPENAI_API_KEY plus OPENAI_BASE_URL/OPENAI_API_BASE_URL/OPENAI_API_URL, model OPENAI_VISION_MODEL or gpt-5.4) via {baseUrl}/responses input_image. Set provider="gemini" to use Gemini instead. If imagePaths are omitted, automatically uses runContext.latestAttachments from the latest image message.',
+    'Analyze one or more local images. Defaults to OpenAI/GPT vision (uses OPENAI_API_KEY plus OPENAI_API_URL, model OPENAI_VISION_MODEL or gpt-5.4) via {apiUrl}/responses input_image. Set provider="gemini" to use Gemini instead. If imagePaths are omitted, automatically uses runContext.latestAttachments from the latest image message.',
   defer_loading: true,
   inputSchema: toolSchema,
   execute: async (input: AnalyzeImageInput, context?: AnalyzeImageToolContext): Promise<AnalyzeImageResult> => {
-    const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const timeoutMs = FIXED_TIMEOUT_MS;
     const maxImages = input.maxImages ?? DEFAULT_MAX_IMAGES;
     const prompt = input.prompt?.trim() || DEFAULT_PROMPT;
 
@@ -229,7 +229,7 @@ async function analyzeWithOpenAI({
     process.env.OPENAI_VISION_MODEL?.trim() ||
     process.env.OPENAI_ANALYZE_IMAGE_MODEL?.trim() ||
     DEFAULT_OPENAI_MODEL;
-  const baseUrl = resolveOpenAIBaseUrl();
+  const apiUrl = resolveOpenAIApiUrl();
   const mode = resolveOpenAIVisionApiMode(visionApiMode);
   const options = {
     prompt,
@@ -239,7 +239,7 @@ async function analyzeWithOpenAI({
     detail,
     source,
     apiKey,
-    baseUrl,
+    apiUrl,
   };
 
   if (mode === 'chat_completions') {
@@ -268,7 +268,7 @@ async function analyzeWithOpenAIResponses({
   detail,
   source,
   apiKey,
-  baseUrl,
+  apiUrl,
 }: {
   prompt: string;
   images: ResolvedImage[];
@@ -277,9 +277,9 @@ async function analyzeWithOpenAIResponses({
   detail: DetailLevel;
   source: AnalyzeImageResult['source'];
   apiKey: string;
-  baseUrl: string;
+  apiUrl: string;
 }): Promise<AnalyzeImageResult> {
-  const endpoint = buildOpenAIResponsesEndpoint(baseUrl);
+  const endpoint = buildOpenAIResponsesEndpoint(apiUrl);
   const requestBody = {
     model,
     input: [
@@ -329,7 +329,7 @@ async function analyzeWithOpenAIChatCompletions({
   detail,
   source,
   apiKey,
-  baseUrl,
+  apiUrl,
   previousError,
 }: {
   prompt: string;
@@ -339,10 +339,10 @@ async function analyzeWithOpenAIChatCompletions({
   detail: DetailLevel;
   source: AnalyzeImageResult['source'];
   apiKey: string;
-  baseUrl: string;
+  apiUrl: string;
   previousError?: unknown;
 }): Promise<AnalyzeImageResult> {
-  const endpoint = buildOpenAIChatCompletionsEndpoint(baseUrl);
+  const endpoint = buildOpenAIChatCompletionsEndpoint(apiUrl);
   const requestBody = {
     model,
     messages: [
@@ -534,13 +534,8 @@ function resolveProvider(provider: AnalyzeImageInput['provider'], model: string 
   return 'openai';
 }
 
-function resolveOpenAIBaseUrl(): string {
-  return (
-    process.env.OPENAI_BASE_URL?.trim() ||
-    process.env.OPENAI_API_BASE_URL?.trim() ||
-    process.env.OPENAI_API_URL?.trim() ||
-    DEFAULT_OPENAI_BASE_URL
-  ).replace(/\/$/, '');
+function resolveOpenAIApiUrl(): string {
+  return (process.env.OPENAI_API_URL?.trim() || DEFAULT_OPENAI_API_URL).replace(/\/$/, '');
 }
 
 function buildOpenAIResponsesEndpoint(baseUrl: string): string {

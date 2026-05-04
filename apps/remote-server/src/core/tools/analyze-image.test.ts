@@ -9,6 +9,7 @@ const { mockFetch } = vi.hoisted(() => ({
 
 vi.mock('undici', () => ({
   fetch: mockFetch,
+  Agent: vi.fn(),
 }));
 
 import { analyzeImageTool } from './analyze-image.js';
@@ -112,5 +113,28 @@ describe('analyzeImageTool', () => {
       'No images available. Provide imagePaths or upload images so runContext.latestAttachments is populated.',
     );
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('uses a fixed 5 minute timeout even when timeoutMs is provided', async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    await analyzeImageTool.execute(
+      { prompt: 'describe it', timeoutMs: 60000 },
+      {
+        runContext: {
+          latestAttachments: [
+            {
+              id: 'att-1',
+              path: attachmentPath,
+              mimeType: 'image/png',
+              createdAt: Date.now(),
+            },
+          ],
+        },
+      },
+    );
+
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 300000);
+    expect(setTimeoutSpy).not.toHaveBeenCalledWith(expect.any(Function), 60000);
   });
 });
