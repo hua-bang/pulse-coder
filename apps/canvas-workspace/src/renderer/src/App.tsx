@@ -67,6 +67,7 @@ const AppContent = () => {
     renameWorkspace,
     deleteWorkspace,
     setRootFolder,
+    importWorkspace,
     createFolder,
     renameFolder,
     deleteFolder,
@@ -165,6 +166,82 @@ const AppContent = () => {
       autoCloseMs: 2400,
     });
   }, [workspaces, confirm, notify, updateToast, deleteWorkspace]);
+
+
+  const handleExportWorkspace = useCallback(async (id: string) => {
+    const workspace = workspaces.find((item) => item.id === id);
+    const api = window.canvasWorkspace?.store;
+    if (!workspace || !api) return;
+
+    const toastId = notify({
+      tone: 'loading',
+      title: `Exporting ${workspace.name}...`,
+      description: 'Packaging canvas state and workspace files.',
+    });
+
+    const result = await api.exportWorkspace(workspace.id, workspace.name);
+    if (!result.ok) {
+      if (result.canceled) {
+        updateToast(toastId, {
+          tone: 'info',
+          title: 'Export canceled',
+          description: workspace.name,
+          autoCloseMs: 1800,
+        });
+        return;
+      }
+      updateToast(toastId, {
+        tone: 'error',
+        title: 'Workspace export failed',
+        description: result.error ?? 'The workspace could not be exported.',
+        autoCloseMs: 4200,
+      });
+      return;
+    }
+
+    updateToast(toastId, {
+      tone: 'success',
+      title: 'Workspace exported',
+      description: result.filePath ?? `${workspace.name} (${result.fileCount ?? 0} files)`,
+      autoCloseMs: 3600,
+    });
+  }, [workspaces, notify, updateToast]);
+
+  const handleImportWorkspace = useCallback(async () => {
+    const toastId = notify({
+      tone: 'loading',
+      title: 'Importing workspace...',
+      description: 'Reading Pulse Canvas export file.',
+    });
+
+    const result = await importWorkspace();
+    if (!result.ok) {
+      if (result.canceled) {
+        updateToast(toastId, {
+          tone: 'info',
+          title: 'Import canceled',
+          description: 'No workspace was imported.',
+          autoCloseMs: 1800,
+        });
+        return;
+      }
+      updateToast(toastId, {
+        tone: 'error',
+        title: 'Workspace import failed',
+        description: result.error ?? 'The workspace export could not be imported.',
+        autoCloseMs: 4200,
+      });
+      return;
+    }
+
+    updateToast(toastId, {
+      tone: 'success',
+      title: 'Workspace imported',
+      description: `${result.workspace?.name ?? 'Imported Workspace'} (${result.fileCount ?? 0} files)`,
+      autoCloseMs: 3000,
+    });
+    setLocation(ROUTE_CANVAS);
+  }, [importWorkspace, notify, updateToast, setLocation]);
 
   const handleCreateFolder = useCallback((name: string) => {
     const trimmed = name.trim() || 'Untitled Folder';
@@ -303,6 +380,8 @@ const AppContent = () => {
           onCreate={handleCreateWorkspace}
           onRename={handleRenameWorkspace}
           onDelete={handleDeleteWorkspace}
+          onExport={handleExportWorkspace}
+          onImport={handleImportWorkspace}
           onSetRootFolder={setRootFolder}
           onCreateFolder={handleCreateFolder}
           onRenameFolder={handleRenameFolder}

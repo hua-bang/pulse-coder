@@ -209,7 +209,8 @@
   min-width: 0;
 }
 
-.sidebar-item-delete {
+.sidebar-item-delete,
+.sidebar-item-export {
   flex-shrink: 0;
   width: 22px;
   height: 22px;
@@ -223,14 +224,23 @@
   color: var(--text-muted);
   transition: background 0.1s, color 0.1s;
   position: absolute;
+}
+
+.sidebar-item-delete {
   right: 6px;
 }
 
-.sidebar-item-row:hover .sidebar-item-delete {
+.sidebar-item-export {
+  right: 30px;
+}
+
+.sidebar-item-row:hover .sidebar-item-delete,
+.sidebar-item-row:hover .sidebar-item-export {
   display: flex;
 }
 
-.sidebar-item-delete:hover {
+.sidebar-item-delete:hover,
+.sidebar-item-export:hover {
   background: rgba(0, 0, 0, 0.06);
   color: var(--text-secondary);
 }

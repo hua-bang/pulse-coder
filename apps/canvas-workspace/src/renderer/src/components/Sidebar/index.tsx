@@ -23,6 +23,8 @@ interface Props {
   onCreate: (name: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
+  onExport: (id: string) => void;
+  onImport: () => void;
   onSetRootFolder: (id: string, folderPath: string) => void;
   onCreateFolder: (name: string) => void;
   onRenameFolder: (id: string, name: string) => void;
@@ -44,7 +46,7 @@ const FOLDER_DRAG = 'application/x-folder-id';
 
 export const Sidebar = ({
   collapsed, onToggle, workspaces, folders, activeId, onSelect, onCreate, onRename, onDelete,
-  onCreateFolder, onRenameFolder, onDeleteFolder, onToggleFolder, onMoveWorkspace, onReorderFolder,
+  onExport, onImport, onCreateFolder, onRenameFolder, onDeleteFolder, onToggleFolder, onMoveWorkspace, onReorderFolder,
   activeNodes = [], onNodeFocus, onNodeDelete, onNodeRename, activeView, onEnterChat,
 }: Props) => {
   const { confirm, notify } = useAppShell();
@@ -237,7 +239,7 @@ export const Sidebar = ({
       renameValue={renameValue} renameInputRef={renameInputRef}
       onSelect={onSelect} onStartRename={startRename} onRenameChange={setRenameValue}
       onRenameCommit={commitRename} onRenameCancel={() => setRenamingId(null)}
-      onDelete={onDelete} onDragStart={handleWsDragStart} onDragEnd={handleWsDragEnd}
+      onDelete={onDelete} onExport={onExport} onDragStart={handleWsDragStart} onDragEnd={handleWsDragEnd}
     />
   );
 
@@ -251,6 +253,7 @@ export const Sidebar = ({
             addMenuRef={addMenuRef}
             onNewWorkspace={() => { setShowAddMenu(false); setInlineCreate('workspace'); setInlineCreateValue(''); }}
             onNewFolder={() => { setShowAddMenu(false); setInlineCreate('folder'); setInlineCreateValue(''); }}
+            onImportWorkspace={() => { setShowAddMenu(false); onImport(); }}
           />
           <WorkspaceList
             folders={folders} workspaces={workspaces}

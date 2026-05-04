@@ -1,5 +1,5 @@
 import type React from 'react';
-import { PlusIcon, AvatarIcon, WorkspaceIcon, FolderIcon } from '../icons';
+import { PlusIcon, AvatarIcon, WorkspaceIcon, FolderIcon, ImportIcon } from '../icons';
 
 export const SidebarToggleIcon = ({ size = 14 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
@@ -17,6 +17,7 @@ interface SidebarHeaderProps {
   addMenuRef: React.RefObject<HTMLDivElement>;
   onNewWorkspace: () => void;
   onNewFolder: () => void;
+  onImportWorkspace: () => void;
 }
 
 export const SidebarHeader = ({
@@ -28,6 +29,7 @@ export const SidebarHeader = ({
   addMenuRef,
   onNewWorkspace,
   onNewFolder,
+  onImportWorkspace,
 }: SidebarHeaderProps) => (
   <>
     <div className="sidebar-brand-header">
@@ -87,6 +89,13 @@ export const SidebarHeader = ({
             >
               <FolderIcon size={14} />
               <span>New Folder</span>
+            </button>
+            <button
+              className="sidebar-add-menu-item"
+              onClick={onImportWorkspace}
+            >
+              <ImportIcon size={14} />
+              <span>Import Workspace</span>
             </button>
           </div>
         )}

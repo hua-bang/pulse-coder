@@ -417,6 +417,18 @@ export interface CanvasWorkspaceApi {
     list: () => Promise<{ ok: boolean; ids?: string[]; error?: string }>;
     delete: (id: string) => Promise<{ ok: boolean; error?: string }>;
     getDir: (id: string) => Promise<{ ok: boolean; dir?: string; error?: string }>;
+    exportWorkspace: (
+      id: string,
+      name: string
+    ) => Promise<{ ok: boolean; canceled?: boolean; filePath?: string; fileCount?: number; error?: string }>;
+    importWorkspace: () => Promise<{
+      ok: boolean;
+      canceled?: boolean;
+      workspaceId?: string;
+      workspaceName?: string;
+      fileCount?: number;
+      error?: string;
+    }>;
     watchWorkspace: (workspaceId: string) => Promise<{ ok: boolean }>;
     onExternalUpdate: (
       callback: (event: {

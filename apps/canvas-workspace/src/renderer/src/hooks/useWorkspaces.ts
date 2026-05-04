@@ -18,6 +18,14 @@ export interface WorkspaceDeleteResult {
   error?: string;
 }
 
+export interface WorkspaceImportResult {
+  ok: boolean;
+  canceled?: boolean;
+  workspace?: WorkspaceEntry;
+  fileCount?: number;
+  error?: string;
+}
+
 interface WorkspaceManifest {
   workspaces: WorkspaceEntry[];
   folders?: FolderEntry[];
@@ -211,6 +219,32 @@ export const useWorkspaces = () => {
     [saveManifest, workspaces]
   );
 
+
+  const importWorkspace = useCallback(async (): Promise<WorkspaceImportResult> => {
+    const api = window.canvasWorkspace?.store;
+    if (!api) return { ok: false, error: 'Canvas store API is unavailable.' };
+
+    const result = await api.importWorkspace();
+    if (!result.ok) {
+      return { ok: false, canceled: result.canceled, error: result.error };
+    }
+    if (!result.workspaceId || !result.workspaceName) {
+      return { ok: false, error: 'Import completed without workspace metadata.' };
+    }
+
+    const entry: WorkspaceEntry = {
+      id: result.workspaceId,
+      name: result.workspaceName,
+    };
+    setWorkspaces((prev) => {
+      const next = [...prev, entry];
+      saveManifest(next, entry.id);
+      return next;
+    });
+    setActiveId(entry.id);
+    return { ok: true, workspace: entry, fileCount: result.fileCount };
+  }, [saveManifest]);
+
   /** Move a workspace into a folder (or to root if folderId is undefined) */
   const moveWorkspace = useCallback(
     (workspaceId: string, folderId: string | undefined) => {
@@ -256,6 +290,7 @@ export const useWorkspaces = () => {
     renameWorkspace,
     deleteWorkspace,
     setRootFolder,
+    importWorkspace,
     createFolder,
     renameFolder,
     deleteFolder,
