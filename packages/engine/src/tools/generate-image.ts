@@ -13,7 +13,7 @@ import type { Tool } from '../shared/types';
 const localLoopbackDispatcher = new Agent({
   keepAliveTimeout: 5_000,
   connect: { timeout: 10_000 },
-  headersTimeout: 30_000,
+  headersTimeout: 300_000,
   bodyTimeout: 0,
 });
 
@@ -86,7 +86,7 @@ interface OpenAIResponsesImageCandidate {
 
 const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash-preview-image-generation';
-const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
+const DEFAULT_OPENAI_API_URL = 'https://api.openai.com/v1';
 const DEFAULT_OPENAI_MODEL = 'gpt-image-2';
 const DEFAULT_TIMEOUT = 300000;
 
@@ -128,7 +128,7 @@ export const GenerateImageTool: Tool<
 > = {
   name: 'generate_image',
   description:
-    'Generate an image with GPT/OpenAI by default and save it to local disk. Uses OPENAI_API_KEY plus OPENAI_BASE_URL/OPENAI_API_BASE_URL/OPENAI_API_URL. Defaults to OPENAI_IMAGE_MODEL or the latest GPT image model gpt-image-2. For OpenAI-compatible providers, image API mode defaults to synchronous Responses image generation at {baseUrl}/responses. Other providers are available only when explicitly requested.',
+    'Generate an image with GPT/OpenAI by default and save it to local disk. Uses OPENAI_API_KEY plus OPENAI_API_URL. Defaults to OPENAI_IMAGE_MODEL or the latest GPT image model gpt-image-2. For OpenAI-compatible providers, image API mode defaults to synchronous Responses image generation at {apiUrl}/responses. Other providers are available only when explicitly requested.',
   defer_loading: true,
   inputSchema: z.object({
     prompt: z.string().describe('The prompts for image generation need to describe in detail the content, style, and composition of the image you want to generate.'),
@@ -164,7 +164,7 @@ export const GenerateImageTool: Tool<
     imageApiMode: z
       .enum(['images', 'responses', 'responses_stream', 'auto'])
       .optional()
-      .describe('OpenAI/GPT image API mode. "responses" uses synchronous {baseUrl}/responses image_generation, "responses_stream" uses streaming {baseUrl}/responses image_generation, "images" uses {baseUrl}/images/generations, and "auto" falls back to responses if images fails. Defaults to OPENAI_IMAGE_API_MODE or responses.'),
+      .describe('OpenAI/GPT image API mode. "responses" uses synchronous {apiUrl}/responses image_generation, "responses_stream" uses streaming {apiUrl}/responses image_generation, "images" uses {apiUrl}/images/generations, and "auto" falls back to responses if images fails. Defaults to OPENAI_IMAGE_API_MODE or responses.'),
   }),
   execute: async ({ prompt, provider, model, outputPath, includeBase64 = false, timeout, size, quality, outputFormat, imageApiMode }) => {
     if (!prompt.trim()) {
@@ -327,7 +327,7 @@ async function generateOpenAIImage({
   const requestedModel = model?.trim();
   const imageModel = requestedModel || process.env.OPENAI_IMAGE_MODEL?.trim() || DEFAULT_OPENAI_MODEL;
   const responsesModel = requestedModel || process.env.OPENAI_IMAGE_RESPONSES_MODEL?.trim() || process.env.OPENAI_RESPONSES_MODEL?.trim() || imageModel;
-  const baseUrl = resolveOpenAIBaseUrl();
+  const apiUrl = resolveOpenAIApiUrl();
   const mode = resolveOpenAIImageApiMode(imageApiMode);
 
   const options = {
@@ -339,7 +339,7 @@ async function generateOpenAIImage({
     quality,
     outputFormat,
     apiKey,
-    baseUrl,
+    apiUrl,
   };
 
   if (mode === 'responses') {
@@ -387,7 +387,7 @@ async function generateOpenAIImagesApiImage({
   quality,
   outputFormat,
   apiKey,
-  baseUrl,
+  apiUrl,
 }: {
   prompt: string;
   model: string;
@@ -398,7 +398,7 @@ async function generateOpenAIImagesApiImage({
   quality?: string;
   outputFormat?: OutputFormat;
   apiKey: string;
-  baseUrl: string;
+  apiUrl: string;
 }): Promise<{
   provider: ImageProvider;
   model: string;
@@ -408,7 +408,7 @@ async function generateOpenAIImagesApiImage({
   bytes: number;
   base64?: string;
 }> {
-  const endpoint = buildOpenAIImagesEndpoint(baseUrl);
+  const endpoint = buildOpenAIImagesEndpoint(apiUrl);
 
   const requestBody: Record<string, unknown> = {
     model,
@@ -486,7 +486,7 @@ async function generateOpenAIResponsesImage({
   quality,
   outputFormat,
   apiKey,
-  baseUrl,
+  apiUrl,
   previousError,
 }: {
   prompt: string;
@@ -498,7 +498,7 @@ async function generateOpenAIResponsesImage({
   quality?: string;
   outputFormat?: OutputFormat;
   apiKey: string;
-  baseUrl: string;
+  apiUrl: string;
   previousError?: unknown;
 }): Promise<{
   provider: ImageProvider;
@@ -509,7 +509,7 @@ async function generateOpenAIResponsesImage({
   bytes: number;
   base64?: string;
 }> {
-  const endpoint = buildOpenAIResponsesEndpoint(baseUrl);
+  const endpoint = buildOpenAIResponsesEndpoint(apiUrl);
   const requestBody: Record<string, unknown> = {
     model,
     input: prompt,
@@ -574,7 +574,7 @@ async function generateOpenAIResponsesStreamImage({
   quality,
   outputFormat,
   apiKey,
-  baseUrl,
+  apiUrl,
   previousError,
 }: {
   prompt: string;
@@ -586,7 +586,7 @@ async function generateOpenAIResponsesStreamImage({
   quality?: string;
   outputFormat?: OutputFormat;
   apiKey: string;
-  baseUrl: string;
+  apiUrl: string;
   previousError?: unknown;
 }): Promise<{
   provider: ImageProvider;
@@ -597,7 +597,7 @@ async function generateOpenAIResponsesStreamImage({
   bytes: number;
   base64?: string;
 }> {
-  const endpoint = buildOpenAIResponsesEndpoint(baseUrl);
+  const endpoint = buildOpenAIResponsesEndpoint(apiUrl);
   const requestBody: Record<string, unknown> = {
     model,
     input: prompt,
@@ -692,13 +692,8 @@ function isGeminiImageModel(model: string): boolean {
   return model.startsWith('gemini') || model.includes('/gemini');
 }
 
-function resolveOpenAIBaseUrl(): string {
-  return (
-    process.env.OPENAI_BASE_URL?.trim() ||
-    process.env.OPENAI_API_BASE_URL?.trim() ||
-    process.env.OPENAI_API_URL?.trim() ||
-    DEFAULT_OPENAI_BASE_URL
-  ).replace(/\/$/, '');
+function resolveOpenAIApiUrl(): string {
+  return (process.env.OPENAI_API_URL?.trim() || DEFAULT_OPENAI_API_URL).replace(/\/$/, '');
 }
 
 function buildOpenAIImagesEndpoint(baseUrl: string): string {
