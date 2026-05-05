@@ -165,7 +165,7 @@ export class DiscordAdapter implements PlatformAdapter {
     const text = extractInteractionText(interaction);
     if (!text) {
       const commandName = interaction.data?.name?.trim().toLowerCase() ?? '';
-      if (commandName === 'skills') {
+      if (commandName === 'skill' || commandName === 'skills') {
         this.ackByRequest.set(req, {
           type: 4,
           data: buildDiscordSkillsSelectMessage(DISCORD_ACK_EPHEMERAL_FLAG),
@@ -643,6 +643,7 @@ const PASSTHROUGH_SLASH_COMMANDS = new Set([
   'status',
   'stop',
   'cancel',
+  'skill',
   'skills',
   'soul',
   'insight',
@@ -680,7 +681,7 @@ function extractInteractionText(interaction: DiscordInteraction): string {
     return buildRestartCommandText(interaction.data?.options ?? []);
   }
 
-  if (commandName === 'skills' && !args) {
+  if ((commandName === 'skill' || commandName === 'skills') && !args) {
     return '';
   }
 

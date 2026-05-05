@@ -30,7 +30,7 @@ export function handleSkillsCommand(args: string[]): CommandResult {
   if (subCommand === 'current' || subCommand === 'clear' || subCommand === 'off' || subCommand === 'none') {
     return {
       type: 'handled',
-      message: 'ℹ️ 技能是单次生效。请使用 `/skills <name|index> <message>` 触发一次技能消息。',
+      message: 'ℹ️ 技能是单次生效。请使用 `/skill <name|index> <message>` 触发一次技能消息。',
     };
   }
 
@@ -42,7 +42,7 @@ export function handleSkillsCommand(args: string[]): CommandResult {
   if (selectionTokens.length < 2) {
     return {
       type: 'handled',
-      message: '❌ 请同时提供 skill 和 message\n用法：/skills <name|index> <message>',
+      message: '❌ 请同时提供 skill 和 message\n用法：/skill <name|index> <message>',
     };
   }
 
@@ -51,7 +51,7 @@ export function handleSkillsCommand(args: string[]): CommandResult {
   if (!selected) {
     return {
       type: 'handled',
-      message: `❌ 未找到技能：${skillTarget}\n可用命令：/skills list`,
+      message: `❌ 未找到技能：${skillTarget}\n可用命令：/skill list`,
     };
   }
 
@@ -59,7 +59,7 @@ export function handleSkillsCommand(args: string[]): CommandResult {
   if (!message) {
     return {
       type: 'handled',
-      message: '❌ message 不能为空\n用法：/skills <name|index> <message>',
+      message: '❌ message 不能为空\n用法：/skill <name|index> <message>',
     };
   }
 

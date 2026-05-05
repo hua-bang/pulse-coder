@@ -116,6 +116,7 @@ export async function processIncomingCommand(incoming: IncomingMessage): Promise
     case 'ping':
       return handlePingCommand();
 
+    case 'skill':
     case 'skills':
       return handleSkillsCommand(args);
 

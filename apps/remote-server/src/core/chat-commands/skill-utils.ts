@@ -30,5 +30,5 @@ export function resolveSkillSelection(target: string, skills: SkillSummary[]): S
 
 export function buildSkillListMessage(skills: SkillSummary[]): string {
   const lines = skills.map((skill, index) => `${String(index + 1).padStart(2, ' ')}. ${skill.name} - ${skill.description}`);
-  return `🧰 可用技能：\n${lines.join('\n')}\n\n用法：/skills <name|index> <message>`;
+  return `🧰 可用技能：\n${lines.join('\n')}\n\n用法：/skill <name|index> <message>`;
 }

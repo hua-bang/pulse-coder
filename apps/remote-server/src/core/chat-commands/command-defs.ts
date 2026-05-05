@@ -13,6 +13,7 @@ export const COMMANDS_ALLOWED_WHILE_RUNNING = new Set([
   'wt',
   'insight',
   'model',
+  'skill',
   'soul',
   'acp',
 ]);
