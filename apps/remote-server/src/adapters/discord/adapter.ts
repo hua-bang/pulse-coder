@@ -9,6 +9,15 @@ import { getActiveStreamId, registerCancelToken } from '../../core/active-run-st
 import { extractGeneratedImageResult } from '../feishu/image-result.js';
 import { DiscordClient } from './client.js';
 import { buildDiscordMemoryKey, buildDiscordPlatformKey, isDiscordThreadChannelType } from './platform-key.js';
+import {
+  buildDiscordSkillPromptModal,
+  buildDiscordSkillsSelectMessage,
+  extractDiscordComponentTextValue,
+  getDiscordSkillsModalSkillName,
+  isDiscordSkillsSelectCustomId,
+  DISCORD_SKILLS_PROMPT_INPUT_ID,
+  type DiscordComponent,
+} from './skill-launcher.js';
 
 interface DiscordInteraction {
   id: string;
@@ -24,6 +33,9 @@ interface DiscordInteraction {
     // 1=CHAT_INPUT, 2=USER, 3=MESSAGE
     type?: number;
     target_id?: string;
+    custom_id?: string;
+    values?: string[];
+    components?: DiscordComponent[];
     options?: DiscordCommandOption[];
     resolved?: {
       messages?: Record<string, { content?: string; author?: { username?: string } }>;
@@ -39,8 +51,9 @@ interface DiscordCommandOption {
 
 type DiscordAckPayload =
   | { type: 1 }
-  | { type: 4; data: { content: string; flags?: number } }
-  | { type: 5 };
+  | { type: 4; data: { content: string; flags?: number; components?: DiscordComponent[] } }
+  | { type: 5 }
+  | { type: 9; data: unknown };
 
 interface DiscordInteractionStreamMeta {
   kind: 'interaction';
@@ -136,6 +149,14 @@ export class DiscordAdapter implements PlatformAdapter {
       return null;
     }
 
+    if (interaction.type === 3) {
+      return this.handleMessageComponentInteraction(req, interaction);
+    }
+
+    if (interaction.type === 5) {
+      return this.handleModalSubmitInteraction(req, interaction);
+    }
+
     if (interaction.type !== 2) {
       this.ackByRequest.set(req, this.buildEphemeralMessage('Unsupported interaction type.'));
       return null;
@@ -143,10 +164,72 @@ export class DiscordAdapter implements PlatformAdapter {
 
     const text = extractInteractionText(interaction);
     if (!text) {
+      const commandName = interaction.data?.name?.trim().toLowerCase() ?? '';
+      if (commandName === 'skills') {
+        this.ackByRequest.set(req, {
+          type: 4,
+          data: buildDiscordSkillsSelectMessage(DISCORD_ACK_EPHEMERAL_FLAG),
+        });
+        return null;
+      }
+
       this.ackByRequest.set(req, this.buildEphemeralMessage('Please provide text input.'));
       return null;
     }
 
+    return this.buildIncomingForInteraction(req, interaction, text);
+  }
+
+  private async handleMessageComponentInteraction(
+    req: HonoRequest,
+    interaction: DiscordInteraction,
+  ): Promise<IncomingMessage | null> {
+    const customId = interaction.data?.custom_id;
+    if (!isDiscordSkillsSelectCustomId(customId)) {
+      this.ackByRequest.set(req, this.buildEphemeralMessage('Unsupported component interaction.'));
+      return null;
+    }
+
+    const selectedSkill = interaction.data?.values?.[0]?.trim();
+    if (!selectedSkill) {
+      this.ackByRequest.set(req, this.buildEphemeralMessage('Please select a skill.'));
+      return null;
+    }
+
+    const modal = buildDiscordSkillPromptModal(selectedSkill);
+    if (!modal) {
+      this.ackByRequest.set(req, this.buildEphemeralMessage(`Skill not found: ${selectedSkill}`));
+      return null;
+    }
+
+    this.ackByRequest.set(req, { type: 9, data: modal });
+    return null;
+  }
+
+  private async handleModalSubmitInteraction(
+    req: HonoRequest,
+    interaction: DiscordInteraction,
+  ): Promise<IncomingMessage | null> {
+    const selectedSkill = getDiscordSkillsModalSkillName(interaction.data?.custom_id);
+    if (!selectedSkill) {
+      this.ackByRequest.set(req, this.buildEphemeralMessage('Unsupported modal submission.'));
+      return null;
+    }
+
+    const prompt = extractDiscordComponentTextValue(interaction.data?.components, DISCORD_SKILLS_PROMPT_INPUT_ID);
+    if (!prompt) {
+      this.ackByRequest.set(req, this.buildEphemeralMessage('Prompt 不能为空。'));
+      return null;
+    }
+
+    return this.buildIncomingForInteraction(req, interaction, `[use skill](${selectedSkill}) ${prompt}`);
+  }
+
+  private async buildIncomingForInteraction(
+    req: HonoRequest,
+    interaction: DiscordInteraction,
+    text: string,
+  ): Promise<IncomingMessage | null> {
     const channelId = interaction.channel_id;
     const userId = interaction.member?.user?.id ?? interaction.user?.id;
     if (!channelId || !userId) {
@@ -595,6 +678,10 @@ function extractInteractionText(interaction: DiscordInteraction): string {
 
   if (commandName === 'restart') {
     return buildRestartCommandText(interaction.data?.options ?? []);
+  }
+
+  if (commandName === 'skills' && !args) {
+    return '';
   }
 
   if (PASSTHROUGH_SLASH_COMMANDS.has(commandName)) {
