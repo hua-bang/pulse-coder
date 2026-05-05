@@ -1,6 +1,7 @@
-import { ipcMain, BrowserWindow } from "electron";
+import type { Dirent } from "fs";
+import { ipcMain, BrowserWindow, dialog } from "electron";
 import { promises as fs, watch as fsWatch, FSWatcher } from "fs";
-import { join, basename, dirname } from "path";
+import { join, basename, dirname, relative, resolve, sep, isAbsolute } from "path";
 import { homedir } from "os";
 
 const STORE_DIR = join(homedir(), ".pulse-coder", "canvas");
@@ -120,6 +121,160 @@ const AGENTS_MD_TEMPLATE = `# Canvas Agent Config
 <!-- canvas:auto-start -->
 <!-- canvas:auto-end -->
 `;
+
+
+const EXPORT_FORMAT = 'pulse-canvas-workspace';
+const EXPORT_VERSION = 1;
+const PORTABLE_WORKSPACE_URL_PREFIX = 'pulsecanvas://workspace/';
+
+interface WorkspaceExportFile {
+  relativePath: string;
+  encoding: 'base64';
+  content: string;
+}
+
+interface WorkspaceExportPayload {
+  format: typeof EXPORT_FORMAT;
+  version: typeof EXPORT_VERSION;
+  exportedAt: string;
+  workspace: {
+    id: string;
+    name: string;
+  };
+  canvas: unknown;
+  files: WorkspaceExportFile[];
+}
+
+const sanitizeFileName = (name: string): string => {
+  const safe = name.replace(/[^a-zA-Z0-9_\- .]/g, '').trim();
+  return safe || 'workspace';
+};
+
+const toPortableRelativePath = (filePath: string, workspaceDir: string): string | null => {
+  const rel = relative(workspaceDir, filePath);
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null;
+  return rel.split(sep).join('/');
+};
+
+const portableUrlForRelativePath = (relativePath: string): string =>
+  `${PORTABLE_WORKSPACE_URL_PREFIX}${encodeURI(relativePath)}`;
+
+const relativePathFromPortableUrl = (value: string): string | null => {
+  if (!value.startsWith(PORTABLE_WORKSPACE_URL_PREFIX)) return null;
+  return decodeURI(value.slice(PORTABLE_WORKSPACE_URL_PREFIX.length));
+};
+
+const isSafeRelativePath = (relativePath: string): boolean => {
+  if (!relativePath || isAbsolute(relativePath)) return false;
+  const normalized = relativePath.replace(/\\/g, '/');
+  return !normalized.split('/').some((part) => part === '..' || part === '');
+};
+
+const rewriteCanvasFilePaths = (
+  value: unknown,
+  mapper: (filePath: string) => string,
+): unknown => {
+  if (Array.isArray(value)) {
+    return value.map((item) => rewriteCanvasFilePaths(item, mapper));
+  }
+  if (!value || typeof value !== 'object') return value;
+
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === 'filePath' && typeof item === 'string') {
+      out[key] = mapper(item);
+    } else {
+      out[key] = rewriteCanvasFilePaths(item, mapper);
+    }
+  }
+  return out;
+};
+
+const collectWorkspaceFiles = async (workspaceDir: string): Promise<WorkspaceExportFile[]> => {
+  const files: WorkspaceExportFile[] = [];
+
+  const walk = async (dir: string): Promise<void> => {
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return;
+      throw err;
+    }
+
+    for (const entry of entries) {
+      if (entry.name === 'canvas.json' || entry.name === 'canvas.json.bak' || entry.name === 'canvas.json.tmp') {
+        continue;
+      }
+      const fullPath = join(dir, entry.name);
+      const relativePath = toPortableRelativePath(fullPath, workspaceDir);
+      if (!relativePath || !isSafeRelativePath(relativePath)) continue;
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const buffer = await fs.readFile(fullPath);
+      files.push({ relativePath, encoding: 'base64', content: buffer.toString('base64') });
+    }
+  };
+
+  await walk(workspaceDir);
+  files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  return files;
+};
+
+const readWorkspaceCanvasForExport = async (workspaceId: string): Promise<unknown> => {
+  await migrateIfNeeded(workspaceId);
+  await ensureWorkspaceDir(workspaceId);
+  const filePath = getFilePath(workspaceId);
+  const readResult = await readCanvasJsonWithRecovery(filePath);
+  if (readResult.kind === 'missing') return null;
+  if (readResult.kind === 'unrecoverable') throw readResult.err;
+  const data = readResult.data as CanvasSaveData;
+  const dirty = await migrateNotePaths(workspaceId, data);
+  if (dirty || readResult.recoveredFromBackup) {
+    await atomicWriteCanvasJson(filePath, JSON.stringify(data, null, 2));
+  }
+  return data;
+};
+
+const createUniqueImportedWorkspaceId = async (): Promise<string> => {
+  for (let i = 0; i < 100; i += 1) {
+    const id = `ws-imported-${Date.now()}${i ? `-${i}` : ''}`;
+    try {
+      await fs.access(getWorkspaceDir(id));
+    } catch {
+      return id;
+    }
+  }
+  return `ws-imported-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+};
+
+const parseWorkspaceExportPayload = (raw: string): WorkspaceExportPayload => {
+  const parsed = JSON.parse(raw) as Partial<WorkspaceExportPayload>;
+  if (parsed.format !== EXPORT_FORMAT) {
+    throw new Error('Selected file is not a Pulse Canvas workspace export.');
+  }
+  if (parsed.version !== EXPORT_VERSION) {
+    throw new Error(`Unsupported Pulse Canvas export version: ${String(parsed.version)}`);
+  }
+  if (!parsed.workspace || typeof parsed.workspace.name !== 'string') {
+    throw new Error('Workspace export is missing workspace metadata.');
+  }
+  if (!Array.isArray(parsed.files)) {
+    throw new Error('Workspace export is missing file payloads.');
+  }
+  for (const file of parsed.files) {
+    if (!file || typeof file.relativePath !== 'string' || file.encoding !== 'base64' || typeof file.content !== 'string') {
+      throw new Error('Workspace export contains an invalid file entry.');
+    }
+    if (!isSafeRelativePath(file.relativePath)) {
+      throw new Error(`Workspace export contains an unsafe file path: ${file.relativePath}`);
+    }
+  }
+  return parsed as WorkspaceExportPayload;
+};
 
 /** Manifest stays as a flat file; all other workspaces live in subdirectories. */
 const getFilePath = (id: string): string => {
@@ -763,6 +918,125 @@ export const setupCanvasStoreIpc = () => {
       return { ok: true, ids: [...new Set([...ids, ...flatIds])] };
     } catch (err) {
       return { ok: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle(
+    'canvas:exportWorkspace',
+    async (_event, payload: { id: string; name: string }) => {
+      try {
+        if (!payload.id || payload.id === MANIFEST_ID) {
+          return { ok: false, error: 'Invalid workspace id.' };
+        }
+
+        const workspaceDir = getWorkspaceDir(payload.id);
+        const canvas = await readWorkspaceCanvasForExport(payload.id);
+        const portableCanvas = rewriteCanvasFilePaths(canvas, (filePath) => {
+          const relativePath = toPortableRelativePath(filePath, workspaceDir);
+          return relativePath ? portableUrlForRelativePath(relativePath) : filePath;
+        });
+        const files = await collectWorkspaceFiles(workspaceDir);
+
+        const win = BrowserWindow.getFocusedWindow();
+        const result = win
+          ? await dialog.showSaveDialog(win, {
+            title: 'Export Workspace',
+            defaultPath: `${sanitizeFileName(payload.name)}.pulsecanvas.json`,
+            filters: [
+              { name: 'Pulse Canvas Workspace', extensions: ['pulsecanvas.json', 'json'] },
+              { name: 'All Files', extensions: ['*'] },
+            ],
+          })
+          : await dialog.showSaveDialog({
+            title: 'Export Workspace',
+            defaultPath: `${sanitizeFileName(payload.name)}.pulsecanvas.json`,
+            filters: [
+              { name: 'Pulse Canvas Workspace', extensions: ['pulsecanvas.json', 'json'] },
+              { name: 'All Files', extensions: ['*'] },
+            ],
+          });
+        if (result.canceled || !result.filePath) {
+          return { ok: false, canceled: true };
+        }
+
+        const exportPayload: WorkspaceExportPayload = {
+          format: EXPORT_FORMAT,
+          version: EXPORT_VERSION,
+          exportedAt: new Date().toISOString(),
+          workspace: { id: payload.id, name: payload.name },
+          canvas: portableCanvas,
+          files,
+        };
+        await fs.writeFile(result.filePath, JSON.stringify(exportPayload, null, 2), 'utf-8');
+        return { ok: true, filePath: result.filePath, fileCount: files.length };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+  );
+
+  ipcMain.handle('canvas:importWorkspace', async () => {
+    try {
+      const win = BrowserWindow.getFocusedWindow();
+      const result = win
+        ? await dialog.showOpenDialog(win, {
+          title: 'Import Workspace',
+          filters: [
+            { name: 'Pulse Canvas Workspace', extensions: ['pulsecanvas.json', 'json'] },
+            { name: 'All Files', extensions: ['*'] },
+          ],
+          properties: ['openFile'],
+        })
+        : await dialog.showOpenDialog({
+          title: 'Import Workspace',
+          filters: [
+            { name: 'Pulse Canvas Workspace', extensions: ['pulsecanvas.json', 'json'] },
+            { name: 'All Files', extensions: ['*'] },
+          ],
+          properties: ['openFile'],
+        });
+      if (result.canceled || result.filePaths.length === 0) {
+        return { ok: false, canceled: true };
+      }
+
+      const raw = await fs.readFile(result.filePaths[0], 'utf-8');
+      const imported = parseWorkspaceExportPayload(raw);
+      const workspaceId = await createUniqueImportedWorkspaceId();
+      const workspaceName = imported.workspace.name.trim() || 'Imported Workspace';
+      const workspaceDir = getWorkspaceDir(workspaceId);
+      await fs.mkdir(workspaceDir, { recursive: true });
+
+      for (const file of imported.files) {
+        const targetPath = resolve(workspaceDir, file.relativePath);
+        const rel = relative(workspaceDir, targetPath);
+        if (rel.startsWith('..') || isAbsolute(rel)) {
+          throw new Error(`Workspace export contains an unsafe file path: ${file.relativePath}`);
+        }
+        await fs.mkdir(dirname(targetPath), { recursive: true });
+        await fs.writeFile(targetPath, Buffer.from(file.content, 'base64'));
+      }
+
+      const restoredCanvas = rewriteCanvasFilePaths(imported.canvas, (filePath) => {
+        const relativePath = relativePathFromPortableUrl(filePath);
+        if (!relativePath) return filePath;
+        if (!isSafeRelativePath(relativePath)) return filePath;
+        return join(workspaceDir, relativePath);
+      });
+      await ensureWorkspaceDir(workspaceId);
+      await atomicWriteCanvasJson(getFilePath(workspaceId), JSON.stringify(restoredCanvas, null, 2));
+
+      const restoredData = restoredCanvas as CanvasSaveData;
+      if (Array.isArray(restoredData.nodes)) {
+        knownNodeIds.set(
+          workspaceId,
+          new Set(restoredData.nodes.map((n) => n.id).filter((id): id is string => Boolean(id))),
+        );
+        lastSnapshot.set(workspaceId, nodesToMap(restoredData.nodes));
+      }
+
+      return { ok: true, workspaceId, workspaceName, fileCount: imported.files.length };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
 

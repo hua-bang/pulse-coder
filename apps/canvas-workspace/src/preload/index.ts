@@ -67,6 +67,12 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
     getDir: (id: string) =>
       ipcRenderer.invoke("canvas:getDir", { id }),
 
+    exportWorkspace: (id: string, name: string) =>
+      ipcRenderer.invoke("canvas:exportWorkspace", { id, name }),
+
+    importWorkspace: () =>
+      ipcRenderer.invoke("canvas:importWorkspace"),
+
     watchWorkspace: (workspaceId: string) =>
       ipcRenderer.invoke("canvas:watchWorkspace", { workspaceId }),
 

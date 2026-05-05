@@ -68,6 +68,25 @@ export const WorkspaceIcon = ({ size = 14, className, strokeWidth = 1.3 }: IconP
   </svg>
 );
 
+
+/** Arrow leaving a tray — export current workspace. */
+export const ExportIcon = ({ size = 14, className, strokeWidth = 1.3 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+    <path d="M8 10V3" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" />
+    <path d="M5.5 5.5L8 3l2.5 2.5" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M3 9v3.5A1.5 1.5 0 004.5 14h7a1.5 1.5 0 001.5-1.5V9" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" />
+  </svg>
+);
+
+/** Arrow entering a tray — import a workspace export. */
+export const ImportIcon = ({ size = 14, className, strokeWidth = 1.3 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+    <path d="M8 3v7" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" />
+    <path d="M5.5 7.5L8 10l2.5-2.5" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M3 9v3.5A1.5 1.5 0 004.5 14h7a1.5 1.5 0 001.5-1.5V9" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" />
+  </svg>
+);
+
 interface FolderIconProps extends IconProps {
   open?: boolean;
 }

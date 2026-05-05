@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { WorkspaceEntry } from '../../hooks/useWorkspaces';
-import { CloseIcon, WorkspaceIcon } from '../icons';
+import { CloseIcon, ExportIcon, WorkspaceIcon } from '../icons';
 
 export interface WorkspaceItemProps {
   ws: WorkspaceEntry;
@@ -16,6 +16,7 @@ export interface WorkspaceItemProps {
   onRenameCommit: () => void;
   onRenameCancel: () => void;
   onDelete: (id: string) => void;
+  onExport: (id: string) => void;
   onDragStart: (e: React.DragEvent, id: string) => void;
   onDragEnd: (e: React.DragEvent) => void;
 }
@@ -34,6 +35,7 @@ export const WorkspaceItem = ({
   onRenameCommit,
   onRenameCancel,
   onDelete,
+  onExport,
   onDragStart,
   onDragEnd,
 }: WorkspaceItemProps) => (
@@ -67,6 +69,11 @@ export const WorkspaceItem = ({
             <WorkspaceIcon size={14} />
           </span>
           <span className="sidebar-item-name">{ws.name}</span>
+        </button>
+      )}
+      {!isRenaming && (
+        <button className="sidebar-item-export" onClick={() => onExport(ws.id)} title="Export workspace">
+          <ExportIcon size={12} strokeWidth={1.5} />
         </button>
       )}
       {!isOnlyWorkspace && !isRenaming && (
