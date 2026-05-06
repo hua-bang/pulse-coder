@@ -20,10 +20,10 @@ export default defineConfig((options) => {
     minify: !shouldKeepDebugInfo,
     treeshake: !shouldKeepDebugInfo,
     platform: 'node',
-    // Keep workspace packages external in debug builds so breakpoints map to package sourcemaps.
-    external: isDebugBuild
-      ? ['pulse-coder-acp', 'pulse-coder-engine', 'pulse-coder-memory-plugin']
-      : [],
+    external: [
+      'ink',
+      ...(isDebugBuild ? ['pulse-coder-acp', 'pulse-coder-engine', 'pulse-coder-memory-plugin'] : []),
+    ],
     noExternal: ['pulse-sandbox'],
     outExtension: () => ({ js: '.cjs' })
   };

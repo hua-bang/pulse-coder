@@ -1,7 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Box, Text, useApp, useInput, useStdout } from 'ink';
 
 export type InkEventKind = 'user' | 'assistant' | 'tool' | 'result' | 'system' | 'error';
+
+interface InkRuntime {
+  Box: React.ComponentType<any>;
+  Text: React.ComponentType<any>;
+  useApp: () => { exit: () => void };
+  useInput: (handler: (input: string, key: any) => void) => void;
+  useStdout: () => { stdout: { rows?: number } };
+}
 
 export interface InkCliEvent {
   id: string;
@@ -31,6 +38,7 @@ export interface InkCliController {
 
 interface InkCliAppProps {
   controller: InkCliController;
+  runtime: InkRuntime;
   onExit?: () => void;
 }
 
@@ -65,7 +73,8 @@ const KIND_COLOR: Record<InkEventKind, string> = {
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
-export function InkCliApp({ controller, onExit }: InkCliAppProps) {
+export function InkCliApp({ controller, runtime, onExit }: InkCliAppProps) {
+  const { Box, Text, useApp, useInput, useStdout } = runtime;
   const [snapshot, setSnapshot] = useState<InkCliSnapshot>(() => ({
     ...DEFAULT_SNAPSHOT,
     ...controller.getSnapshot(),

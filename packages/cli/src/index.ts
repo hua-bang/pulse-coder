@@ -11,7 +11,6 @@ import { memoryIntegration, buildMemoryRunContext, recordDailyLogFromSuccessPath
 import { ACP_CLIENT_INFO, handleAcpCommand, resolveAcpPlatformKey } from './acp-commands.js';
 import { TuiRenderer, type TuiHelpItem } from './tui-renderer.js';
 import { resolveCliUiMode } from './ui-mode.js';
-import { startInkTui } from './ink-launcher.js';
 
 const LOCAL_COMMANDS = new Set([
   'help',
@@ -818,6 +817,7 @@ class CoderCLI {
 
 async function main(): Promise<void> {
   if (resolveCliUiMode() === 'ink') {
+    const { startInkTui } = await import('./ink-launcher.js');
     await startInkTui();
     return;
   }
