@@ -9,6 +9,7 @@ import { SkillCommands } from './skill-commands.js';
 import { runTeam, TeamsSession } from './team-commands.js';
 import { memoryIntegration, buildMemoryRunContext, recordDailyLogFromSuccessPath } from './memory-integration.js';
 import { ACP_CLIENT_INFO, handleAcpCommand, resolveAcpPlatformKey } from './acp-commands.js';
+import { TuiRenderer, type TuiHelpItem } from './tui-renderer.js';
 
 const LOCAL_COMMANDS = new Set([
   'help',
@@ -34,6 +35,38 @@ const LOCAL_COMMANDS = new Set([
   'exit',
 ]);
 
+const HELP_ITEMS: TuiHelpItem[] = [
+  { command: '/help', description: 'Show this help message' },
+  { command: '/new [title]', description: 'Create a new session' },
+  { command: '/resume <id>', description: 'Resume a saved session' },
+  { command: '/sessions', description: 'List all saved sessions' },
+  { command: '/search <query>', description: 'Search in saved sessions' },
+  { command: '/rename <id> <new-title>', description: 'Rename a session' },
+  { command: '/delete <id>', description: 'Delete a session' },
+  { command: '/clear', description: 'Clear current conversation' },
+  { command: '/compact', description: 'Force compact current conversation context' },
+  { command: '/skills [list|<name|index> <message>]', description: 'Run one message with a selected skill' },
+  { command: '/acp [status|on|off|cd]', description: 'Manage ACP mode for this CLI' },
+  { command: '/wt use <work-name>', description: 'Create a worktree + branch via worktree skill' },
+  { command: '/status', description: 'Show current session status' },
+  { command: '/mode', description: 'Show current plan mode' },
+  { command: '/plan', description: 'Switch to planning mode' },
+  { command: '/execute', description: 'Switch to executing mode' },
+  { command: '/team <task>', description: 'Run a multi-agent team (LLM plans DAG by default)' },
+  { command: '/team --route=auto <task>', description: 'Use keyword-based routing instead of LLM planning' },
+  { command: '/teams <task>', description: 'Run agent teams (enters teams mode for follow-ups)' },
+  { command: '/teams <task> --concurrency N', description: 'Limit parallel teammates' },
+  { command: '/teams <task> --cwd <dir>', description: 'Set working directory for teammates' },
+  { command: '/solo', description: 'Exit teams mode, return to normal agent' },
+  { command: '/save', description: 'Save current session explicitly' },
+  { command: '/exit', description: 'Exit the application' },
+];
+
+const HELP_FOOTER = [
+  'Esc (while processing) - Stop current response and accept next input',
+  'Ctrl+C - Exit CLI immediately',
+];
+
 class CoderCLI {
   private agent: PulseAgent;
   private context: Context;
@@ -41,6 +74,7 @@ class CoderCLI {
   private inputManager: InputManager;
   private skillCommands: SkillCommands;
   private acpPlatformKey: string;
+  private tui: TuiRenderer;
 
   constructor() {
     const runJsTool = createRunJsTool({
@@ -69,6 +103,7 @@ class CoderCLI {
     this.inputManager = new InputManager();
     this.skillCommands = new SkillCommands(this.agent);
     this.acpPlatformKey = resolveAcpPlatformKey();
+    this.tui = new TuiRenderer();
   }
 
   private safeStringify(value: unknown): string {
@@ -110,7 +145,7 @@ class CoderCLI {
       return currentId;
     }
 
-    console.warn('⚠️ No active session ID; memory tools and daily logs are skipped for this run.');
+    this.tui.warn('No active session ID; memory tools and daily logs are skipped for this run.');
     return null;
   }
 
@@ -130,10 +165,10 @@ class CoderCLI {
     try {
       const result = await service.setTaskListId(taskListId);
       if (result.switched) {
-        console.log(`🗂️ Switched task list to ${result.taskListId}`);
+        this.tui.success(`Switched task list to ${result.taskListId}`);
       }
     } catch (error: any) {
-      console.warn(`⚠️ Failed to switch task list binding: ${error?.message ?? String(error)}`);
+      this.tui.warn(`Failed to switch task list binding: ${error?.message ?? String(error)}`);
     }
   }
 
@@ -141,33 +176,7 @@ class CoderCLI {
     try {
       switch (command.toLowerCase()) {
         case 'help':
-          console.log('\n📋 Available commands:');
-          console.log('/help - Show this help message');
-          console.log('/new [title] - Create a new session');
-          console.log('/resume <id> - Resume a saved session');
-          console.log('/sessions - List all saved sessions');
-          console.log('/search <query> - Search in saved sessions');
-          console.log('/rename <id> <new-title> - Rename a session');
-          console.log('/delete <id> - Delete a session');
-          console.log('/clear - Clear current conversation');
-          console.log('/compact - Force compact current conversation context');
-          console.log('/skills [list|<name|index> <message>] - Run one message with a selected skill');
-          console.log('/acp [status|on|off|cd] - Manage ACP mode for this CLI');
-          console.log('/wt use <work-name> - Create a worktree + branch via worktree skill');
-          console.log('/status - Show current session status');
-          console.log('/mode - Show current plan mode');
-          console.log('/plan - Switch to planning mode');
-          console.log('/execute - Switch to executing mode');
-          console.log('/team <task> - Run a multi-agent team (LLM plans DAG by default)');
-          console.log('/team --route=auto <task> - Use keyword-based routing instead of LLM planning');
-          console.log('/teams <task> - Run agent teams (enters teams mode for follow-ups)');
-          console.log('/teams <task> --concurrency N - Limit parallel teammates');
-          console.log('/teams <task> --cwd <dir> - Set working directory for teammates');
-          console.log('/solo - Exit teams mode, return to normal agent');
-          console.log('/save - Save current session explicitly');
-          console.log('/exit - Exit the application');
-          console.log('Esc (while processing) - Stop current response and accept next input');
-          console.log('Ctrl+C - Exit CLI immediately');
+          this.tui.showHelp(HELP_ITEMS, HELP_FOOTER);
           break;
 
         case 'new':
@@ -179,8 +188,8 @@ class CoderCLI {
 
         case 'resume':
           if (args.length === 0) {
-            console.log('\n❌ Please provide a session ID');
-            console.log('Usage: /resume <session-id>');
+            this.tui.error('Please provide a session ID');
+            this.tui.info('Usage: /resume <session-id>');
             break;
           }
           const sessionId = args[0];
@@ -197,8 +206,8 @@ class CoderCLI {
 
         case 'search':
           if (args.length === 0) {
-            console.log('\n❌ Please provide a search query');
-            console.log('Usage: /search <query>');
+            this.tui.error('Please provide a search query');
+            this.tui.info('Usage: /search <query>');
             break;
           }
           const query = args.join(' ');
@@ -207,8 +216,8 @@ class CoderCLI {
 
         case 'rename':
           if (args.length < 2) {
-            console.log('\n❌ Please provide session ID and new title');
-            console.log('Usage: /rename <session-id> <new-title>');
+            this.tui.error('Please provide session ID and new title');
+            this.tui.info('Usage: /rename <session-id> <new-title>');
             break;
           }
           const renameId = args[0];
@@ -218,8 +227,8 @@ class CoderCLI {
 
         case 'delete':
           if (args.length === 0) {
-            console.log('\n❌ Please provide a session ID');
-            console.log('Usage: /delete <session-id>');
+            this.tui.error('Please provide a session ID');
+            this.tui.info('Usage: /delete <session-id>');
             break;
           }
           const deleteId = args[0];
@@ -228,12 +237,12 @@ class CoderCLI {
 
         case 'clear':
           this.context.messages = [];
-          console.log('\n🧹 Current conversation cleared!');
+          this.tui.success('Current conversation cleared!');
           break;
 
         case 'compact':
           if (this.context.messages.length === 0) {
-            console.log('\nℹ️ Context is empty, nothing to compact.');
+            this.tui.info('Context is empty, nothing to compact.');
             break;
           }
 
@@ -243,8 +252,8 @@ class CoderCLI {
           const compactResult = await this.agent.compactContext(this.context, { force: true });
 
           if (!compactResult.didCompact || !compactResult.newMessages) {
-            console.log('\nℹ️ No compaction was applied.');
-            console.log(`Messages: ${beforeCount}, estimated tokens: ~${beforeTokens}, KEEP_LAST_TURNS=${keepLastTurns}`);
+            this.tui.info('No compaction was applied.');
+            this.tui.plain(`Messages: ${beforeCount}, estimated tokens: ~${beforeTokens}, KEEP_LAST_TURNS=${keepLastTurns}`);
             break;
           }
 
@@ -257,91 +266,87 @@ class CoderCLI {
           const tokenDeltaText = tokenDelta >= 0 ? `-${tokenDelta}` : `+${Math.abs(tokenDelta)}`;
           const reasonSuffix = compactResult.reason ? ` (${compactResult.reason})` : '';
 
-          console.log(`\n🧩 Context compacted${reasonSuffix}`);
-          console.log(`Messages: ${beforeCount} -> ${afterCount}`);
-          console.log(`Estimated tokens: ~${beforeTokens} -> ~${afterTokens} (${tokenDeltaText})`);
-          console.log(`KEEP_LAST_TURNS=${keepLastTurns}`);
+          this.tui.section(`Context compacted${reasonSuffix}`, [
+            `Messages: ${beforeCount} -> ${afterCount}`,
+            `Estimated tokens: ~${beforeTokens} -> ~${afterTokens} (${tokenDeltaText})`,
+            `KEEP_LAST_TURNS=${keepLastTurns}`,
+          ]);
           break;
 
         case 'skills':
-          console.log('\nℹ️ Use /skills <name|index> <message> directly in input for one-shot skill execution.');
+          this.tui.info('Use /skills <name|index> <message> directly in input for one-shot skill execution.');
           break;
 
         case 'acp': {
           const message = await handleAcpCommand(this.acpPlatformKey, args);
-          console.log(`\n${message}`);
+          this.tui.plain(`\n${message}`);
           break;
         }
 
         case 'status':
           const currentId = this.sessionCommands.getCurrentSessionId();
           const currentTaskListId = this.sessionCommands.getCurrentTaskListId();
-          console.log(`\n📊 Session Status:`);
-          console.log(`Current Session: ${currentId || 'None (new session)'}`);
-          console.log(`Task List: ${currentTaskListId || 'None'}`);
-          console.log(`Messages: ${this.context.messages.length}`);
-          if (currentId) {
-            console.log(`To save this session, use: /save`);
-          }
+          this.tui.section('Session Status', [
+            `Current Session: ${currentId || 'None (new session)'}`,
+            `Task List: ${currentTaskListId || 'None'}`,
+            `Messages: ${this.context.messages.length}`,
+            ...(currentId ? ['To save this session, use: /save'] : []),
+          ]);
           break;
 
         case 'mode':
           const currentMode = this.agent.getMode();
           if (!currentMode) {
-            console.log('\n⚠️ plan mode plugin unavailable');
+            this.tui.warn('plan mode plugin unavailable');
             break;
           }
 
-          console.log(`\n🧭 Current mode: ${currentMode}`);
+          this.tui.info(`Current mode: ${currentMode}`);
           break;
 
         case 'plan':
           if (this.agent.setMode('planning', 'cli:/plan')) {
-            console.log('\n✅ Switched to planning mode');
+            this.tui.success('Switched to planning mode');
           } else {
-            console.log('\n❌ Failed to switch mode: plan mode plugin unavailable');
+            this.tui.error('Failed to switch mode: plan mode plugin unavailable');
           }
           break;
 
         case 'execute':
           if (this.agent.setMode('executing', 'cli:/execute')) {
-            console.log('\n✅ Switched to executing mode');
+            this.tui.success('Switched to executing mode');
           } else {
-            console.log('\n❌ Failed to switch mode: plan mode plugin unavailable');
+            this.tui.error('Failed to switch mode: plan mode plugin unavailable');
           }
           break;
 
         case 'save':
           if (this.sessionCommands.getCurrentSessionId()) {
             await this.sessionCommands.saveContext(this.context);
-            console.log('\n💾 Current session saved!');
+            this.tui.success('Current session saved!');
           } else {
-            console.log('\n❌ No active session. Create one with /new');
+            this.tui.error('No active session. Create one with /new');
           }
           break;
 
         case 'exit':
-          console.log('💾 Saving current session...');
+          this.tui.info('Saving current session...');
           await this.sessionCommands.saveContext(this.context);
-          console.log('Goodbye!');
+          this.tui.success('Goodbye!');
           process.exit(0);
           break;
 
         default:
-          console.log(`\n⚠️ Unknown command: ${command}`);
-          console.log('Type /help to see available commands');
+          this.tui.warn(`Unknown command: ${command}`);
+          this.tui.info('Type /help to see available commands');
       }
     } catch (error) {
-      console.error('\n❌ Error executing command:', error);
+      this.tui.error(`Error executing command: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   async start() {
-    console.log('🚀 Pulse Coder CLI is running...');
-    console.log('Type your messages and press Enter. Type "exit" to quit.');
-    console.log('Press Esc to stop current response and continue with new input.');
-    console.log('Press Ctrl+C to exit CLI.');
-    console.log('Commands starting with "/" will trigger command mode.\n');
+    this.tui.showWelcome();
 
     await this.sessionCommands.initialize();
     await memoryIntegration.initialize();
@@ -349,7 +354,7 @@ class CoderCLI {
 
     // 显示插件状态
     const pluginStatus = this.agent.getPluginStatus();
-    console.log(`✅ Built-in plugins loaded: ${pluginStatus.enginePlugins.length} plugins`);
+    this.tui.showPluginStatus(pluginStatus.enginePlugins.length);
 
     // Auto-create a new session
     await this.sessionCommands.createSession();
@@ -358,7 +363,7 @@ class CoderCLI {
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
-      prompt: '> '
+      prompt: this.tui.prompt()
     });
 
     let currentAbortController: AbortController | null = null;
@@ -372,9 +377,9 @@ class CoderCLI {
       if (isProcessing) {
         if (currentAbortController && !currentAbortController.signal.aborted) {
           currentAbortController.abort();
-          console.log('\n[Abort] Request cancelled by Esc. You can type the next message now.');
+          this.tui.abort('Request cancelled by Esc. You can type the next message now.');
         } else {
-          console.log('\n[Abort] Cancellation already requested. Waiting for current step to finish...');
+          this.tui.abort('Cancellation already requested. Waiting for current step to finish...');
         }
         rl.prompt();
         return true;
@@ -382,7 +387,7 @@ class CoderCLI {
 
       if (this.inputManager.hasPendingRequest()) {
         this.inputManager.cancel('User interrupted with Esc');
-        console.log('\n[Abort] Clarification cancelled.');
+        this.tui.abort('Clarification cancelled.');
         rl.prompt();
         return true;
       }
@@ -410,10 +415,10 @@ class CoderCLI {
         this.inputManager.cancel('User interrupted with Ctrl+C');
       }
 
-      console.log('\n💾 Saving current session...');
+      this.tui.info('Saving current session...');
       const cleanupTeams = teamsSession?.active ? teamsSession.stop().catch(() => {}) : Promise.resolve();
       cleanupTeams.then(() => this.sessionCommands.saveContext(this.context)).finally(() => {
-        console.log('👋 Goodbye!');
+        this.tui.success('Goodbye!');
         process.exit(0);
       });
     });
@@ -435,20 +440,20 @@ class CoderCLI {
           }
 
           queuedInputs.push(trimmedInput);
-          console.log('\n📝 Input queued. It will run right after the current step finishes.');
+          this.tui.queued('Input queued. It will run right after the current step finishes.');
           rl.prompt();
           return;
         }
 
-        console.log('\n⏳ Still processing. Press Esc to stop current request first.');
+        this.tui.warn('Still processing. Press Esc to stop current request first.');
         rl.prompt();
         return;
       }
 
       if (trimmedInput.toLowerCase() === 'exit') {
-        console.log('💾 Saving current session...');
+        this.tui.info('Saving current session...');
         await this.sessionCommands.saveContext(this.context);
-        console.log('👋 Goodbye!');
+        this.tui.success('Goodbye!');
         rl.close();
         return;
       }
@@ -464,7 +469,7 @@ class CoderCLI {
       if (trimmedInput.startsWith('//')) {
         const acpState = await getAcpState(this.acpPlatformKey);
         if (!acpState) {
-          console.log('\n⚠️ ACP 未启用，请先使用 /acp on <claude|codex>。');
+          this.tui.warn('ACP 未启用，请先使用 /acp on <claude|codex>。');
           rl.prompt();
           return;
         }
@@ -478,7 +483,7 @@ class CoderCLI {
         const parts = commandLine.split(/\s+/).filter(part => part.length > 0);
 
         if (parts.length === 0) {
-          console.log('\n⚠️ Please provide a command after "/"');
+          this.tui.warn('Please provide a command after "/"');
           rl.prompt();
           return;
         }
@@ -498,8 +503,8 @@ class CoderCLI {
           if (acpState) {
             forceAcp = true;
           } else {
-            console.log(`\n⚠️ Unknown command: /${command}`);
-            console.log('Type /help to see available commands');
+            this.tui.warn(`Unknown command: /${command}`);
+            this.tui.info('Type /help to see available commands');
             rl.prompt();
             return;
           }
@@ -521,7 +526,7 @@ class CoderCLI {
               const session = await TeamsSession.start(args);
               if (session) {
                 teamsSession = session;
-                rl.setPrompt('teams> ');
+                rl.setPrompt(this.tui.prompt('teams'));
               }
             } finally {
               isProcessing = false;
@@ -534,12 +539,12 @@ class CoderCLI {
               try {
                 await teamsSession.stop();
                 teamsSession = null;
-                rl.setPrompt('> ');
+                rl.setPrompt(this.tui.prompt());
               } finally {
                 isProcessing = false;
               }
             } else {
-              console.log('\n⚠️ Not in teams mode. Use /teams <task> to start.');
+              this.tui.warn('Not in teams mode. Use /teams <task> to start.');
             }
             rl.prompt();
             return;
@@ -553,21 +558,21 @@ class CoderCLI {
             messageInput = transformedMessage;
           } else if (normalizedCommand === 'wt') {
             if (args.length < 2 || args[0].toLowerCase() !== 'use') {
-              console.log('\n❌ Usage: /wt use <work-name>');
+              this.tui.error('Usage: /wt use <work-name>');
               rl.prompt();
               return;
             }
 
             const workName = args.slice(1).join(' ').trim();
             if (!workName) {
-              console.log('\n❌ Worktree name cannot be empty.');
-              console.log('Usage: /wt use <work-name>');
+              this.tui.error('Worktree name cannot be empty.');
+              this.tui.info('Usage: /wt use <work-name>');
               rl.prompt();
               return;
             }
 
             messageInput = `[use skill](worktree) new ${workName}`;
-            console.log('\n✅ Worktree request prepared via skill: worktree');
+            this.tui.success('Worktree request prepared via skill: worktree');
           } else {
             await this.handleCommand(command, args);
             rl.prompt();
@@ -582,7 +587,7 @@ class CoderCLI {
         try {
           await teamsSession.followUp(messageInput);
         } catch (err: any) {
-          console.error(`\n❌ Teams follow-up error: ${err.message}`);
+          this.tui.error(`Teams follow-up error: ${err.message}`);
         } finally {
           isProcessing = false;
           rl.prompt();
@@ -597,7 +602,7 @@ class CoderCLI {
       });
 
 
-      console.log('\n🔄 Processing...\n');
+      this.tui.startProcessing(forceAcp ? 'Running ACP agent' : 'Running agent');
 
       const ac = new AbortController();
       currentAbortController = ac;
@@ -644,19 +649,18 @@ class CoderCLI {
           abortSignal: ac.signal,
           onText: (delta) => {
             sawText = true;
-            process.stdout.write(delta);
+            this.tui.text(delta);
           },
           onToolCall: (toolCall) => {
             const input = getToolInput(toolCall);
-            const inputText = input === undefined ? '' : `(${JSON.stringify(input)})`;
-            process.stdout.write(`\n🔧 ${resolveToolName(toolCall)}${inputText}\n`);
+            this.tui.toolCall(resolveToolName(toolCall), input);
           },
           onToolResult: (toolResult) => {
             const toolName = resolveToolName(toolResult as Record<string, unknown>);
-            process.stdout.write(`\n✅ ${toolName}\n`);
+            this.tui.toolResult(toolName);
           },
           onStepFinish: (step) => {
-            process.stdout.write(`\n📋 Step finished: ${step.finishReason}\n`);
+            this.tui.stepFinished(step.finishReason);
           },
           onClarificationRequest: async (request) => {
             return await this.inputManager.requestInput(request);
@@ -683,16 +687,15 @@ class CoderCLI {
             callbacks: {
               onText: (delta) => {
                 sawText = true;
-                process.stdout.write(delta);
+                this.tui.text(delta);
               },
               onToolCall: (toolCall) => {
                 const input = getToolInput(toolCall);
-                const inputText = input === undefined ? '' : `(${JSON.stringify(input)})`;
-                process.stdout.write(`\n🔧 ${resolveToolName(toolCall)}${inputText}\n`);
+                this.tui.toolCall(resolveToolName(toolCall), input);
               },
               onToolResult: (toolResult) => {
                 const toolName = resolveToolName(toolResult as Record<string, unknown>);
-                process.stdout.write(`\n✅ ${toolName}\n`);
+                this.tui.toolResult(toolName);
               },
 
               onClarificationRequest: async (request) => {
@@ -715,9 +718,9 @@ class CoderCLI {
 
         if (result) {
           if (!sawText) {
-            console.log(result);
+            this.tui.plain(result);
           } else {
-            console.log();
+            this.tui.plain();
           }
 
           await this.sessionCommands.saveContext(this.context);
@@ -732,9 +735,9 @@ class CoderCLI {
         }
       } catch (error) {
         if (error.name === 'AbortError') {
-          console.log('\n[Abort] Operation cancelled.');
+          this.tui.abort('Operation cancelled.');
         } else {
-          console.error('\n❌ Error:', error.message);
+          this.tui.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
         }
       } finally {
         isProcessing = false;
@@ -743,7 +746,7 @@ class CoderCLI {
         if (queuedInputs.length > 0) {
           const nextInput = queuedInputs.shift();
           if (nextInput) {
-            console.log('\n▶️ Running queued input...');
+            this.tui.info('Running queued input...');
             setImmediate(() => {
               void handleInput(nextInput);
             });
@@ -762,9 +765,9 @@ class CoderCLI {
     // Handle terminal close
     rl.on('close', async () => {
       process.stdin.off('keypress', onKeypress);
-      console.log('\n💾 Saving current session...');
+      this.tui.info('Saving current session...');
       await this.sessionCommands.saveContext(this.context);
-      console.log('👋 Goodbye!');
+      this.tui.success('Goodbye!');
       process.exit(0);
     });
   }
