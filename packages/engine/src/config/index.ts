@@ -93,9 +93,23 @@ export const DEFAULT_MODEL = readEnv(
   'novita/deepseek/deepseek_v3',
 );
 
-export const MAX_TURNS = 100;
+const parsePositiveIntEnv = (name: string, fallback: number): number => {
+  const raw = process.env[name];
+  if (!raw) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
+};
+
+export const MAX_TURNS = parsePositiveIntEnv('MAX_TURNS', 240);
 export const MAX_ERROR_COUNT = 3;
-export const MAX_STEPS = 100;
+export const MAX_STEPS = parsePositiveIntEnv('MAX_STEPS', 240);
 export const MAX_TOOL_OUTPUT_LENGTH = 30_000;
 
 export const CONTEXT_WINDOW_TOKENS = Number(process.env.CONTEXT_WINDOW_TOKENS ?? 64_000);
