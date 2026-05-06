@@ -495,10 +495,15 @@ export class DiscordAdapter implements PlatformAdapter {
 
     const sendFinalText = async (text: string) => {
       const chunks = splitDiscordText(text);
-      await enqueuePrimaryWrite(
-        () => io.updatePrimary(chunks[0]),
-        { propagate: true },
-      );
+      try {
+        await enqueuePrimaryWrite(
+          () => io.updatePrimary(chunks[0]),
+          { propagate: true },
+        );
+      } catch (err) {
+        console.error('[discord] Failed to update final response; sending followup message:', err);
+        await io.sendExtraText(chunks[0]);
+      }
 
       for (const chunk of chunks.slice(1)) {
         await io.sendExtraText(chunk);
@@ -562,7 +567,6 @@ export class DiscordAdapter implements PlatformAdapter {
         finalizing = true;
         await sendFinalText(result || 'Done.').catch(async (err) => {
           console.error('[discord] Failed to send final response:', err);
-          await io.sendExtraText(`Error: ${String(err)}`);
         });
         io.setStatusReaction?.('✅').catch(() => undefined);
       },

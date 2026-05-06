@@ -9,7 +9,7 @@ import { hasIncomingImageAttachments } from './attachments.js';
 import {
   hasActiveRun,
   setActiveRun,
-  clearActiveRun,
+  clearActiveRunIfMatches,
   getActiveStreamId as getActiveStreamIdFromStore,
 } from './active-run-store.js';
 
@@ -212,7 +212,7 @@ async function runAgentAsync(adapter: PlatformAdapter, incoming: IncomingMessage
       console.error('[dispatcher] Original run error:', runError);
     }
   } finally {
-    clearActiveRun(platformKey);
+    clearActiveRunIfMatches(platformKey, streamId);
   }
 }
 

@@ -1,4 +1,4 @@
-import { abortActiveRun, getActiveRun } from '../../active-run-store.js';
+import { abortAndClearActiveRun, getActiveRun } from '../../active-run-store.js';
 import { engine } from '../../engine-singleton.js';
 import { memoryIntegration, recordCompactSummaryDailyLog } from '../../memory-integration.js';
 import { sessionStore } from '../../session-store.js';
@@ -193,7 +193,7 @@ export async function handleCurrentSessionCommand(platformKey: string): Promise<
 }
 
 export function handleStopCommand(platformKey: string): CommandResult {
-  const result = abortActiveRun(platformKey);
+  const result = abortAndClearActiveRun(platformKey);
   if (!result.aborted) {
     return {
       type: 'handled',
@@ -202,7 +202,8 @@ export function handleStopCommand(platformKey: string): CommandResult {
   }
 
   return {
-    type: 'handled_silent',
+    type: 'handled',
+    message: '⏹️ 已发送停止信号，当前会话已解除运行锁。',
   };
 }
 

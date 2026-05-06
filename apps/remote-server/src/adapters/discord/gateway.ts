@@ -1,7 +1,7 @@
 import { dispatchIncoming } from '../../core/dispatcher.js';
 import type { IncomingMessage, IncomingAttachment } from '../../core/types.js';
 import { discordAdapter, DISCORD_CANCEL_REACTION, buildDiscordCancelToken } from './adapter.js';
-import { abortActiveRun, resolvePlatformKeyByCancelToken } from '../../core/active-run-store.js';
+import { abortAndClearActiveRun, resolvePlatformKeyByCancelToken } from '../../core/active-run-store.js';
 import { DiscordClient } from './client.js';
 import { getDiscordProxyDispatcher } from './proxy.js';
 import { buildDiscordMemoryKey, buildDiscordPlatformKey, isDiscordThreadChannelType } from './platform-key.js';
@@ -424,7 +424,7 @@ export class DiscordDmGateway {
       return;
     }
 
-    const result = abortActiveRun(platformKey);
+    const result = abortAndClearActiveRun(platformKey);
     if (result.aborted) {
       console.log(`[discord-gateway] Cancelled active run via ❌ reaction platformKey=${platformKey}`);
     }

@@ -21,6 +21,21 @@ export function setActiveRun(platformKey: string, run: ActiveRun): void {
 
 export function clearActiveRun(platformKey: string): void {
   activeRuns.delete(platformKey);
+  clearCancelTokens(platformKey);
+}
+
+export function clearActiveRunIfMatches(platformKey: string, streamId: string): boolean {
+  const run = activeRuns.get(platformKey);
+  if (!run || run.streamId !== streamId) {
+    return false;
+  }
+
+  activeRuns.delete(platformKey);
+  clearCancelTokens(platformKey);
+  return true;
+}
+
+function clearCancelTokens(platformKey: string): void {
   const tokens = platformKeyToCancelTokens.get(platformKey);
   if (tokens) {
     for (const token of tokens) {
@@ -65,4 +80,12 @@ export function abortActiveRun(platformKey: string): { aborted: boolean; started
     aborted: true,
     startedAt: run.startedAt,
   };
+}
+
+export function abortAndClearActiveRun(platformKey: string): { aborted: boolean; startedAt?: number } {
+  const result = abortActiveRun(platformKey);
+  if (result.aborted) {
+    clearActiveRun(platformKey);
+  }
+  return result;
 }

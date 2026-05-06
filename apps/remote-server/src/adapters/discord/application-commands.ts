@@ -40,6 +40,11 @@ const SKILLS_COMMAND: DiscordApplicationCommandCreate = {
   description: 'Open the Pulse skill launcher.',
 };
 
+const STOP_COMMAND: DiscordApplicationCommandCreate = {
+  name: 'stop',
+  description: 'Stop the currently running Pulse task in this channel.',
+};
+
 // Right-click message → Apps → "Ask Pulse" sends the message content as a prompt.
 const ASK_PULSE_MESSAGE_COMMAND: DiscordApplicationCommandCreate = {
   name: 'Ask Pulse',
@@ -62,7 +67,7 @@ export async function registerDiscordApplicationCommands(): Promise<void> {
   const configuredApplicationId = process.env.DISCORD_APPLICATION_ID?.trim();
   const applicationId = configuredApplicationId || await client.getApplicationId();
   const guildIds = parseGuildIds(process.env.DISCORD_COMMAND_GUILD_IDS);
-  const commands = [RESTART_COMMAND, WORKTREE_COMMAND, SKILLS_COMMAND, ASK_PULSE_MESSAGE_COMMAND];
+  const commands = [RESTART_COMMAND, WORKTREE_COMMAND, SKILLS_COMMAND, STOP_COMMAND, ASK_PULSE_MESSAGE_COMMAND];
 
   if (guildIds.length === 0) {
     for (const command of commands) {
