@@ -11,6 +11,7 @@ import { IframeNodeBody } from "../IframeNodeBody";
 import { ImageNodeBody } from "../ImageNodeBody";
 import { ShapeNodeBody, ShapeStylePicker } from "../ShapeNodeBody";
 import { MindmapNodeBody } from "../MindmapNodeBody";
+import { NodeContextMenu } from "../NodeContextMenu";
 
 interface Props {
   node: CanvasNode;
@@ -40,6 +41,7 @@ interface Props {
    *  without polluting the undo stack. */
   onAutoResize: (id: string, width: number, height: number) => void;
   onRemove: (id: string) => void;
+  onExportMindmapImage: (id: string) => void;
   /** Selection callback. The optional `mods` payload lets the caller
    *  honor shift/meta multi-select semantics — without it the click is
    *  treated as a plain replace-the-selection click. */
@@ -99,11 +101,13 @@ export const CanvasNodeView = ({
   onUpdate,
   onAutoResize,
   onRemove,
+  onExportMindmapImage,
   onSelect,
   onFocus
 }: Props) => {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [mindmapMenu, setMindmapMenu] = useState<{ x: number; y: number } | null>(null);
   const [, setTick] = useState(0);
   const titleRef = useRef<HTMLSpanElement>(null);
 
@@ -341,6 +345,12 @@ export const CanvasNodeView = ({
           height: node.height,
         }}
         onClick={handleNodeClick}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onSelect(node.id);
+          setMindmapMenu({ x: e.clientX, y: e.clientY });
+        }}
         onMouseDown={(e) => {
           // Same logic as handleHeaderMouseDown — only collapse the
           // selection on a plain mousedown over an unselected node.
@@ -365,6 +375,18 @@ export const CanvasNodeView = ({
             <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
           </svg>
         </button>
+        {mindmapMenu && (
+          <NodeContextMenu
+            x={mindmapMenu.x}
+            y={mindmapMenu.y}
+            mode="mindmap"
+            onClose={() => setMindmapMenu(null)}
+            onExportImage={() => {
+              setMindmapMenu(null);
+              onExportMindmapImage(node.id);
+            }}
+          />
+        )}
       </div>
     );
   }

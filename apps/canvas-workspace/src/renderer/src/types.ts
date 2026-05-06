@@ -288,6 +288,11 @@ export interface FileApi {
     data: string,
     ext?: string
   ) => Promise<{ ok: boolean; filePath?: string; fileName?: string; error?: string }>;
+  exportImage: (
+    defaultName: string,
+    data: string,
+    ext?: string
+  ) => Promise<{ ok: boolean; canceled?: boolean; filePath?: string; fileName?: string; error?: string }>;
   onChanged: (callback: (filePath: string, content: string) => void) => () => void;
 }
 

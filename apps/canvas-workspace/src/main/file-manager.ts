@@ -169,6 +169,36 @@ export const setupFileManagerIpc = () => {
     }
   );
 
+  // Export an image (base64) via save dialog
+  ipcMain.handle(
+    "file:exportImage",
+    async (_event, payload: { defaultName?: string; data: string; ext?: string }) => {
+      try {
+        const ext = (payload.ext ?? "png").replace(/[^a-zA-Z0-9]/g, "") || "png";
+        const defaultName = payload.defaultName?.trim()
+          ? payload.defaultName.trim()
+          : `img-${Date.now()}.${ext}`;
+        const win = BrowserWindow.getFocusedWindow();
+        const result = await dialog.showSaveDialog(win!, {
+          title: "Export Image",
+          defaultPath: defaultName,
+          filters: [
+            { name: "PNG Image", extensions: ["png"] },
+            { name: "All Files", extensions: ["*"] }
+          ]
+        });
+        if (result.canceled || !result.filePath) {
+          return { ok: false, canceled: true };
+        }
+        const buffer = Buffer.from(payload.data, "base64");
+        await fs.writeFile(result.filePath, buffer);
+        return { ok: true, filePath: result.filePath, fileName: basename(result.filePath) };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    }
+  );
+
   // Save-as dialog
   ipcMain.handle(
     "file:saveAsDialog",
