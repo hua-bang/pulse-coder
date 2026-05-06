@@ -17,6 +17,7 @@ import type { CanvasNode } from '../../types';
 import type { PaletteCommand } from '../CommandPalette';
 import { computeFrameDepths } from '../../utils/frameHierarchy';
 import { getNodeDisplayLabel } from '../../utils/nodeLabel';
+import { exportMindmapNodeToPng } from '../../utils/mindmapExport';
 import type { CanvasNodeRenameRequest } from '../../types/ui-interaction';
 import { CanvasSurface } from './CanvasSurface';
 import { CanvasOverlays } from './CanvasOverlays';
@@ -524,6 +525,48 @@ export const Canvas = ({
     [addNode, contextMenu, notify]
   );
 
+  const handleExportMindmapImage = useCallback(
+    async (nodeId: string) => {
+      const node = nodes.find((item) => item.id === nodeId);
+      const api = window.canvasWorkspace?.file;
+      if (!node || node.type !== 'mindmap' || !api) return;
+
+      notify({
+        tone: 'loading',
+        title: 'Exporting mindmap...',
+        description: getNodeDisplayLabel(node),
+      });
+
+      try {
+        const image = await exportMindmapNodeToPng(node);
+        const result = await api.exportImage(image.fileName, image.data, 'png');
+        if (!result.ok) {
+          if (result.canceled) {
+            notify({
+              tone: 'info',
+              title: 'Export canceled',
+              description: getNodeDisplayLabel(node),
+            });
+            return;
+          }
+          throw new Error(result.error ?? 'The image could not be saved.');
+        }
+        notify({
+          tone: 'success',
+          title: 'Mindmap image exported',
+          description: result.filePath ?? image.fileName,
+        });
+      } catch (err) {
+        notify({
+          tone: 'error',
+          title: 'Mindmap export failed',
+          description: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [nodes, notify],
+  );
+
   const handleToolbarAddNode = useCallback(
     (type: 'file' | 'terminal' | 'frame' | 'agent' | 'text' | 'iframe' | 'mindmap') => {
       if (!containerRef.current) return;
@@ -862,6 +905,7 @@ export const Canvas = ({
           }
           setSelectedEdgeId(null);
         }}
+        onExportMindmapImage={handleExportMindmapImage}
         onFocus={handleFocusNode}
         onSelectEdge={(id) => {
           setSelectedEdgeId(id);

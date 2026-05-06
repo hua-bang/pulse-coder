@@ -121,6 +121,9 @@ contextBridge.exposeInMainWorld("canvasWorkspace", {
     saveImage: (workspaceId: string | undefined, data: string, ext?: string) =>
       ipcRenderer.invoke("file:saveImage", { workspaceId, data, ext }),
 
+    exportImage: (defaultName: string, data: string, ext?: string) =>
+      ipcRenderer.invoke("file:exportImage", { defaultName, data, ext }),
+
     onChanged: (callback: (filePath: string, content: string) => void) => {
       const handler = (
         _event: Electron.IpcRendererEvent,
