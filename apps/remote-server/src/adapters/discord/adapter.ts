@@ -91,7 +91,7 @@ export function buildDiscordCancelToken(channelId: string, messageId: string): s
 }
 
 const DISCORD_ACK_EPHEMERAL_FLAG = 1 << 6;
-const DISCORD_PROGRESS_UPDATE_INTERVAL_MS = 5000;
+const DISCORD_PROGRESS_UPDATE_INTERVAL_MS = 60000;
 const DISCORD_MESSAGE_LIMIT = 2000;
 const DISCORD_PROGRESS_FOOTER_BASE = 'Pulse Agent 努力生成中';
 const DISCORD_PROGRESS_DOT_MIN = 1;
