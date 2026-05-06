@@ -250,6 +250,12 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
   const loopHooks = options?.hooks ?? {};
 
   while (true) {
+    let requestStartAt: number | undefined;
+    let firstChunkAt: number | undefined;
+    let firstTextAt: number | undefined;
+    let lastChunkAt: number | undefined;
+    let llmCallStarted = false;
+
     try {
       if (options?.abortSignal?.aborted) {
         return 'Request aborted.';
@@ -321,12 +327,8 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
         return 'Request aborted.';
       }
 
-      let requestStartAt: number | undefined;
-      let firstChunkAt: number | undefined;
-      let firstTextAt: number | undefined;
-      let lastChunkAt: number | undefined;
-
       requestStartAt = Date.now();
+      llmCallStarted = true;
       const result = streamTextAI(context.messages, tools, {
         abortSignal: options?.abortSignal,
         toolExecutionContext,
@@ -505,9 +507,33 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
         return 'Request aborted.';
       }
 
+      if (llmCallStarted && loopHooks.afterLLMCall?.length) {
+        try {
+          for (const hook of loopHooks.afterLLMCall) {
+            await hook({
+              context,
+              finishReason: 'error',
+              text: '',
+              usage: undefined,
+              error,
+              model: options?.model,
+              timings: {
+                requestStartAt,
+                firstChunkAt,
+                firstTextAt,
+                lastChunkAt,
+              },
+            });
+          }
+        } catch (hookError) {
+          console.warn('[loop] afterLLMCall hook failed while recording LLM error', hookError);
+        }
+      }
+
       errorCount++;
       if (errorCount >= MAX_ERROR_COUNT) {
-        return `Failed after ${errorCount} errors: ${error?.message ?? String(error)}`;
+        const formatted = formatUpstreamError(error);
+        return formatted ?? `Failed after ${errorCount} errors: ${error?.message ?? String(error)}`;
       }
 
       if (isRetryableError(error)) {
@@ -516,8 +542,70 @@ export async function loop(context: Context, options?: LoopOptions): Promise<str
         continue;
       }
 
-      return `Error: ${error?.message ?? String(error)}`;
+      return formatUpstreamError(error) ?? `Error: ${error?.message ?? String(error)}`;
     }
+  }
+}
+
+function formatUpstreamError(error: any): string | null {
+  const messages = collectErrorMessages(error);
+  const combined = messages.join('\n').toLowerCase();
+  if (
+    combined.includes('failed to read request body') ||
+    combined.includes('timed out reading request body') ||
+    combined.includes('user_request_timeout')
+  ) {
+    return [
+      '⚠️ 上游模型服务读取请求体失败或超时。',
+      '',
+      '这通常表示本次上下文或工具输出较大，代理/上游在上传请求体阶段失败。建议先用 `/compact` 压缩上下文，或用 `/new` 开新会话后继续；如果需要排查现场，可用返回的 runId 到 devtools 或 pm2 日志查看对应 LLM span。',
+    ].join('\n');
+  }
+
+  return null;
+}
+
+function collectErrorMessages(value: unknown, seen = new Set<object>()): string[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return [];
+    }
+    const parsed = parseJsonObject(trimmed);
+    return parsed ? [trimmed, ...collectErrorMessages(parsed, seen)] : [trimmed];
+  }
+
+  if (typeof value !== 'object') {
+    return [String(value)];
+  }
+
+  if (seen.has(value)) {
+    return [];
+  }
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectErrorMessages(item, seen));
+  }
+
+  const record = value as Record<string, unknown>;
+  const fields = ['message', 'responseBody', 'body', 'data', 'error', 'cause', 'lastError', 'errors'];
+  return fields.flatMap((field) => collectErrorMessages(record[field], seen));
+}
+
+function parseJsonObject(text: string): unknown | null {
+  if (!text.startsWith('{') && !text.startsWith('[')) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
   }
 }
 

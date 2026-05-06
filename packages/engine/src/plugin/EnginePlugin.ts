@@ -43,6 +43,8 @@ export interface AfterLLMCallInput {
   finishReason: string;
   text: string;
   usage?: any;
+  /** Error thrown by the LLM call before a normal finishReason was produced. */
+  error?: unknown;
   /** Model identifier that produced this response. */
   model?: string;
   timings?: {

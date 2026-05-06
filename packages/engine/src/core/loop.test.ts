@@ -198,4 +198,38 @@ describe('loop', () => {
 
     expect(result).toBe('Max steps reached, task may be incomplete.');
   });
+
+  it('records llm errors and formats request-body upstream failures', async () => {
+    const context: Context = {
+      messages: [{ role: 'user', content: 'large request' }],
+    };
+    const afterLLMCall = vi.fn(async () => undefined);
+    const upstreamError = Object.assign(
+      new Error('API Error: 400 {"error":{"message":"Failed to read request body","type":"invalid_request_error"}}'),
+      {
+        status: 400,
+        responseBody: '{"error":{"message":"Failed to read request body","type":"invalid_request_error"}}',
+      },
+    );
+
+    streamTextAIMock.mockImplementation(() => {
+      throw upstreamError;
+    });
+
+    const result = await loop(context, {
+      hooks: {
+        afterLLMCall: [afterLLMCall],
+      },
+    });
+
+    expect(result).toContain('上游模型服务读取请求体失败或超时');
+    expect(afterLLMCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context,
+        finishReason: 'error',
+        text: '',
+        error: upstreamError,
+      }),
+    );
+  });
 });

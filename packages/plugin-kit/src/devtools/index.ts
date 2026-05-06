@@ -1057,6 +1057,7 @@ export class DevtoolsStore {
     if (span) {
       span.endedAt = timestamp;
       span.durationMs = Math.max(0, timestamp - span.startedAt);
+      span.finishReason = 'error';
       span.errorMessage = message;
       if (model && !span.model) {
         span.model = model;
@@ -1768,14 +1769,22 @@ export function createDevtoolsIntegration(options: DevtoolsIntegrationOptions = 
             (input as any).model ??
             (input.context as any)?.model ??
             undefined;
-          store.recordLLMEnd(
-            runId,
-            input.finishReason,
-            input.text,
-            input.usage,
-            input.timings,
-            { model: typeof model === 'string' ? model : undefined },
-          );
+          if (input.error) {
+            store.recordLLMError(
+              runId,
+              input.error instanceof Error ? input.error : String(input.error),
+              typeof model === 'string' ? model : undefined,
+            );
+          } else {
+            store.recordLLMEnd(
+              runId,
+              input.finishReason,
+              input.text,
+              input.usage,
+              input.timings,
+              { model: typeof model === 'string' ? model : undefined },
+            );
+          }
         }
       });
 
