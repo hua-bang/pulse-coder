@@ -301,6 +301,9 @@ function summarizeNode(node: CanvasNode): NodeSummary {
       summary.color = (node.data.color as string) || undefined;
       summary.label = (node.data.label as string) || undefined;
       break;
+    case 'image':
+      summary.imagePath = (node.data.filePath as string) || undefined;
+      break;
     case 'iframe': {
       const iframeMode = (node.data.mode as string) || 'url';
       if (iframeMode === 'html' || iframeMode === 'ai') {
@@ -457,6 +460,9 @@ export async function buildDetailedContext(workspaceId: string): Promise<Detaile
         detailed.scrollback = (node.data.scrollback as string) ?? '';
         detailed.cwd = (node.data.cwd as string) ?? '';
         break;
+      case 'image':
+        detailed.content = node.data.filePath ? `[image file: ${node.data.filePath as string}]` : '[image node has no filePath]';
+        break;
       case 'iframe': {
         const iframeMode = (node.data.mode as string) || 'url';
         if (iframeMode === 'html' || iframeMode === 'ai') {
@@ -527,6 +533,9 @@ export async function readNodeDetail(workspaceId: string, nodeId: string): Promi
       break;
     case 'frame':
       // nothing extra beyond summary
+      break;
+    case 'image':
+      detailed.content = node.data.filePath ? `[image file: ${node.data.filePath as string}]` : '[image node has no filePath]';
       break;
     case 'iframe': {
       const iframeMode = (node.data.mode as string) || 'url';
@@ -613,6 +622,16 @@ export function formatSummaryForPrompt(summary: WorkspaceSummary): string {
     for (const n of byType.iframe) {
       const hint = n.url ? ` — ${n.url}` : ' (HTML)';
       lines.push(`- [${n.id}] **${n.title}**${hint}`);
+    }
+    lines.push('');
+  }
+
+  if (byType.image?.length) {
+    lines.push('## Image Nodes');
+    lines.push('_Use `canvas_analyze_image` with the node id to read/OCR image contents._');
+    for (const n of byType.image) {
+      const pathHint = n.imagePath ? ` (${n.imagePath})` : '';
+      lines.push(`- [${n.id}] **${n.title}**${pathHint}`);
     }
     lines.push('');
   }

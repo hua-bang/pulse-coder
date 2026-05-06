@@ -50,6 +50,8 @@ export interface NodeSummary {
   label?: string;
   /** Embedded URL for iframe nodes. */
   url?: string;
+  /** Local image path for image nodes. */
+  imagePath?: string;
   /** Root topic text for mindmap nodes. */
   rootText?: string;
   /** Total topic count (including root) for mindmap nodes. */

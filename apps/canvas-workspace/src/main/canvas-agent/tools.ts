@@ -9,11 +9,12 @@
  */
 
 import { promises as fs } from 'fs';
-import { join, dirname, basename } from 'path';
+import { join, dirname, basename, extname } from 'path';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import { BrowserWindow } from 'electron';
 import { z } from 'zod';
+import { GenerateImageTool } from 'pulse-coder-engine';
 import {
   buildWorkspaceSummary,
   buildDetailedContext,
@@ -27,7 +28,7 @@ const STORE_DIR = join(homedir(), '.pulse-coder', 'canvas');
 
 // ─── Types mirrored from canvas-cli ────────────────────────────────
 
-type NodeType = 'file' | 'terminal' | 'frame' | 'agent' | 'text' | 'iframe' | 'shape' | 'mindmap';
+type NodeType = 'file' | 'terminal' | 'frame' | 'agent' | 'text' | 'iframe' | 'image' | 'shape' | 'mindmap';
 
 interface MindmapTopic {
   id: string;
@@ -122,6 +123,7 @@ const DEFAULT_DIMENSIONS: Record<NodeType, { title: string; width: number; heigh
   agent: { title: 'Agent', width: 520, height: 380 },
   text: { title: 'Text', width: 260, height: 120 },
   iframe: { title: 'Web', width: 520, height: 400 },
+  image: { title: 'Image', width: 480, height: 360 },
   shape: { title: 'Shape', width: 200, height: 140 },
   mindmap: { title: 'Mindmap', width: 640, height: 420 },
 };
@@ -292,6 +294,272 @@ function autoPlace(nodes: CanvasNode[]): { x: number; y: number } {
   return { x: maxRight + 40, y: bestY };
 }
 
+
+const IMAGE_EXTENSION_TO_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+};
+
+function resolveImageMimeType(filePath: string): string {
+  return IMAGE_EXTENSION_TO_MIME[extname(filePath).toLowerCase()] ?? 'image/png';
+}
+
+
+function flattenMindmapForPrompt(topic: MindmapTopic | undefined, depth = 0): string {
+  if (!topic) return '';
+  const indent = '  '.repeat(depth);
+  const collapsedHint = topic.collapsed ? ' [collapsed in UI]' : '';
+  const lines = [`${indent}- ${topic.text?.trim() || '(empty topic)'}${collapsedHint}`];
+  for (const child of topic.children ?? []) {
+    lines.push(flattenMindmapForPrompt(child, depth + 1));
+  }
+  return lines.join('\n');
+}
+
+async function resolveImageInputs(
+  canvas: CanvasSaveData,
+  input: { nodeIds?: string[]; imagePaths?: string[]; maxImages?: number },
+): Promise<Array<{ path: string; source: string; mimeType: string; base64: string }>> {
+  const maxImages = input.maxImages ?? 6;
+  const paths: Array<{ path: string; source: string }> = [];
+
+  for (const nodeId of input.nodeIds ?? []) {
+    const node = canvas.nodes.find((n) => n.id === nodeId);
+    if (!node) throw new Error(`Image node not found: ${nodeId}`);
+    if (node.type !== 'image') throw new Error(`Node is not an image node: ${nodeId}`);
+    const filePath = node.data.filePath as string | undefined;
+    if (!filePath) throw new Error(`Image node has no filePath: ${nodeId}`);
+    paths.push({ path: filePath, source: `node:${nodeId}` });
+  }
+
+  for (const imagePath of input.imagePaths ?? []) {
+    if (imagePath.trim()) paths.push({ path: imagePath.trim(), source: 'path' });
+  }
+
+  if (paths.length === 0) {
+    throw new Error('Provide image nodeIds or local imagePaths to analyze.');
+  }
+
+  const limited = paths.slice(0, maxImages);
+  return Promise.all(limited.map(async (item) => {
+    const buffer = await fs.readFile(item.path);
+    return {
+      ...item,
+      mimeType: resolveImageMimeType(item.path),
+      base64: buffer.toString('base64'),
+    };
+  }));
+}
+
+function extractOpenAIResponsesText(data: any): string {
+  const chunks: string[] = [];
+  for (const item of data?.output ?? []) {
+    for (const content of item?.content ?? []) {
+      if (typeof content?.text === 'string') chunks.push(content.text);
+    }
+  }
+  return chunks.join('\n').trim();
+}
+
+function extractOpenAIChatText(data: any): string {
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content === 'string') return content.trim();
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => typeof part?.text === 'string' ? part.text : '')
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+  }
+  return '';
+}
+
+async function analyzeImagesWithOpenAI(args: {
+  prompt: string;
+  images: Array<{ base64: string; mimeType: string }>;
+  model?: string;
+  detail?: 'auto' | 'low' | 'high';
+  visionApiMode?: 'responses' | 'chat_completions' | 'auto';
+}): Promise<{ provider: 'openai'; model: string; text: string }> {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) throw new Error('OPENAI_API_KEY environment variable is not set');
+
+  const apiUrl = (process.env.OPENAI_API_URL?.trim() || 'https://api.openai.com/v1').replace(/\/$/, '');
+  const model = args.model?.trim() || process.env.OPENAI_VISION_MODEL?.trim() || 'gpt-5.4';
+  const mode = args.visionApiMode ?? 'responses';
+  const detail = args.detail ?? 'auto';
+
+  const runResponses = async () => {
+    const response = await fetch(`${apiUrl}/responses`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        input: [{
+          role: 'user',
+          content: [
+            { type: 'input_text', text: args.prompt },
+            ...args.images.map((image) => ({
+              type: 'input_image',
+              image_url: `data:${image.mimeType};base64,${image.base64}`,
+              detail,
+            })),
+          ],
+        }],
+      }),
+    });
+    const data = await response.json() as any;
+    if (!response.ok) {
+      throw new Error(`OpenAI vision API error: ${response.status} ${response.statusText} - ${JSON.stringify(data?.error ?? data)}`);
+    }
+    const text = extractOpenAIResponsesText(data);
+    if (!text) throw new Error('OpenAI vision response did not include text');
+    return text;
+  };
+
+  const runChatCompletions = async () => {
+    const response = await fetch(`${apiUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: args.prompt },
+            ...args.images.map((image) => ({
+              type: 'image_url',
+              image_url: {
+                url: `data:${image.mimeType};base64,${image.base64}`,
+                detail,
+              },
+            })),
+          ],
+        }],
+      }),
+    });
+    const data = await response.json() as any;
+    if (!response.ok) {
+      throw new Error(`OpenAI chat vision API error: ${response.status} ${response.statusText} - ${JSON.stringify(data?.error ?? data)}`);
+    }
+    const text = extractOpenAIChatText(data);
+    if (!text) throw new Error('OpenAI chat vision response did not include text');
+    return text;
+  };
+
+  if (mode === 'chat_completions') {
+    return { provider: 'openai', model, text: await runChatCompletions() };
+  }
+  if (mode === 'auto') {
+    try {
+      return { provider: 'openai', model, text: await runResponses() };
+    } catch {
+      return { provider: 'openai', model, text: await runChatCompletions() };
+    }
+  }
+  return { provider: 'openai', model, text: await runResponses() };
+}
+
+async function analyzeImagesWithGemini(args: {
+  prompt: string;
+  images: Array<{ base64: string; mimeType: string }>;
+  model?: string;
+}): Promise<{ provider: 'gemini'; model: string; text: string }> {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) throw new Error('GEMINI_API_KEY environment variable is not set');
+
+  const baseUrl = (process.env.GEMINI_API_BASE_URL?.trim() || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, '');
+  const model = args.model?.trim() || process.env.GEMINI_VISION_MODEL?.trim() || 'gemini-2.5-flash';
+  const response = await fetch(`${baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{
+        role: 'user',
+        parts: [
+          { text: args.prompt },
+          ...args.images.map((image) => ({
+            inline_data: {
+              mime_type: image.mimeType,
+              data: image.base64,
+            },
+          })),
+        ],
+      }],
+    }),
+  });
+  const data = await response.json() as any;
+  if (!response.ok) {
+    throw new Error(`Gemini vision API error: ${response.status} ${response.statusText} - ${JSON.stringify(data?.error ?? data)}`);
+  }
+  const text = (data?.candidates ?? [])
+    .flatMap((candidate: any) => candidate?.content?.parts ?? [])
+    .map((part: any) => typeof part?.text === 'string' ? part.text : '')
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  if (!text) {
+    const blockReason = data?.promptFeedback?.blockReason;
+    if (blockReason) throw new Error(`Gemini vision blocked the request: ${blockReason}`);
+    throw new Error('Gemini vision response did not include text');
+  }
+  return { provider: 'gemini', model, text };
+}
+
+function readPngDimensions(buffer: Buffer): { width: number; height: number } | null {
+  if (buffer.length < 24) return null;
+  if (buffer.toString('hex', 0, 8) !== '89504e470d0a1a0a') return null;
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
+
+function readJpegDimensions(buffer: Buffer): { width: number; height: number } | null {
+  if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) return null;
+  let offset = 2;
+  while (offset < buffer.length) {
+    if (buffer[offset] !== 0xff) return null;
+    const marker = buffer[offset + 1];
+    const length = buffer.readUInt16BE(offset + 2);
+    if (marker >= 0xc0 && marker <= 0xc3 && offset + 8 < buffer.length) {
+      return { width: buffer.readUInt16BE(offset + 7), height: buffer.readUInt16BE(offset + 5) };
+    }
+    offset += 2 + length;
+  }
+  return null;
+}
+
+async function readImageDimensions(filePath: string): Promise<{ width: number; height: number } | null> {
+  try {
+    const buffer = await fs.readFile(filePath);
+    return readPngDimensions(buffer) ?? readJpegDimensions(buffer);
+  } catch {
+    return null;
+  }
+}
+
+function fitImageNodeDimensions(dimensions: { width: number; height: number } | null): { width: number; height: number } {
+  if (!dimensions || dimensions.width <= 0 || dimensions.height <= 0) {
+    return { width: 480, height: 360 };
+  }
+  const maxDim = 480;
+  const largest = Math.max(dimensions.width, dimensions.height);
+  if (largest <= maxDim) return dimensions;
+  const scale = maxDim / largest;
+  return {
+    width: Math.round(dimensions.width * scale),
+    height: Math.round(dimensions.height * scale),
+  };
+}
+
 // ─── Canvas Tool type (matches Engine's Tool interface) ────────────
 
 /**
@@ -459,6 +727,7 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
       description:
         'Create a new node on the canvas.\n' +
         '- **file**: Creates a markdown note with a backing file. Use `content` for initial text.\n' +
+        '- **image**: Creates an image node from `data.filePath` (absolute local path). Prefer `canvas_generate_image` when the user asks AI to create an image.\n' +
         '- **terminal**: Spawns an interactive shell session on the canvas. The PTY starts automatically. Use `data.cwd` to set the working directory.\n' +
         '- **frame**: Creates a grouping container. Use `data.color` (hex) and `data.label`.\n' +
         '- **agent**: Creates an AI agent node (Claude Code, Codex, Pulse Coder). ' +
@@ -486,7 +755,7 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
         'Use this whenever the user asks for a mindmap / brainstorm / outline that should be laid out radially ' +
         'rather than as a flat text node.',
       inputSchema: z.object({
-        type: z.enum(['file', 'terminal', 'frame', 'agent', 'text', 'iframe', 'shape', 'mindmap']).describe('Node type.'),
+        type: z.enum(['file', 'terminal', 'frame', 'agent', 'text', 'iframe', 'image', 'shape', 'mindmap']).describe('Node type.'),
         title: z.string().optional().describe('Node title.'),
         content: z.string().optional().describe('Initial content (for file and text nodes).'),
         x: z.number().optional().describe('X position (auto-placed if omitted).'),
@@ -572,6 +841,9 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
               backgroundColor: (extraData.backgroundColor as string) ?? 'transparent',
               fontSize: (extraData.fontSize as number) ?? 18,
             };
+            break;
+          case 'image':
+            nodeData = { filePath: (extraData.filePath as string) ?? '' };
             break;
           case 'iframe': {
             const rawMode = extraData.mode as string | undefined;
@@ -666,6 +938,223 @@ export function createCanvasTools(workspaceId: string): Record<string, CanvasToo
           type: nodeType,
           title,
         });
+      },
+    },
+
+    canvas_analyze_image: {
+      name: 'canvas_analyze_image',
+      description:
+        'Read/analyze one or more image nodes or local image paths using a vision model. ' +
+        'Use this when the user asks what is in an image on the canvas, asks to OCR/summarize a picture, ' +
+        'or wants a mindmap created from an image. For image nodes, pass nodeIds. For local files, pass imagePaths.',
+      inputSchema: z.object({
+        nodeIds: z.array(z.string()).optional().describe('Canvas image node IDs to analyze.'),
+        imagePaths: z.array(z.string()).optional().describe('Local image file paths to analyze.'),
+        prompt: z.string().optional().describe('Question/instruction for the image analysis.'),
+        maxImages: z.number().int().positive().max(10).optional().describe('Maximum image count. Defaults to 6.'),
+        provider: z.enum(['openai', 'gpt', 'gemini']).optional().describe('Vision provider. Defaults to OpenAI/GPT.'),
+        model: z.string().optional().describe('Vision model override.'),
+        detail: z.enum(['auto', 'low', 'high']).optional().describe('OpenAI image detail level.'),
+        visionApiMode: z.enum(['responses', 'chat_completions', 'auto']).optional().describe('OpenAI vision API mode.'),
+      }),
+      execute: async (input) => {
+        const canvas = await loadCanvas(workspaceId);
+        if (!canvas) return 'Error: workspace not found';
+
+        const prompt = (input.prompt as string | undefined)?.trim()
+          || 'Describe the image, OCR visible text, extract key facts, and answer the user request. If useful, return a concise structured outline.';
+        const images = await resolveImageInputs(canvas, {
+          nodeIds: input.nodeIds as string[] | undefined,
+          imagePaths: input.imagePaths as string[] | undefined,
+          maxImages: input.maxImages as number | undefined,
+        });
+        const provider = (input.provider as string | undefined) === 'gemini' ? 'gemini' : 'openai';
+        const result = provider === 'gemini'
+          ? await analyzeImagesWithGemini({
+              prompt,
+              images,
+              model: input.model as string | undefined,
+            })
+          : await analyzeImagesWithOpenAI({
+              prompt,
+              images,
+              model: input.model as string | undefined,
+              detail: input.detail as 'auto' | 'low' | 'high' | undefined,
+              visionApiMode: input.visionApiMode as 'responses' | 'chat_completions' | 'auto' | undefined,
+            });
+
+        return JSON.stringify({
+          ok: true,
+          ...result,
+          imageCount: images.length,
+          imagePaths: images.map((image) => image.path),
+          sources: images.map((image) => image.source),
+        }, null, 2);
+      },
+    },
+
+    canvas_generate_image: {
+      name: 'canvas_generate_image',
+      description:
+        'Generate an image with the engine generate_image implementation and place the result on the canvas as an image node. ' +
+        'Use this when the user asks to create/draw/generate a picture, diagram, poster, or visual asset. ' +
+        'If the generated image should reflect a mindmap, pass sourceMindmapNodeId so the prompt includes the mindmap topic tree.',
+      inputSchema: z.object({
+        prompt: z.string().describe('Detailed image generation prompt.'),
+        title: z.string().optional().describe('Canvas image node title.'),
+        sourceMindmapNodeId: z.string().optional().describe('Optional mindmap node ID whose topic tree should be included in the generation prompt.'),
+        x: z.number().optional().describe('Optional X position.'),
+        y: z.number().optional().describe('Optional Y position.'),
+        provider: z.enum(['openai', 'gpt', 'gemini']).optional().describe('Image provider. Defaults to OpenAI/GPT.'),
+        model: z.string().optional().describe('Image generation model override.'),
+        size: z.string().optional().describe('OpenAI/GPT image size, e.g. 1024x1024 or auto.'),
+        quality: z.string().optional().describe('OpenAI/GPT image quality.'),
+        outputFormat: z.enum(['png', 'jpeg', 'webp']).optional().describe('Output format.'),
+        imageApiMode: z.enum(['images', 'responses', 'responses_stream', 'auto']).optional().describe('OpenAI/GPT image API mode.'),
+      }),
+      execute: async (input) => {
+        const canvas = await loadCanvas(workspaceId);
+        if (!canvas) return 'Error: workspace not found';
+
+        let prompt = (input.prompt as string).trim();
+        if (!prompt) return 'Error: prompt is required';
+
+        const sourceMindmapNodeId = input.sourceMindmapNodeId as string | undefined;
+        if (sourceMindmapNodeId) {
+          const source = canvas.nodes.find((node) => node.id === sourceMindmapNodeId);
+          if (!source) return `Error: mindmap node not found: ${sourceMindmapNodeId}`;
+          if (source.type !== 'mindmap') return `Error: source node is not a mindmap: ${sourceMindmapNodeId}`;
+          const root = source.data.root as MindmapTopic | undefined;
+          const outline = flattenMindmapForPrompt(root);
+          prompt += `\n\nUse this mindmap structure as source content:\n${outline}`;
+        }
+
+        const imagesDir = join(STORE_DIR, workspaceId, 'images');
+        await fs.mkdir(imagesDir, { recursive: true });
+        const requestedFormat = input.outputFormat as 'png' | 'jpeg' | 'webp' | undefined;
+        const outputExt = requestedFormat ?? 'png';
+        const outputPath = join(imagesDir, `generated-${Date.now()}.${outputExt}`);
+        const generated = await GenerateImageTool.execute({
+          prompt,
+          provider: input.provider as 'openai' | 'gpt' | 'gemini' | undefined,
+          model: input.model as string | undefined,
+          outputPath,
+          size: input.size as string | undefined,
+          quality: input.quality as string | undefined,
+          outputFormat: requestedFormat,
+          imageApiMode: input.imageApiMode as 'images' | 'responses' | 'responses_stream' | 'auto' | undefined,
+        });
+
+        const generatedPath = generated.outputPath;
+        const dimensions = fitImageNodeDimensions(await readImageDimensions(generatedPath));
+        const pos = (input.x != null && input.y != null)
+          ? { x: input.x as number, y: input.y as number }
+          : autoPlace(canvas.nodes);
+        const nodeId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const title = (input.title as string | undefined)?.trim() || basename(generatedPath) || 'Generated image';
+        const newNode: CanvasNode = {
+          id: nodeId,
+          type: 'image',
+          title,
+          x: pos.x,
+          y: pos.y,
+          width: dimensions.width,
+          height: dimensions.height,
+          data: { filePath: generatedPath },
+          updatedAt: Date.now(),
+        };
+
+        const fresh = (await loadCanvas(workspaceId)) ?? canvas;
+        fresh.nodes.push(newNode);
+        await saveCanvas(workspaceId, fresh);
+        broadcastUpdate(workspaceId, [nodeId]);
+
+        return JSON.stringify({
+          ok: true,
+          nodeId,
+          type: 'image',
+          title,
+          outputPath: generatedPath,
+          mimeType: generated.mimeType,
+          bytes: generated.bytes,
+          provider: generated.provider,
+          model: generated.model,
+        }, null, 2);
+      },
+    },
+
+    canvas_generate_mindmap_image: {
+      name: 'canvas_generate_mindmap_image',
+      description:
+        'Generate a visual image from an existing mindmap node and place it on the canvas as an image node. ' +
+        'Use this for requests like "turn this mindmap into an image/poster/diagram". This is AI image generation, not the deterministic PNG export context menu.',
+      inputSchema: z.object({
+        mindmapNodeId: z.string().describe('Mindmap node ID to visualize.'),
+        prompt: z.string().optional().describe('Optional style/composition instructions.'),
+        title: z.string().optional().describe('Canvas image node title.'),
+        provider: z.enum(['openai', 'gpt', 'gemini']).optional().describe('Image provider. Defaults to OpenAI/GPT.'),
+        model: z.string().optional().describe('Image generation model override.'),
+        size: z.string().optional().describe('OpenAI/GPT image size.'),
+        quality: z.string().optional().describe('OpenAI/GPT image quality.'),
+        outputFormat: z.enum(['png', 'jpeg', 'webp']).optional().describe('Output format.'),
+        imageApiMode: z.enum(['images', 'responses', 'responses_stream', 'auto']).optional().describe('OpenAI/GPT image API mode.'),
+      }),
+      execute: async (input) => {
+        const canvas = await loadCanvas(workspaceId);
+        if (!canvas) return 'Error: workspace not found';
+        const source = canvas.nodes.find((node) => node.id === input.mindmapNodeId);
+        if (!source) return `Error: mindmap node not found: ${input.mindmapNodeId}`;
+        if (source.type !== 'mindmap') return `Error: source node is not a mindmap: ${input.mindmapNodeId}`;
+
+        const root = source.data.root as MindmapTopic | undefined;
+        const outline = flattenMindmapForPrompt(root);
+        const stylePrompt = (input.prompt as string | undefined)?.trim()
+          || 'Create a clean, readable visual mindmap/infographic with clear hierarchy, spacious layout, and polished typography.';
+        const prompt = `${stylePrompt}\n\nMindmap structure:\n${outline}`;
+
+        const result = await GenerateImageTool.execute({
+          prompt,
+          provider: input.provider as 'openai' | 'gpt' | 'gemini' | undefined,
+          model: input.model as string | undefined,
+          outputPath: join(STORE_DIR, workspaceId, 'images', `mindmap-${Date.now()}.${input.outputFormat ?? 'png'}`),
+          size: input.size as string | undefined,
+          quality: input.quality as string | undefined,
+          outputFormat: input.outputFormat as 'png' | 'jpeg' | 'webp' | undefined,
+          imageApiMode: input.imageApiMode as 'images' | 'responses' | 'responses_stream' | 'auto' | undefined,
+        });
+
+        const dimensions = fitImageNodeDimensions(await readImageDimensions(result.outputPath));
+        const pos = { x: source.x + source.width + 40, y: source.y };
+        const nodeId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const title = (input.title as string | undefined)?.trim() || `${source.title || 'Mindmap'} image`;
+        const newNode: CanvasNode = {
+          id: nodeId,
+          type: 'image',
+          title,
+          x: pos.x,
+          y: pos.y,
+          width: dimensions.width,
+          height: dimensions.height,
+          data: { filePath: result.outputPath },
+          updatedAt: Date.now(),
+        };
+        const fresh = (await loadCanvas(workspaceId)) ?? canvas;
+        fresh.nodes.push(newNode);
+        await saveCanvas(workspaceId, fresh);
+        broadcastUpdate(workspaceId, [nodeId]);
+
+        return JSON.stringify({
+          ok: true,
+          nodeId,
+          type: 'image',
+          title,
+          sourceMindmapNodeId: source.id,
+          outputPath: result.outputPath,
+          mimeType: result.mimeType,
+          bytes: result.bytes,
+          provider: result.provider,
+          model: result.model,
+        }, null, 2);
       },
     },
 
