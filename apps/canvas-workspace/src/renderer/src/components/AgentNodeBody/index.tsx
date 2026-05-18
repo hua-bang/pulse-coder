@@ -4,7 +4,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import type { CanvasNode, AgentNodeData, FileNodeData } from '../../types';
 import { TERMINAL_OPTIONS } from '../../config/terminalTheme';
-import { getAgentCommand } from '../../config/agentRegistry';
+import { getAgentDef } from '../../config/agentRegistry';
 import {
   SCROLLBACK_SAVE_INTERVAL,
   loadRecentCwds,
@@ -102,6 +102,16 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
       isRestored = false,
     ) => {
       if (!containerRef.current || termRef.current || spawnedRef.current) return;
+
+      const agentDef = getAgentDef(agentType);
+      // A cold-reloaded node can re-attach to its prior conversation only
+      // when the agent CLI supports id-based resume AND we previously
+      // persisted a resumeId on first launch. Otherwise we fall back to a
+      // static replay of the saved scrollback.
+      const canResume = isRestored
+        && !!agentDef?.resume
+        && !!dataRef.current.resumeId;
+
       if (readOnly) {
         spawnedRef.current = true;
         isRestoredRef.current = true;
@@ -123,8 +133,47 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
         });
         return;
       }
+
+      // Cold reload of an agent that can't resume — show the saved output
+      // as static text and let the user explicitly Restart for a fresh run.
+      if (isRestored && !canResume) {
+        spawnedRef.current = true;
+        isRestoredRef.current = true;
+        const term = new Terminal(TERMINAL_OPTIONS);
+        const fitAddon = new FitAddon();
+        term.loadAddon(fitAddon);
+        term.open(containerRef.current);
+        termRef.current = term;
+        fitRef.current = fitAddon;
+        term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+          if (e.type === 'keydown' && e.key === '2' && (e.ctrlKey || e.metaKey) && !e.altKey) {
+            setPickerOpen(true);
+            return false;
+          }
+          return true;
+        });
+        requestAnimationFrame(() => {
+          try { fitAddon.fit(); } catch { /* ignore */ }
+        });
+        if (initialScrollback.current) {
+          term.writeln('\x1b[2m--- restored from previous session ---\x1b[0m');
+          term.write(initialScrollback.current.split('\n').join('\r\n'));
+          term.writeln('');
+        } else {
+          term.writeln('\x1b[2m--- previous session (no saved output) ---\x1b[0m');
+        }
+        if (dataRef.current.status !== 'done') {
+          onUpdateRef.current(nodeIdRef.current, {
+            data: { ...dataRef.current, status: 'done' },
+          });
+        }
+        return;
+      }
+
+      // Live PTY path — fresh user launch, OR cold reload of a resume-
+      // capable agent (we'll write the agent's resume command below).
       spawnedRef.current = true;
-      isRestoredRef.current = isRestored;
+      isRestoredRef.current = false;
 
       const term = new Terminal(TERMINAL_OPTIONS);
       const fitAddon = new FitAddon();
@@ -145,24 +194,12 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
         try { fitAddon.fit(); } catch { /* ignore */ }
       });
 
-      if (isRestored) {
-        // Cold reload: the PTY was killed on the previous unmount, so we
-        // cannot reattach. Replay the full saved scrollback as static
-        // output and mark status as 'done' so the Restart button shows.
-        // The user can click Restart to explicitly spawn a fresh session.
-        if (initialScrollback.current) {
-          term.writeln('\x1b[2m--- restored from previous session ---\x1b[0m');
-          term.write(initialScrollback.current.split('\n').join('\r\n'));
-          term.writeln('');
-        } else {
-          term.writeln('\x1b[2m--- previous session (no saved output) ---\x1b[0m');
-        }
-        if (dataRef.current.status !== 'done') {
-          onUpdateRef.current(nodeIdRef.current, {
-            data: { ...dataRef.current, status: 'done' },
-          });
-        }
-        return;
+      // On resume, surface the prior conversation as a faded preamble so
+      // the user sees history above the re-attached live session.
+      if (canResume && initialScrollback.current) {
+        term.writeln('\x1b[2m--- previous session (resuming) ---\x1b[0m');
+        term.write(initialScrollback.current.split('\n').join('\r\n'));
+        term.writeln('');
       }
 
       const api = window.canvasWorkspace?.pty;
@@ -181,24 +218,49 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
         return;
       }
 
-      // Resolve the agent command to write once the shell is ready
-      const command = getAgentCommand(agentType);
+      // Decide the resumable conversation id for this launch:
+      //   - canResume: reuse the persisted id, run `--resume <id>`
+      //   - fresh launch of a resume-capable agent: pre-allocate a UUID
+      //     and start with `--session-id <id>` so a future cold reload can
+      //     re-attach by id
+      //   - non-resumable agent: leave undefined, run the plain command
+      let resumeId: string | undefined = dataRef.current.resumeId;
+      if (!canResume && !resumeId && agentDef?.resume) {
+        resumeId = crypto.randomUUID();
+      }
+
       const writeCommand = () => {
-        if (!command) {
+        let cmd: string;
+        if (canResume && resumeId && agentDef?.resume) {
+          cmd = agentDef.resume.resume(resumeId);
+        } else if (resumeId && agentDef?.resume) {
+          cmd = agentDef.resume.startWithId(resumeId);
+        } else if (agentDef?.command) {
+          cmd = agentDef.command;
+        } else {
           term.writeln(`\x1b[33mUnknown agent type: ${agentType}\x1b[0m`);
           return;
         }
+
+        // Resuming attaches to an existing conversation that already
+        // contains the user's original prompt — re-passing it would
+        // create a duplicate turn. Just launch the resume command.
+        if (canResume) {
+          api.write(sessionId, `${cmd}\n`);
+          return;
+        }
+
         const { inlinePrompt, promptFile, agentArgs } = dataRef.current;
         const effectivePrompt = inlinePromptOverride || inlinePrompt;
         if (effectivePrompt) {
           const escaped = effectivePrompt.replace(/'/g, "'\\''");
-          api.write(sessionId, `${command} '${escaped}'\n`);
+          api.write(sessionId, `${cmd} '${escaped}'\n`);
         } else if (promptFile) {
-          api.write(sessionId, `__prompt=$(cat ${promptFile}) && ${command} "$__prompt"\n`);
+          api.write(sessionId, `__prompt=$(cat ${promptFile}) && ${cmd} "$__prompt"\n`);
         } else if (agentArgs) {
-          api.write(sessionId, `${command} ${agentArgs}\n`);
+          api.write(sessionId, `${cmd} ${agentArgs}\n`);
         } else {
-          api.write(sessionId, `${command}\n`);
+          api.write(sessionId, `${cmd}\n`);
         }
 
         if (effectivePrompt || promptFile) {
@@ -239,7 +301,14 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
       term.onResize(({ cols, rows }) => { api.resize(sessionId, cols, rows); });
 
       onUpdateRef.current(nodeIdRef.current, {
-        data: { ...dataRef.current, agentType, cwd: spawnCwd ?? '', status: 'running', sessionId },
+        data: {
+          ...dataRef.current,
+          agentType,
+          cwd: spawnCwd ?? '',
+          status: 'running',
+          sessionId,
+          ...(resumeId ? { resumeId } : {}),
+        },
       });
 
       saveTimerRef.current = setInterval(async () => {
@@ -268,7 +337,9 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
       //   a) Cold reload of a real previous session — the prior PTY had
       //      spawned (so `sessionId` was persisted by spawnAgent) or had
       //      output serialized to `scrollback`. The PTY was killed on the
-      //      previous unmount and cannot be reattached; replay scrollback.
+      //      previous unmount; if the agent CLI supports id-based resume
+      //      and a `resumeId` is persisted, spawnAgent re-attaches by id,
+      //      otherwise it falls back to a static replay of scrollback.
       //   b) A tool just created this node (e.g.
       //      `canvas_create_agent_node` with autoLaunch) and persisted
       //      `status: 'running'` without ever spawning a PTY. `sessionId`
@@ -403,7 +474,9 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
     isRestoredRef.current = false;
 
     onUpdateRef.current(nodeIdRef.current, {
-      data: { ...dataRef.current, status: 'idle', scrollback: '', sessionId: '' },
+      // Clearing `resumeId` ensures the next Start allocates a fresh
+      // conversation rather than re-attaching to the previous one.
+      data: { ...dataRef.current, status: 'idle', scrollback: '', sessionId: '', resumeId: '' },
     });
 
     setLaunched(false);

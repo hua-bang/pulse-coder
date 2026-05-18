@@ -49,7 +49,7 @@ export const AgentPicker = ({
                 onLaunch();
               }
             }}
-            placeholder={'What should the agent do?'}
+            placeholder={'What should the agent do?  ·  Optional — press Enter to start'}
             spellCheck={false}
             autoFocus
           />
@@ -102,7 +102,7 @@ export const AgentPicker = ({
                   onChange={(e) => onCwdChange(e.target.value)}
                   placeholder={
                     rootFolder
-                      ? truncatePath(rootFolder, 32)
+                      ? `${truncatePath(rootFolder, 26)}  ·  default`
                       : 'Working directory'
                   }
                   spellCheck={false}
