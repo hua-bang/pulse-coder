@@ -71,6 +71,11 @@ export interface AgentNodeData {
    * entry — those fall back to static scrollback replay after a restart.
    */
   resumeId?: string;
+  /** Last observed exit code from the agent process. Drives the session-
+   *  end badge (Done vs Error) so users see *why* the agent stopped
+   *  without having to scroll the terminal to the `[Agent exited ...]`
+   *  line. Reset to undefined on a fresh launch / Start fresh. */
+  lastExitCode?: number;
 }
 
 /**

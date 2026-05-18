@@ -87,12 +87,21 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
    * ref with `data.sessionId`/`data.scrollback` to tell the two apart.
    *
    * Stays `false` across re-renders; flipped to `true` in `handleLaunch`
-   * and reset in `handleRestart`.
+   * and reset in `handleNewSession`.
    */
   const userLaunchedRef = useRef(false);
   /** Tracks whether spawnAgent entered the restored (no-PTY) branch so the
    * cleanup effect knows to skip PTY-related teardown. */
   const isRestoredRef = useRef(false);
+  /**
+   * Set by handleStop right before it kills the PTY so the subsequent
+   * `onExit` handler doesn't overwrite the clean exit code we just
+   * persisted. Without this the PTY's true kill exit code (e.g. 137 for
+   * SIGKILL) leaks into `lastExitCode` and the session-end badge
+   * misleadingly shows "Error · exit 137" for a user-initiated stop.
+   * Auto-resets inside the onExit handler.
+   */
+  const userStoppedRef = useRef(false);
 
   const spawnAgent = useCallback(
     async (
@@ -263,11 +272,12 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
           api.write(sessionId, `${cmd}\n`);
         }
 
-        if (effectivePrompt || promptFile) {
-          onUpdateRef.current(nodeIdRef.current, {
-            data: { ...dataRef.current, inlinePrompt: '', promptFile: '' },
-          });
-        }
+        // Intentionally NOT clearing `inlinePrompt` / `promptFile` here:
+        // keeping the last prompt around lets the picker pre-fill on a
+        // Start-fresh, so users don't have to retype a similar request.
+        // The resume path skips re-passing the prompt anyway (see the
+        // `canResume` early return above), so a stale `inlinePrompt`
+        // can't double-fire during cold reload.
       };
 
       let prompted = false;
@@ -289,8 +299,19 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
 
       const removeExit = api.onExit(sessionId, (code: number) => {
         term.writeln(`\r\n\x1b[2m[Agent exited with code ${code}]\x1b[0m`);
+        // If the user clicked Stop, handleStop already wrote
+        // status='done' / lastExitCode=0 — don't clobber it with the
+        // SIGKILL exit code.
+        if (userStoppedRef.current) {
+          userStoppedRef.current = false;
+          return;
+        }
+        // Status stays 'done' regardless of code — the badge in
+        // SessionEndBar branches on `lastExitCode` instead. `status:
+        // 'error'` remains reserved for *spawn* failures (see the
+        // `if (!result.ok)` branch above).
         onUpdateRef.current(nodeIdRef.current, {
-          data: { ...dataRef.current, status: 'done' },
+          data: { ...dataRef.current, status: 'done', lastExitCode: code },
         });
       });
 
@@ -425,9 +446,12 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
   const handleStop = useCallback(() => {
     if (readOnly) return;
     const api = window.canvasWorkspace?.pty;
+    // Signal the imminent onExit firing as user-initiated so it doesn't
+    // overwrite our `lastExitCode: 0` with the kill code.
+    userStoppedRef.current = true;
     if (api) api.kill(sessionId);
     onUpdateRef.current(nodeIdRef.current, {
-      data: { ...dataRef.current, status: 'done' },
+      data: { ...dataRef.current, status: 'done', lastExitCode: 0 },
     });
   }, [sessionId, readOnly]);
 
@@ -458,7 +482,51 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
     termRef.current?.focus();
   }, []);
 
-  const handleRestart = useCallback(() => {
+  /**
+   * "Continue" — keep the conversation alive without surfacing a
+   * "restart" concept to the user. Tears down the dead PTY refs and
+   * re-invokes spawnAgent on the resume path so the agent re-attaches
+   * to the same `resumeId` and the prior scrollback is preserved as a
+   * faded preamble. Only meaningful for resume-capable agents; the
+   * caller (session-end bar) hides this action otherwise.
+   */
+  const handleContinue = useCallback(() => {
+    if (readOnly) return;
+    if (saveTimerRef.current) clearInterval(saveTimerRef.current);
+    cleanupRef.current?.();
+    termRef.current?.dispose();
+    termRef.current = null;
+    fitRef.current = null;
+    spawnedRef.current = false;
+    cleanupRef.current = null;
+    isRestoredRef.current = false;
+
+    // Use the *latest* persisted scrollback as the resume preamble.
+    // The mount-time `initialScrollback` ref would be stale after the
+    // user has continued one or more times in this session.
+    initialScrollback.current = dataRef.current.scrollback ?? '';
+
+    // Spawn on the resume path: spawnAgent reads `agentDef.resume` plus
+    // `dataRef.current.resumeId` and writes `<agent> --resume <id>`.
+    void spawnAgent(
+      dataRef.current.agentType,
+      dataRef.current.cwd ?? '',
+      undefined,
+      true,
+    );
+  }, [readOnly, spawnAgent]);
+
+  /**
+   * "Start fresh" — the explicit "throw away this conversation" path,
+   * tucked behind a secondary menu so casual users won't hit it by
+   * accident. Clears all session keys (sessionId, scrollback, resumeId,
+   * lastExitCode) so the next launch allocates a brand-new conversation.
+   *
+   * Intentionally preserves `inlinePrompt` and `cwd` so the picker
+   * pre-fills the user's last request — avoiding the "I just want to
+   * tweak my prompt and run it again" retyping tax.
+   */
+  const handleNewSession = useCallback(() => {
     if (readOnly) return;
     if (saveTimerRef.current) clearInterval(saveTimerRef.current);
     cleanupRef.current?.();
@@ -468,19 +536,45 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
     spawnedRef.current = false;
     cleanupRef.current = null;
     initialScrollback.current = '';
-    // Next Start click must be treated as a fresh user launch, not a
-    // restore — clear the flag so the mount effect won't short-circuit.
     userLaunchedRef.current = false;
     isRestoredRef.current = false;
 
     onUpdateRef.current(nodeIdRef.current, {
-      // Clearing `resumeId` ensures the next Start allocates a fresh
-      // conversation rather than re-attaching to the previous one.
-      data: { ...dataRef.current, status: 'idle', scrollback: '', sessionId: '', resumeId: '' },
+      data: {
+        ...dataRef.current,
+        status: 'idle',
+        scrollback: '',
+        sessionId: '',
+        resumeId: '',
+        lastExitCode: undefined,
+      },
     });
 
     setLaunched(false);
   }, [readOnly]);
+
+  /**
+   * Copy the visible terminal output as plain text (ANSI escapes
+   * stripped), so users can grab a result without scrolling-selecting
+   * inside xterm.
+   */
+  const handleCopyOutput = useCallback(async () => {
+    const term = termRef.current;
+    if (!term) return;
+    const buf = term.buffer.active;
+    const lines: string[] = [];
+    for (let i = 0; i < buf.length; i++) {
+      const line = buf.getLine(i);
+      if (line) lines.push(line.translateToString(true));
+    }
+    const text = lines.join('\n').replace(/\n+$/, '');
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* clipboard permission denied — silent fail; nothing critical */
+    }
+  }, []);
 
   const handlePickFolder = useCallback(async () => {
     if (readOnly) return;
@@ -521,7 +615,11 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
       <AgentTerminal
         containerRef={containerRef}
         status={status}
-        onRestart={handleRestart}
+        lastExitCode={data.lastExitCode}
+        canResume={!!getAgentDef(data.agentType)?.resume}
+        onContinue={handleContinue}
+        onNewSession={handleNewSession}
+        onCopyOutput={handleCopyOutput}
         onStop={handleStop}
         onSendPrompt={handleSendPrompt}
       />

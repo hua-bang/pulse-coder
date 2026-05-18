@@ -333,33 +333,122 @@
   color: #e03e3e;
 }
 
-/* ── Restart button (top-right of running body) ── */
+/* ── Session-end bar (footer chrome after agent exits) ──────────────
+ *
+ * Replaces the older lone "Restart" button. Sits along the bottom of the
+ * node body and pairs a status badge with the conversation-continuation
+ * affordances (Continue / Retry as the primary path, Start-fresh and
+ * Copy as escape hatches). Background is translucent so the last lines
+ * of terminal output remain partially visible underneath. */
 
-.agent-restart-btn {
+.agent-session-end-bar {
   position: absolute;
-  top: 6px;
+  left: 8px;
   right: 8px;
+  bottom: 8px;
   z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-sm);
+  font-family: var(--font);
+}
+
+.agent-session-end-bar--error {
+  border-color: rgba(224, 62, 62, 0.35);
+  background: rgba(255, 244, 244, 0.96);
+}
+
+.agent-session-badge {
   display: inline-flex;
   align-items: center;
+  gap: 5px;
+  padding: 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #2f8a5a; /* Done — calm green */
+  letter-spacing: 0.1px;
+  white-space: nowrap;
+}
+
+.agent-session-badge--error {
+  color: #c4322d;
+}
+
+.agent-session-badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 2px rgba(47, 138, 90, 0.18);
+}
+
+.agent-session-badge--error .agent-session-badge-dot {
+  box-shadow: 0 0 0 2px rgba(196, 50, 45, 0.18);
+}
+
+.agent-session-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 11px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: filter 0.12s, box-shadow 0.12s;
+  box-shadow: 0 1px 2px rgba(35, 131, 226, 0.25);
+}
+
+.agent-session-primary:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 2px 5px rgba(35, 131, 226, 0.3);
+}
+
+.agent-session-primary--error {
+  background: #c4322d;
+  box-shadow: 0 1px 2px rgba(196, 50, 45, 0.3);
+}
+
+.agent-session-primary--error:hover {
+  box-shadow: 0 2px 5px rgba(196, 50, 45, 0.35);
+}
+
+.agent-session-spacer {
+  flex: 1;
+}
+
+.agent-session-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 4px;
-  padding: 3px 9px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  color: var(--text-secondary);
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
   font-size: 11px;
   font-weight: 500;
   font-family: var(--font);
   cursor: pointer;
-  box-shadow: var(--shadow-sm);
   transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 
-.agent-restart-btn:hover {
-  background: var(--surface);
-  border-color: var(--text-muted);
+.agent-session-secondary:hover {
+  background: var(--border-light);
+  border-color: var(--border);
   color: var(--text);
 }
