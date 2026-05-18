@@ -57,12 +57,12 @@ const REFERENCE_GROUP_ORDER: ReferenceGroupKey[] = [
   'missing',
 ];
 
+const PICKER_NODE_TYPE_GROUP_ORDER = REFERENCE_GROUP_ORDER.filter(
+  (type): type is CanvasNode['type'] => type !== 'url' && type !== 'missing',
+);
+
 const isUrlReference = (entry: ReferenceEntry): entry is UrlReferenceEntry => entry.kind === 'url';
 const getReferenceId = (entry: ReferenceEntry) => isUrlReference(entry) ? entry.id : entry.nodeId;
-const getReferenceGroupKey = (entry: ReferenceEntry, nodeById: Map<string, CanvasNode>): ReferenceGroupKey => {
-  if (isUrlReference(entry)) return 'url';
-  return nodeById.get(entry.nodeId)?.type ?? 'missing';
-};
 const getReferenceGroupLabel = (type: ReferenceGroupKey) => {
   if (type === 'url') return 'URL';
   if (type === 'missing') return 'Missing nodes';
@@ -128,7 +128,6 @@ interface ReferenceDrawerProps {
   references: ReferenceEntry[];
   activeReference?: ReferenceEntry;
   activeReferenceNode?: CanvasNode;
-  activeReferenceGroup?: string;
   nodes: CanvasNode[];
   selectedNode?: CanvasNode;
   onOpenChange: (open: boolean) => void;
@@ -137,7 +136,6 @@ interface ReferenceDrawerProps {
   onClearAll: () => void;
   onAddReference: (nodeId: string, group?: string) => void;
   onAddUrlReference: (url: string, title?: string) => void;
-  onSetReferenceGroup: (referenceId: string, group: string | undefined) => void;
   onFocusNode: (nodeId: string) => void;
 }
 
@@ -146,7 +144,6 @@ export const ReferenceDrawer = ({
   references,
   activeReference,
   activeReferenceNode,
-  activeReferenceGroup,
   nodes,
   selectedNode,
   onOpenChange,
@@ -155,7 +152,6 @@ export const ReferenceDrawer = ({
   onClearAll,
   onAddReference,
   onAddUrlReference,
-  onSetReferenceGroup,
   onFocusNode,
 }: ReferenceDrawerProps) => {
   const [drawerWidth, setDrawerWidth] = useState(DEFAULT_REFERENCE_DRAWER_WIDTH);
@@ -166,11 +162,9 @@ export const ReferenceDrawer = ({
   const [urlEditorOpen, setUrlEditorOpen] = useState(false);
   const [urlDraft, setUrlDraft] = useState('');
   const [urlError, setUrlError] = useState<string | undefined>();
-  const [groupEditorOpen, setGroupEditorOpen] = useState(false);
   const [groupDraft, setGroupDraft] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const groupEditorRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
   const urlEditorRef = useRef<HTMLDivElement>(null);
 
@@ -192,17 +186,6 @@ export const ReferenceDrawer = ({
     }, REFERENCE_SEARCH_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [searchDraft]);
-
-  useEffect(() => {
-    if (!groupEditorOpen) return;
-    const handleClickOutside = (event: MouseEvent) => {
-      if (!groupEditorRef.current?.contains(event.target as Node)) {
-        setGroupEditorOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [groupEditorOpen]);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -266,45 +249,6 @@ export const ReferenceDrawer = ({
     return map;
   }, [nodes]);
 
-  const matchesSearch = useCallback((entry: ReferenceEntry) => {
-    if (!debouncedSearch) return true;
-    if (isUrlReference(entry)) {
-      return [getUrlReferenceLabel(entry), entry.url, entry.group, entry.id, 'url', 'web', 'link']
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(debouncedSearch));
-    }
-
-    const node = nodeById.get(entry.nodeId);
-    const label = node ? getNodeDisplayLabel(node) : entry.nodeId;
-    const typeLabel = node ? (NODE_TYPE_LABELS[node.type] ?? node.type) : '';
-    return [label, node?.type, typeLabel, entry.group, entry.nodeId]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(debouncedSearch));
-  }, [debouncedSearch, nodeById]);
-
-  const filteredReferences = useMemo(
-    () => references.filter(matchesSearch),
-    [references, matchesSearch],
-  );
-
-  const typeGroups = useMemo(() => {
-    const map = new Map<ReferenceGroupKey, ReferenceEntry[]>();
-    for (const entry of filteredReferences) {
-      const key = getReferenceGroupKey(entry, nodeById);
-      const list = map.get(key);
-      if (list) list.push(entry);
-      else map.set(key, [entry]);
-    }
-
-    return REFERENCE_GROUP_ORDER
-      .filter((type) => map.has(type))
-      .map((type) => ({
-        type,
-        name: getReferenceGroupLabel(type),
-        entries: map.get(type) ?? [],
-      }));
-  }, [filteredReferences, nodeById]);
-
   const knownGroupNames = useMemo(() => {
     const set = new Set<string>();
     for (const entry of references) {
@@ -313,19 +257,39 @@ export const ReferenceDrawer = ({
     return Array.from(set);
   }, [references]);
 
-  const pickableNodes = useMemo(() => {
+  const eligiblePickableNodes = useMemo(() => {
     const referenced = new Set(references.filter((entry) => !isUrlReference(entry)).map((entry) => entry.nodeId));
     return nodes
       .filter((node) => !referenced.has(node.id))
-      .filter((node) => node.type !== 'frame' && node.type !== 'group')
-      .filter((node) => {
-        if (!debouncedSearch) return true;
-        const label = getNodeDisplayLabel(node);
-        const typeLabel = NODE_TYPE_LABELS[node.type] ?? node.type;
-        return [label, node.type, typeLabel, node.id]
-          .some((value) => value.toLowerCase().includes(debouncedSearch));
-      });
-  }, [nodes, references, debouncedSearch]);
+      .filter((node) => node.type !== 'frame' && node.type !== 'group');
+  }, [nodes, references]);
+
+  const pickableNodes = useMemo(() => {
+    if (!debouncedSearch) return eligiblePickableNodes;
+    return eligiblePickableNodes.filter((node) => {
+      const label = getNodeDisplayLabel(node);
+      const typeLabel = NODE_TYPE_LABELS[node.type] ?? node.type;
+      return [label, node.type, typeLabel, node.id]
+        .some((value) => value.toLowerCase().includes(debouncedSearch));
+    });
+  }, [eligiblePickableNodes, debouncedSearch]);
+
+  const pickableNodeGroups = useMemo(() => {
+    const map = new Map<CanvasNode['type'], CanvasNode[]>();
+    for (const node of pickableNodes) {
+      const list = map.get(node.type);
+      if (list) list.push(node);
+      else map.set(node.type, [node]);
+    }
+
+    return PICKER_NODE_TYPE_GROUP_ORDER
+      .filter((type) => map.has(type))
+      .map((type) => ({
+        type,
+        name: getReferenceGroupLabel(type),
+        nodes: map.get(type) ?? [],
+      }));
+  }, [pickableNodes]);
 
   const handlePinSelected = useCallback(() => {
     if (!selectedNode) return;
@@ -333,9 +297,10 @@ export const ReferenceDrawer = ({
   }, [selectedNode, onAddReference]);
 
   const handleAddFromPicker = useCallback((nodeId: string) => {
-    onAddReference(nodeId);
+    const group = groupDraft.trim() || undefined;
+    onAddReference(nodeId, group);
     setPickerOpen(false);
-  }, [onAddReference]);
+  }, [groupDraft, onAddReference]);
 
   const handleAddUrl = useCallback(() => {
     const normalized = normalizeReferenceUrl(urlDraft);
@@ -351,18 +316,6 @@ export const ReferenceDrawer = ({
 
   const activeReferenceId = activeReference ? getReferenceId(activeReference) : undefined;
 
-  const handleApplyGroup = useCallback(() => {
-    if (!activeReferenceId) return;
-    const next = groupDraft.trim();
-    onSetReferenceGroup(activeReferenceId, next || undefined);
-    setGroupEditorOpen(false);
-  }, [activeReferenceId, groupDraft, onSetReferenceGroup]);
-
-  const openGroupEditor = useCallback(() => {
-    setGroupDraft(activeReferenceGroup ?? '');
-    setGroupEditorOpen(true);
-  }, [activeReferenceGroup]);
-
   const openUrl = useCallback((url: string) => {
     void window.canvasWorkspace?.shell.openExternal(url);
   }, []);
@@ -374,81 +327,8 @@ export const ReferenceDrawer = ({
   if (!shouldRender) return null;
 
   const hasReferences = references.length > 0;
-  const hasVisibleReferences = filteredReferences.length > 0;
   const searchActive = debouncedSearch.length > 0;
   const canPinSelected = !!selectedNode && !references.some((entry) => !isUrlReference(entry) && entry.nodeId === selectedNode.id);
-
-  const labelEditor = activeReferenceId ? (
-    <div className="reference-card-meta-group" ref={groupEditorRef}>
-      <button
-        type="button"
-        className="reference-group-chip"
-        onClick={openGroupEditor}
-        title="Change custom group label"
-      >
-        {activeReferenceGroup ? `Label: ${activeReferenceGroup}` : '+ Label'}
-      </button>
-      {groupEditorOpen && (
-        <div className="reference-group-editor" role="dialog">
-          <input
-            autoFocus
-            className="reference-group-input"
-            value={groupDraft}
-            placeholder="Custom label"
-            onChange={(e) => setGroupDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                handleApplyGroup();
-              } else if (e.key === 'Escape') {
-                setGroupEditorOpen(false);
-              }
-            }}
-          />
-          {knownGroupNames.length > 0 && (
-            <div className="reference-group-suggestions">
-              {knownGroupNames
-                .filter((name) => name !== activeReferenceGroup)
-                .map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    className="reference-group-suggestion"
-                    onClick={() => {
-                      onSetReferenceGroup(activeReferenceId, name);
-                      setGroupEditorOpen(false);
-                    }}
-                  >
-                    {name}
-                  </button>
-                ))}
-            </div>
-          )}
-          <div className="reference-group-editor-actions">
-            {activeReferenceGroup && (
-              <button
-                type="button"
-                className="reference-drawer-secondary"
-                onClick={() => {
-                  onSetReferenceGroup(activeReferenceId, undefined);
-                  setGroupEditorOpen(false);
-                }}
-              >
-                Remove label
-              </button>
-            )}
-            <button
-              type="button"
-              className="reference-drawer-primary"
-              onClick={handleApplyGroup}
-            >
-              Apply
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  ) : null;
 
   return (
     <aside
@@ -504,9 +384,9 @@ export const ReferenceDrawer = ({
             className={`reference-drawer-action reference-drawer-action--ghost${pickerOpen ? ' reference-drawer-action--open' : ''}`}
             type="button"
             onClick={() => setPickerOpen((prev) => !prev)}
-            disabled={pickableNodes.length === 0}
-            title={pickableNodes.length === 0 ? 'No more nodes to pin' : 'Pick a node to pin'}
-            aria-haspopup="listbox"
+            disabled={eligiblePickableNodes.length === 0}
+            title={eligiblePickableNodes.length === 0 ? 'No more nodes to pin' : 'Pick a node to pin'}
+            aria-haspopup="dialog"
             aria-expanded={pickerOpen}
           >
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
@@ -519,24 +399,75 @@ export const ReferenceDrawer = ({
           </button>
 
           {pickerOpen && (
-            <div className="reference-picker-popover" role="listbox">
-              {pickableNodes.length === 0 ? (
-                <div className="reference-picker-empty">
-                  {searchActive ? 'No canvas nodes match this search.' : 'All eligible nodes are pinned.'}
+            <div className="reference-picker-popover" role="dialog" aria-label="Pick canvas reference">
+              <div className="reference-picker-controls">
+                <div className="reference-picker-search">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path
+                      d="M7.1 12.2a5.1 5.1 0 100-10.2 5.1 5.1 0 000 10.2zM11 11l3 3"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <input
+                    value={searchDraft}
+                    onChange={(e) => setSearchDraft(e.target.value)}
+                    placeholder="Search canvas nodes"
+                    aria-label="Search canvas nodes"
+                  />
+                  {searchDraft && (
+                    <button
+                      type="button"
+                      className="reference-search-clear"
+                      onClick={() => setSearchDraft('')}
+                      aria-label="Clear canvas node search"
+                      title="Clear search"
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
-              ) : (
-                pickableNodes.map((node) => (
-                  <button
-                    key={node.id}
-                    className="reference-picker-item"
-                    type="button"
-                    onClick={() => handleAddFromPicker(node.id)}
-                  >
-                    <span className="reference-picker-item-type">{node.type}</span>
-                    <span className="reference-picker-item-label">{getNodeDisplayLabel(node)}</span>
-                  </button>
-                ))
-              )}
+                <label className="reference-picker-group-field">
+                  <span>Group</span>
+                  <input
+                    value={groupDraft}
+                    onChange={(e) => setGroupDraft(e.target.value)}
+                    placeholder="Optional group for added nodes"
+                  />
+                </label>
+                {knownGroupNames.length > 0 && (
+                  <div className="reference-group-suggestions">
+                    {knownGroupNames.map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        className="reference-group-suggestion"
+                        onClick={() => setGroupDraft(name)}
+                      >
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="reference-picker-list" role="listbox">
+                {pickableNodes.length === 0 ? (
+                  <div className="reference-picker-empty">
+                    {searchActive ? 'No canvas nodes match this search.' : 'All eligible nodes are pinned.'}
+                  </div>
+                ) : (
+                  pickableNodeGroups.map((group) => (
+                    <ReferencePickerGroupSection
+                      key={group.type}
+                      type={group.type}
+                      name={group.name}
+                      nodes={group.nodes}
+                      onPick={handleAddFromPicker}
+                    />
+                  ))
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -602,65 +533,27 @@ export const ReferenceDrawer = ({
         </div>
       </div>
 
-      <div className="reference-search">
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path
-            d="M7.1 12.2a5.1 5.1 0 100-10.2 5.1 5.1 0 000 10.2zM11 11l3 3"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-          />
-        </svg>
-        <input
-          value={searchDraft}
-          onChange={(e) => setSearchDraft(e.target.value)}
-          placeholder="Search references and canvas nodes"
-          aria-label="Search references"
-        />
-        {searchDraft && (
-          <button
-            type="button"
-            className="reference-search-clear"
-            onClick={() => setSearchDraft('')}
-            aria-label="Clear reference search"
-            title="Clear search"
-          >
-            ×
-          </button>
-        )}
-      </div>
-
       <div className="reference-drawer-content">
         {!hasReferences ? (
           <ReferenceEmptyState selectedNode={selectedNode} />
         ) : (
           <>
-            {hasVisibleReferences ? (
-              <div className="reference-group-list">
-                {typeGroups.map((group) => (
-                  <ReferenceGroupSection
-                    key={group.type}
-                    name={group.name}
-                    type={group.type}
-                    entries={group.entries}
-                    nodeById={nodeById}
-                    activeId={activeReferenceId}
-                    onSelect={onSelectReference}
-                    onFocus={onFocusNode}
-                    onOpenUrl={openUrl}
-                    onRemove={onRemoveReference}
-                  />
-                ))}
-              </div>
-            ) : (
-              <ReferenceNoSearchResults query={debouncedSearch} />
-            )}
+            <div className="reference-entry-list">
+              <ReferenceEntryList
+                entries={references}
+                nodeById={nodeById}
+                activeId={activeReferenceId}
+                onSelect={onSelectReference}
+                onFocus={onFocusNode}
+                onOpenUrl={openUrl}
+                onRemove={onRemoveReference}
+              />
+            </div>
 
             {activeReference && isUrlReference(activeReference) ? (
               <div className="reference-url-card reference-url-card--preview">
                 <ReferenceUrlWebPreview reference={activeReference} drawerWidth={drawerWidth} />
                 <div className="reference-card-footer">
-                  {labelEditor}
                   <button
                     className="reference-drawer-secondary"
                     type="button"
@@ -700,7 +593,6 @@ export const ReferenceDrawer = ({
                   onFocusNode={onFocusNode}
                 />
                 <div className="reference-card-footer">
-                  {labelEditor}
                   <button
                     className="reference-drawer-secondary"
                     type="button"
@@ -870,20 +762,22 @@ const ReferenceEntryList = ({
   </ul>
 );
 
-interface ReferenceGroupSectionProps extends ReferenceEntryListProps {
+interface ReferencePickerGroupSectionProps {
   name: string;
-  type: ReferenceGroupKey;
+  type: CanvasNode['type'];
+  nodes: CanvasNode[];
+  onPick: (nodeId: string) => void;
 }
 
-const ReferenceGroupSection = ({
+const ReferencePickerGroupSection = ({
   name,
   type,
-  entries,
-  ...listProps
-}: ReferenceGroupSectionProps) => {
+  nodes,
+  onPick,
+}: ReferencePickerGroupSectionProps) => {
   const [collapsed, setCollapsed] = useState(false);
   return (
-    <div className={`reference-group reference-group--type-${type}${collapsed ? ' reference-group--collapsed' : ''}`}>
+    <div className={`reference-picker-group reference-group--type-${type}${collapsed ? ' reference-group--collapsed' : ''}`}>
       <button
         className="reference-group-header"
         type="button"
@@ -902,26 +796,26 @@ const ReferenceGroupSection = ({
         </svg>
         <span className="reference-group-type-icon" aria-hidden="true">{getReferenceGroupIcon(type)}</span>
         <span className="reference-group-name">{name}</span>
-        <span className="reference-group-count">{entries.length}</span>
+        <span className="reference-group-count">{nodes.length}</span>
       </button>
       {!collapsed && (
-        <ReferenceEntryList entries={entries} {...listProps} />
+        <div className="reference-picker-group-items">
+          {nodes.map((node) => (
+            <button
+              key={node.id}
+              className="reference-picker-item"
+              type="button"
+              onClick={() => onPick(node.id)}
+            >
+              <span className="reference-picker-item-type">{node.type}</span>
+              <span className="reference-picker-item-label">{getNodeDisplayLabel(node)}</span>
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
 };
-
-const ReferenceNoSearchResults = ({ query }: { query: string }) => (
-  <div className="reference-empty reference-empty--search">
-    <div className="reference-empty-icon" aria-hidden="true">
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-        <path d="M8 13.2a5.2 5.2 0 100-10.4 5.2 5.2 0 000 10.4zM11.8 11.8L15 15" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" />
-      </svg>
-    </div>
-    <h3>No matching references</h3>
-    <p>No pinned references matched "{query}". Try another keyword or use "From canvas" / "URL" to pin matching context.</p>
-  </div>
-);
 
 const ReferenceEmptyState = ({ selectedNode }: { selectedNode?: CanvasNode }) => (
   <div className="reference-empty">

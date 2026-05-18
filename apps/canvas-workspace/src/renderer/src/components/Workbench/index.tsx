@@ -191,7 +191,6 @@ export const Workbench: React.FC<WorkbenchProps> = ({
         references={references}
         activeReference={activeReference}
         activeReferenceNode={activeReferenceNode}
-        activeReferenceGroup={activeReference?.group}
         nodes={activeNodes}
         selectedNode={activeSelectedNode}
         onOpenChange={setReferenceDrawerOpen}
@@ -200,7 +199,6 @@ export const Workbench: React.FC<WorkbenchProps> = ({
         onClearAll={clearAllReferences}
         onAddReference={pinReferenceNode}
         onAddUrlReference={pinReferenceUrl}
-        onSetReferenceGroup={setReferenceGroup}
         onFocusNode={handleFocusReferenceNode}
       />
       <div className="canvas-viewport">
