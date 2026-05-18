@@ -143,10 +143,27 @@ function forwardLinkToRenderer(contents: Electron.WebContents, url: string) {
 }
 
 app.on("web-contents-created", (_event, contents) => {
-  contents.setWindowOpenHandler(({ url }) => {
-    if (isSafeExternalUrl(url)) {
-      forwardLinkToRenderer(contents, url);
+  contents.setWindowOpenHandler(({ url, disposition }) => {
+    if (!isSafeExternalUrl(url)) return { action: "deny" };
+
+    // OAuth-style popups: `window.open(url, '_blank', 'width=…,height=…')`
+    // surfaces here as `disposition === 'new-window'`. These need a real
+    // window — the page reads back the returned `window` reference and
+    // relies on `window.opener.postMessage` / `window.close` to finish
+    // the auth round-trip. If we deny them, the site shows a "popups
+    // blocked" prompt (Notion, Google, etc. all do this).
+    //
+    // Letting Electron create the popup as a regular BrowserWindow keeps
+    // sessions/cookies shared with the opener (default session) and gives
+    // the popup the standard chrome an OAuth dialog expects.
+    if (disposition === "new-window") {
+      return { action: "allow" };
     }
+
+    // Everything else — `<a target="_blank">` (`foreground-tab`), bare
+    // `window.open(url)` — is a "preview this link" intent, route to the
+    // side drawer.
+    forwardLinkToRenderer(contents, url);
     return { action: "deny" };
   });
 
