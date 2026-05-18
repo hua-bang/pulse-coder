@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './index.css';
 import type { CanvasNode } from '../../types';
 import { CanvasNodeView } from '../CanvasNodeView';
@@ -376,7 +376,6 @@ export const ReferenceDrawer = ({
   const hasReferences = references.length > 0;
   const hasVisibleReferences = filteredReferences.length > 0;
   const searchActive = debouncedSearch.length > 0;
-  const activeReferenceVisible = !!activeReferenceId && (!searchActive || filteredReferences.some((entry) => getReferenceId(entry) === activeReferenceId));
   const canPinSelected = !!selectedNode && !references.some((entry) => !isUrlReference(entry) && entry.nodeId === selectedNode.id);
 
   const labelEditor = activeReferenceId ? (
@@ -634,37 +633,32 @@ export const ReferenceDrawer = ({
       <div className="reference-drawer-content">
         {!hasReferences ? (
           <ReferenceEmptyState selectedNode={selectedNode} />
-        ) : !hasVisibleReferences ? (
-          <ReferenceNoSearchResults query={debouncedSearch} />
         ) : (
           <>
-            <div className="reference-group-list">
-              {typeGroups.map((group) => (
-                <ReferenceGroupSection
-                  key={group.type}
-                  name={group.name}
-                  type={group.type}
-                  entries={group.entries}
-                  nodeById={nodeById}
-                  activeId={activeReferenceId}
-                  onSelect={onSelectReference}
-                  onFocus={onFocusNode}
-                  onOpenUrl={openUrl}
-                  onRemove={onRemoveReference}
-                />
-              ))}
-            </div>
-
-            {activeReference && activeReferenceVisible && isUrlReference(activeReference) ? (
-              <div className="reference-url-card reference-url-card--preview">
-                <div className="reference-url-preview">
-                  <IframeNodeBody
-                    node={createUrlPreviewNode(activeReference, drawerWidth)}
-                    onUpdate={() => undefined}
-                    isResizing={false}
-                    readOnly
+            {hasVisibleReferences ? (
+              <div className="reference-group-list">
+                {typeGroups.map((group) => (
+                  <ReferenceGroupSection
+                    key={group.type}
+                    name={group.name}
+                    type={group.type}
+                    entries={group.entries}
+                    nodeById={nodeById}
+                    activeId={activeReferenceId}
+                    onSelect={onSelectReference}
+                    onFocus={onFocusNode}
+                    onOpenUrl={openUrl}
+                    onRemove={onRemoveReference}
                   />
-                </div>
+                ))}
+              </div>
+            ) : (
+              <ReferenceNoSearchResults query={debouncedSearch} />
+            )}
+
+            {activeReference && isUrlReference(activeReference) ? (
+              <div className="reference-url-card reference-url-card--preview">
+                <ReferenceUrlWebPreview reference={activeReference} drawerWidth={drawerWidth} />
                 <div className="reference-card-footer">
                   {labelEditor}
                   <button
@@ -698,30 +692,12 @@ export const ReferenceDrawer = ({
                   </button>
                 </div>
               </div>
-            ) : activeReference && activeReferenceVisible && !isUrlReference(activeReference) && activeReferenceNode ? (
+            ) : activeReference && !isUrlReference(activeReference) && activeReferenceNode ? (
               <div className="reference-native-card">
-                <CanvasNodeView
-                  node={{
-                    ...activeReferenceNode,
-                    x: 0,
-                    y: 0,
-                    width: Math.max(MIN_REFERENCE_DRAWER_WIDTH - 32, drawerWidth - 32),
-                    height: 420,
-                  }}
-                  getAllNodes={() => [activeReferenceNode]}
-                  isDragging={false}
-                  isResizing={false}
-                  isSelected={false}
-                  isHighlighted={false}
-                  onDragStart={() => undefined}
-                  onResizeStart={() => undefined}
-                  onUpdate={() => undefined}
-                  onAutoResize={() => undefined}
-                  onRemove={() => undefined}
-                  onExportMindmapImage={() => undefined}
-                  onSelect={() => undefined}
-                  onFocus={() => onFocusNode(activeReferenceNode.id)}
-                  readOnly
+                <ReferenceNativeNodePreview
+                  node={activeReferenceNode}
+                  drawerWidth={drawerWidth}
+                  onFocusNode={onFocusNode}
                 />
                 <div className="reference-card-footer">
                   {labelEditor}
@@ -759,6 +735,76 @@ export const ReferenceDrawer = ({
     </aside>
   );
 };
+
+
+interface ReferenceUrlWebPreviewProps {
+  reference: UrlReferenceEntry;
+  drawerWidth: number;
+}
+
+const ReferenceUrlWebPreview = memo(({ reference, drawerWidth }: ReferenceUrlWebPreviewProps) => {
+  const previewNode = useMemo(
+    () => createUrlPreviewNode(reference, drawerWidth),
+    [reference, drawerWidth],
+  );
+
+  return (
+    <div className="reference-url-preview">
+      <IframeNodeBody
+        node={previewNode}
+        onUpdate={() => undefined}
+        isResizing={false}
+        readOnly
+      />
+    </div>
+  );
+});
+
+ReferenceUrlWebPreview.displayName = 'ReferenceUrlWebPreview';
+
+interface ReferenceNativeNodePreviewProps {
+  node: CanvasNode;
+  drawerWidth: number;
+  onFocusNode: (nodeId: string) => void;
+}
+
+const ReferenceNativeNodePreview = memo(({ node, drawerWidth, onFocusNode }: ReferenceNativeNodePreviewProps) => {
+  const previewNode = useMemo(
+    () => ({
+      ...node,
+      x: 0,
+      y: 0,
+      width: Math.max(MIN_REFERENCE_DRAWER_WIDTH - 32, drawerWidth - 32),
+      height: 420,
+    }),
+    [drawerWidth, node],
+  );
+
+  const getPreviewNodes = useCallback(() => [node], [node]);
+  const handleFocus = useCallback(() => onFocusNode(node.id), [node.id, onFocusNode]);
+
+  return (
+    <CanvasNodeView
+      node={previewNode}
+      getAllNodes={getPreviewNodes}
+      isDragging={false}
+      isResizing={false}
+      isSelected={false}
+      isHighlighted={false}
+      onDragStart={() => undefined}
+      onResizeStart={() => undefined}
+      onUpdate={() => undefined}
+      onAutoResize={() => undefined}
+      onRemove={() => undefined}
+      onExportMindmapImage={() => undefined}
+      onSelect={() => undefined}
+      onFocus={handleFocus}
+      readOnly
+    />
+  );
+});
+
+ReferenceNativeNodePreview.displayName = 'ReferenceNativeNodePreview';
 
 interface ReferenceEntryListProps {
   entries: ReferenceEntry[];
