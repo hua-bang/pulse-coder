@@ -157,7 +157,11 @@ For HTML content in any of the three: emit a single self-contained \`<!DOCTYPE h
 
 ### Inline visual style — pick the right archetype, then match documentation density
 
-\`visual_render\` is **inline in the chat**, so the register is "thoughtful product documentation" (Notion / Linear / Stripe docs / a great README) — NOT a marketing landing page. Information density is welcome; decorative chrome is not. Producing the right look means picking the right *archetype* for the content, then keeping ornamentation restrained within that archetype.
+\`visual_render\` is **inline in the chat**. Information density is welcome; decorative chrome is not (no marketing hero, no gradients, no glowing CTAs). Within that, the **register varies by archetype**:
+- Step / Schema / Comparison / Timeline / Architecture / Concept → "thoughtful product documentation" (Notion / Linear / Stripe docs / a great README). Muted, monochrome-leaning, restrained.
+- **Dashboard / Monitoring** → "operations console" (Datadog / Grafana / a Linear status page). KPIs are **content-colored and loud**; numbers, deltas, severity pills carry meaning through color. Still no gradients or marketing chrome, but information IS allowed to shout when it's status.
+
+Producing the right look means picking the right *archetype* for the content first, then matching that archetype's register.
 
 **Do not default to a flow diagram.** Step boxes + ↓ arrows is ONE archetype, not THE archetype. Before generating, pick from the list below using the user's intent.
 
@@ -215,9 +219,25 @@ body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,Inter,system-ui,san
 .s-info{color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%}
 .dot-ok{background:#10b981}.dot-warn{background:#f59e0b}.dot-err{background:#ef4444}
+.pulse{animation:pulse 1.8s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+/* KPI — for dashboard tiles. Number takes content-meaning color. */
+.kpi{position:relative;padding:14px 16px}
+.kpi-name{font-size:12px;color:#64748b;font-weight:500;margin-bottom:6px}
+.kpi-num{font-size:32px;font-weight:700;line-height:1.1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.kpi-unit{font-size:14px;font-weight:600;color:inherit;margin-left:2px}
+.kpi-num--ok{color:#059669}.kpi-num--warn{color:#d97706}.kpi-num--err{color:#dc2626}
+.kpi-num--neutral{color:#4f46e5}.kpi-num--info{color:#0891b2}
+.kpi-delta{display:inline-flex;align-items:center;gap:4px;font-size:12px;margin-top:8px;padding:2px 8px;border-radius:999px;font-weight:500}
+.kpi-delta--good{color:#047857;background:#ecfdf5}
+.kpi-delta--bad{color:#b91c1c;background:#fee2e2}
+.kpi-delta--info{color:#1d4ed8;background:#eff6ff}
+.kpi-delta--warn{color:#a16207;background:#fef9c3}
+/* Optional thin accent rule under the metric name, in the number's color */
+.kpi-rule{height:2px;border-radius:1px;margin:0 0 10px 0;width:32px}
 \`\`\`
 
-Keep \`<body>\` transparent and width auto-fitting; don't set a fixed pixel width.
+Keep \`<body>\` transparent and width auto-fitting; don't set a fixed pixel width. For the **dashboard** archetype only, a very faint warm body tint (\`background:#fafaf9\`) is acceptable if it helps the cards read.
 
 #### Archetype anchors (use these as starting points, don't copy verbatim)
 
@@ -229,12 +249,32 @@ Keep \`<body>\` transparent and width auto-fitting; don't set a fixed pixel widt
 - For "process logic" requests with fields/QC info, consider upgrading to a step-spec variant: each step box stacks a header row + small \`.t-label\` field list (inputs, outputs, QC fields)
 
 **Dashboard** (monitoring, operational overview):
-- Top row: 3-5 KPI tiles in a CSS grid (\`grid-template-columns:repeat(auto-fit,minmax(160px,1fr))\`)
-- Each tile: \`.t-label\` for metric name + large number in accent or status color + tiny delta line in \`.s-ok\`/\`.s-err\`
-- Middle row: 1-2 charts (Chart.js line/area for time series, doughnut for composition, horizontal bars for ranked categories)
-- Bottom row: status table (alerts / services) with status pills using \`.s-*\` classes; status dot column allowed
-- Grid gap 12-16px, card radius 10px, subtle \`.elev\`
-- Density is the point — don't pad with empty space, but don't nest cards either
+- Register: "operations console", not "documentation diagram". KPIs should feel **alive and color-coded**, not muted. Numbers are LOUD, chrome is QUIET.
+- **Header row**: title (18-20px bold) on the left; on the right, an inline "live" line — pulse dot + \`实时监控\` (or \`Live\`) + \`·\` separators + \`最后更新 HH:MM:SS\` + \`刷新 30s\`. Use \`.dot-ok\` + \`.pulse\` for the indicator. Subtitle (\`.t-muted\`) under the title shows scope (\`生产环境 · 最近 24 小时\`).
+- **KPI row** (3-5 tiles, CSS grid \`repeat(auto-fit,minmax(170px,1fr))\`, gap 12-14px):
+  - Each tile uses \`.card\` + \`.elev\` (or just \`.kpi\` on a soft surface — either is fine).
+  - Structure (top to bottom): \`.kpi-name\` metric label → optional \`.kpi-rule\` thin colored bar (in number's color) → \`.kpi-num\` BIG bold number with semantic color (\`--ok\` / \`--warn\` / \`--err\` / \`--neutral\` / \`--info\`) → \`.kpi-delta\` rounded pill with ▲ / ▼ + delta value + " vs 昨日" or " vs baseline".
+  - **Pick the number's color by what the metric *means***, not by accent rules: uptime/SLA/success rate → \`--ok\` (green); latency / queue depth → \`--warn\` (amber) if elevated else \`--neutral\`; alerts / 5xx / errors → \`--err\` (red); counts / instances → \`--neutral\` (indigo).
+  - Pick the delta's color by **whether the change is good or bad**, not by direction: "↑0.03% 可用性" is \`--good\` even though it's an "up" arrow; "↑22ms 延迟" is \`--bad\` because higher latency is worse.
+- **Chart row** (1-2 cards side-by-side, CSS grid 2fr 1fr is a common split):
+  - Time series → Chart.js line/area, dual-axis OK (e.g. QPS on left, 5xx% on right). Series colors: primary \`#6366f1\` (indigo), secondary \`#ef4444\` (rose) for "bad" series, tertiary \`#10b981\` (emerald) for "good" series.
+  - Composition / resource → labeled horizontal bars (one row per resource with name + colored bar + % label), OR Chart.js doughnut with side legend; bars often read better inline.
+  - Distribution / ranked categories → horizontal bars with category-distinct hues from {indigo, violet, sky, emerald, amber, rose}.
+- **Bottom row** (typically 2 columns):
+  - Left: **service health list** — each row = colored \`.dot-*\` + service name + tiny metric line below (\`.t-muted\` p95/uptime), with right-aligned \`.s-*\` status pill (\`正常\` / \`降级风险\` / \`异常\`).
+  - Right: **alert table** — columns: 告警/服务 · 级别 (severity pill: P1 \`.s-err\`, P2 \`.s-warn\`, P3 \`.s-info\`) · 负责人 · 状态 (status pill: \`处理中\` \`.s-warn\`, \`已恢复\` \`.s-ok\`, \`待处理\` \`.s-info\`). Use mono font for alert IDs.
+- Outer container max-width ~1100px, gap 14-16px between rows. Cards radius 10-12px with \`.elev\`. Don't pad cards beyond 16px.
+- **Density is the point.** A dashboard with 5 KPIs + 2 charts + 2 tables is correct; a dashboard with 3 KPIs and a lot of whitespace looks anemic.
+
+Minimal KPI tile structure (copy-adapt, don't paste verbatim):
+\`\`\`html
+<div class="card elev kpi">
+  <div class="kpi-name">可用性 SLA</div>
+  <div class="kpi-rule" style="background:#059669"></div>
+  <div class="kpi-num kpi-num--ok">99.96<span class="kpi-unit">%</span></div>
+  <div class="kpi-delta kpi-delta--good">▲ 0.03% vs 昨日</div>
+</div>
+\`\`\`
 
 **Schema spec** (data model, field list, table structure):
 - Single \`.card\` per entity: header row (entity name + small \`.t-label\` for kind/source), then a table-ish field list
