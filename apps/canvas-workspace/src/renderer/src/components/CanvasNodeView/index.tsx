@@ -1,11 +1,11 @@
 import { memo, useCallback, useState, useEffect, useRef } from "react";
 import "./index.css";
-import type { CanvasNode, FrameNodeData, GroupNodeData, AgentNodeData, TextNodeData } from "../../types";
+import type { CanvasNode, FrameNodeData, GroupNodeData, TextNodeData } from "../../types";
 import type { ResizeEdge } from "../../hooks/useNodeResize";
 import { FileNodeBody } from "../FileNodeBody";
 import { TerminalNodeBody } from "../TerminalNodeBody";
 import { FrameNodeBody, FrameColorPicker } from "../FrameNodeBody";
-import { AgentNodeBody, detectAgentView } from "../AgentNodeBody";
+import { AgentNodeBody } from "../AgentNodeBody";
 import { TextNodeBody, TextColorPicker } from "../TextNodeBody";
 import { IframeNodeBody } from "../IframeNodeBody";
 import { ImageNodeBody } from "../ImageNodeBody";
@@ -86,17 +86,6 @@ function formatRelativeTime(epochMs: number): string {
   return `${Math.floor(diffHr / 24)}d ago`;
 }
 
-/** Map the body's view state to a header pill label + tone. */
-function agentHeaderBadge(data: AgentNodeData): { tone: string; label: string } {
-  const view = detectAgentView(data);
-  if (view === 'setup') return { tone: 'setup', label: 'Setup' };
-  if (view === 'restart') return { tone: 'restart', label: 'Restart' };
-  // 'running' — refine based on data.status to surface Done/Error inline
-  const status = data.status ?? 'running';
-  if (status === 'error') return { tone: 'error', label: 'Error' };
-  if (status === 'done') return { tone: 'done', label: 'Done' };
-  return { tone: 'running', label: 'Running' };
-}
 
 function isCanvasPanGesture(e: React.MouseEvent): boolean {
   const handToolActive = e.currentTarget.closest('.canvas-container--hand') != null;
@@ -341,9 +330,6 @@ const CanvasNodeViewComponent = ({
     </button>
   ) : null;
 
-  const agentStatus = node.type === "agent"
-    ? ((node.data as AgentNodeData).status ?? 'idle')
-    : null;
 
   const relativeTime = node.updatedAt ? formatRelativeTime(node.updatedAt) : null;
 
@@ -575,9 +561,6 @@ const CanvasNodeViewComponent = ({
               <circle cx="9.5" cy="5" r="0.8" fill="currentColor" />
             </svg>
           )}
-          {node.type === "agent" && agentStatus && agentStatus !== "idle" && (
-            <span className={`node-status-dot node-status-dot--${agentStatus}`} />
-          )}
         </span>
         <span
           ref={titleRef}
@@ -610,16 +593,7 @@ const CanvasNodeViewComponent = ({
             Ungroup
           </button>
         )}
-        {node.type === "agent" && (() => {
-          const badge = agentHeaderBadge(node.data as AgentNodeData);
-          return (
-            <span className={`agent-status-pill agent-status-pill--${badge.tone}`}>
-              <span className="agent-status-pill-dot" />
-              {badge.label}
-            </span>
-          );
-        })()}
-        {relativeTime && node.type !== "agent" && (
+        {relativeTime && (
           <span className="node-time-label" title={new Date(node.updatedAt!).toLocaleString()}>
             {relativeTime}
           </span>
