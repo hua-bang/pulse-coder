@@ -93,15 +93,6 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
   /** Tracks whether spawnAgent entered the restored (no-PTY) branch so the
    * cleanup effect knows to skip PTY-related teardown. */
   const isRestoredRef = useRef(false);
-  /**
-   * Set by handleStop right before it kills the PTY so the subsequent
-   * `onExit` handler doesn't overwrite the clean exit code we just
-   * persisted. Without this the PTY's true kill exit code (e.g. 137 for
-   * SIGKILL) leaks into `lastExitCode` and the session-end badge
-   * misleadingly shows "Error · exit 137" for a user-initiated stop.
-   * Auto-resets inside the onExit handler.
-   */
-  const userStoppedRef = useRef(false);
 
   const spawnAgent = useCallback(
     async (
@@ -299,13 +290,6 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
 
       const removeExit = api.onExit(sessionId, (code: number) => {
         term.writeln(`\r\n\x1b[2m[Agent exited with code ${code}]\x1b[0m`);
-        // If the user clicked Stop, handleStop already wrote
-        // status='done' / lastExitCode=0 — don't clobber it with the
-        // SIGKILL exit code.
-        if (userStoppedRef.current) {
-          userStoppedRef.current = false;
-          return;
-        }
         // Status stays 'done' regardless of code — the badge in
         // SessionEndBar branches on `lastExitCode` instead. `status:
         // 'error'` remains reserved for *spawn* failures (see the
@@ -443,25 +427,6 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
     setLaunched(true);
   }, [selectedAgent, cwdInput, promptInput, rootFolder, readOnly]);
 
-  const handleStop = useCallback(() => {
-    if (readOnly) return;
-    const api = window.canvasWorkspace?.pty;
-    // Signal the imminent onExit firing as user-initiated so it doesn't
-    // overwrite our `lastExitCode: 0` with the kill code.
-    userStoppedRef.current = true;
-    if (api) api.kill(sessionId);
-    onUpdateRef.current(nodeIdRef.current, {
-      data: { ...dataRef.current, status: 'done', lastExitCode: 0 },
-    });
-  }, [sessionId, readOnly]);
-
-  const handleSendPrompt = useCallback((prompt: string) => {
-    if (readOnly) return;
-    const api = window.canvasWorkspace?.pty;
-    if (!api) return;
-    api.write(sessionId, `\n${prompt}\n`);
-  }, [sessionId, readOnly]);
-
   const handleMentionSelect = useCallback((selected: CanvasNode) => {
     if (readOnly) return;
     setPickerOpen(false);
@@ -515,43 +480,6 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
       true,
     );
   }, [readOnly, spawnAgent]);
-
-  /**
-   * "Start fresh" — the explicit "throw away this conversation" path,
-   * tucked behind a secondary menu so casual users won't hit it by
-   * accident. Clears all session keys (sessionId, scrollback, resumeId,
-   * lastExitCode) so the next launch allocates a brand-new conversation.
-   *
-   * Intentionally preserves `inlinePrompt` and `cwd` so the picker
-   * pre-fills the user's last request — avoiding the "I just want to
-   * tweak my prompt and run it again" retyping tax.
-   */
-  const handleNewSession = useCallback(() => {
-    if (readOnly) return;
-    if (saveTimerRef.current) clearInterval(saveTimerRef.current);
-    cleanupRef.current?.();
-    termRef.current?.dispose();
-    termRef.current = null;
-    fitRef.current = null;
-    spawnedRef.current = false;
-    cleanupRef.current = null;
-    initialScrollback.current = '';
-    userLaunchedRef.current = false;
-    isRestoredRef.current = false;
-
-    onUpdateRef.current(nodeIdRef.current, {
-      data: {
-        ...dataRef.current,
-        status: 'idle',
-        scrollback: '',
-        sessionId: '',
-        resumeId: '',
-        lastExitCode: undefined,
-      },
-    });
-
-    setLaunched(false);
-  }, [readOnly]);
 
   /**
    * Copy the visible terminal output as plain text (ANSI escapes
@@ -618,10 +546,7 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
         lastExitCode={data.lastExitCode}
         canResume={!!getAgentDef(data.agentType)?.resume}
         onContinue={handleContinue}
-        onNewSession={handleNewSession}
         onCopyOutput={handleCopyOutput}
-        onStop={handleStop}
-        onSendPrompt={handleSendPrompt}
       />
     </div>
   );
