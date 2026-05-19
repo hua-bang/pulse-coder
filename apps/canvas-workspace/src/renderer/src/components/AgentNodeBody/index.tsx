@@ -206,16 +206,6 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
         return;
       }
 
-      const spawnCwd = cwd || rootFolder || undefined;
-      const result = await api.spawn(sessionId, term.cols, term.rows, spawnCwd, workspaceId);
-      if (!result.ok) {
-        term.writeln(`\x1b[31mFailed to spawn shell: ${result.error}\x1b[0m`);
-        onUpdateRef.current(nodeIdRef.current, {
-          data: { ...dataRef.current, status: 'error' },
-        });
-        return;
-      }
-
       // Resolve the agent command to write once the shell is ready
       const command = getAgentCommand(agentType);
       const writeCommand = () => {
@@ -251,11 +241,19 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
         }
       };
 
+      // Attach the data listener BEFORE awaiting spawn. The backend creates
+      // the PTY synchronously inside the spawn handler and the shell starts
+      // emitting its prompt almost immediately, so if we wait for the await
+      // to resolve before attaching, the first chunk of output arrives on
+      // an IPC channel with no listener and is dropped — producing a black
+      // terminal that never prints anything. Attaching first is safe: until
+      // the spawn handler runs there's no one to emit, and ipcRenderer.on
+      // happily waits for events.
       let prompted = false;
-      let removeData: (() => void) | null = null;
+      const removeDataRef: { current: (() => void) | null } = { current: null };
 
       const attachPermanentListener = () => {
-        removeData = api.onData(sessionId, (d: string) => { term.write(d); });
+        removeDataRef.current = api.onData(sessionId, (d: string) => { term.write(d); });
       };
 
       const promptRemove = api.onData(sessionId, (d: string) => {
@@ -274,6 +272,19 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
           data: { ...dataRef.current, status: 'done' },
         });
       });
+
+      const spawnCwd = cwd || rootFolder || undefined;
+      const result = await api.spawn(sessionId, term.cols, term.rows, spawnCwd, workspaceId);
+      if (!result.ok) {
+        if (!prompted) promptRemove();
+        removeDataRef.current?.();
+        removeExit();
+        term.writeln(`\x1b[31mFailed to spawn shell: ${result.error}\x1b[0m`);
+        onUpdateRef.current(nodeIdRef.current, {
+          data: { ...dataRef.current, status: 'error' },
+        });
+        return;
+      }
 
       term.onData((d: string) => {
         api.write(sessionId, d);
@@ -296,7 +307,7 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
 
       cleanupRef.current = () => {
         if (!prompted) promptRemove();
-        removeData?.();
+        removeDataRef.current?.();
         removeExit();
         api.kill(sessionId);
       };
