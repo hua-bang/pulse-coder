@@ -29,42 +29,6 @@ interface Props {
 type ViewMode = 'setup' | 'running' | 'restart';
 
 /**
- * Dark terminal theme used by the agent body. The shared
- * `TERMINAL_OPTIONS` ships with a light background that doesn't match
- * the redesigned dark terminal panel, so we override it locally —
- * other terminal nodes (TerminalNodeBody) continue to use the light
- * theme.
- */
-const AGENT_TERMINAL_OPTIONS = {
-  ...TERMINAL_OPTIONS,
-  theme: {
-    ...TERMINAL_OPTIONS.theme,
-    background: '#1e1f24',
-    foreground: '#e6e6e6',
-    cursor: '#e6e6e6',
-    cursorAccent: '#1e1f24',
-    selectionBackground: 'rgba(99, 102, 241, 0.32)',
-    selectionForeground: '#ffffff',
-    black: '#1e1f24',
-    red: '#ff6b6b',
-    green: '#4ade80',
-    yellow: '#fbbf24',
-    blue: '#60a5fa',
-    magenta: '#c084fc',
-    cyan: '#67e8f9',
-    white: '#d1d5db',
-    brightBlack: '#6b7280',
-    brightRed: '#f87171',
-    brightGreen: '#86efac',
-    brightYellow: '#fde047',
-    brightBlue: '#93c5fd',
-    brightMagenta: '#d8b4fe',
-    brightCyan: '#a5f3fc',
-    brightWhite: '#f9fafb',
-  },
-};
-
-/**
  * Mint a fresh PTY session id for a new spawn. We deliberately avoid
  * reusing the node id (or a stale persisted sessionId) because the
  * backend's `pty:spawn` short-circuits with `{ reused: true }` when the
@@ -160,7 +124,7 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
 
       if (readOnly) {
         spawnedRef.current = true;
-        const term = new Terminal(AGENT_TERMINAL_OPTIONS);
+        const term = new Terminal(TERMINAL_OPTIONS);
         const fitAddon = new FitAddon();
         term.loadAddon(fitAddon);
         term.open(containerRef.current);
@@ -181,7 +145,7 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
       }
       spawnedRef.current = true;
 
-      const term = new Terminal(AGENT_TERMINAL_OPTIONS);
+      const term = new Terminal(TERMINAL_OPTIONS);
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
       term.open(containerRef.current);
