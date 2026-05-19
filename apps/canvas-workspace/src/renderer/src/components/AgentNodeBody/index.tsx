@@ -29,6 +29,54 @@ interface Props {
 type ViewMode = 'setup' | 'running' | 'restart';
 
 /**
+ * Dark terminal theme used by the agent body. The shared
+ * `TERMINAL_OPTIONS` ships with a light background that doesn't match
+ * the redesigned dark terminal panel, so we override it locally —
+ * other terminal nodes (TerminalNodeBody) continue to use the light
+ * theme.
+ */
+const AGENT_TERMINAL_OPTIONS = {
+  ...TERMINAL_OPTIONS,
+  theme: {
+    ...TERMINAL_OPTIONS.theme,
+    background: '#1e1f24',
+    foreground: '#e6e6e6',
+    cursor: '#e6e6e6',
+    cursorAccent: '#1e1f24',
+    selectionBackground: 'rgba(99, 102, 241, 0.32)',
+    selectionForeground: '#ffffff',
+    black: '#1e1f24',
+    red: '#ff6b6b',
+    green: '#4ade80',
+    yellow: '#fbbf24',
+    blue: '#60a5fa',
+    magenta: '#c084fc',
+    cyan: '#67e8f9',
+    white: '#d1d5db',
+    brightBlack: '#6b7280',
+    brightRed: '#f87171',
+    brightGreen: '#86efac',
+    brightYellow: '#fde047',
+    brightBlue: '#93c5fd',
+    brightMagenta: '#d8b4fe',
+    brightCyan: '#a5f3fc',
+    brightWhite: '#f9fafb',
+  },
+};
+
+/**
+ * Mint a fresh PTY session id for a new spawn. We deliberately avoid
+ * reusing the node id (or a stale persisted sessionId) because the
+ * backend's `pty:spawn` short-circuits with `{ reused: true }` when the
+ * id is already in its map — and `pty:kill` is a fire-and-forget IPC,
+ * so a kill+respawn on the same id races and can attach the renderer
+ * to a session that gets torn down a moment later (resulting in an
+ * empty, dead terminal).
+ */
+const mintSessionId = (nodeId: string): string =>
+  `${nodeId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+/**
  * Read the current agent view from persisted data. The body keeps
  * `data.viewMode` in sync with its real runtime view, so this function
  * trusts that field above all else — including the presence of saved
@@ -112,7 +160,7 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
 
       if (readOnly) {
         spawnedRef.current = true;
-        const term = new Terminal(TERMINAL_OPTIONS);
+        const term = new Terminal(AGENT_TERMINAL_OPTIONS);
         const fitAddon = new FitAddon();
         term.loadAddon(fitAddon);
         term.open(containerRef.current);
@@ -133,7 +181,7 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
       }
       spawnedRef.current = true;
 
-      const term = new Terminal(TERMINAL_OPTIONS);
+      const term = new Terminal(AGENT_TERMINAL_OPTIONS);
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
       term.open(containerRef.current);
@@ -319,6 +367,10 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
     if (effectiveCwd) {
       setRecentCwds(pushRecentCwd(effectiveCwd));
     }
+    const api = window.canvasWorkspace?.pty;
+    const oldSessionId = dataRef.current.sessionId;
+    if (api && oldSessionId) api.kill(oldSessionId);
+    const freshSessionId = mintSessionId(nodeIdRef.current);
     // Persist the launch intent to disk immediately. If the user reloads
     // before spawnAgent's own post-spawn update commits, the node will
     // reopen in the Restart view (because sessionId/scrollback get persisted
@@ -331,6 +383,8 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
         inlinePrompt: prompt,
         lastInitPrompt: prompt || dataRef.current.lastInitPrompt || '',
         status: 'running',
+        sessionId: freshSessionId,
+        scrollback: '',
       },
     });
     setFromRestart(false);
@@ -395,8 +449,9 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
     setViewMode('restart');
   }, [readOnly]);
 
-  /** Restart with saved config from the Restart view. Clears prior session
-   * artifacts so spawnAgent starts cleanly. */
+  /** Restart with saved config from the Restart view. Mints a fresh
+   * sessionId and explicitly kills any leftover backend session so a
+   * cold-reload-leaked PTY doesn't intercept the new spawn. */
   const handleRestartSession = useCallback(() => {
     if (readOnly) return;
     const savedAgent = data.agentType || selectedAgent;
@@ -405,6 +460,10 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
     pendingAgentRef.current = savedAgent;
     pendingCwdRef.current = savedCwd;
     pendingPromptRef.current = savedPrompt;
+    const api = window.canvasWorkspace?.pty;
+    const oldSessionId = dataRef.current.sessionId;
+    if (api && oldSessionId) api.kill(oldSessionId);
+    const freshSessionId = mintSessionId(nodeIdRef.current);
     onUpdateRef.current(nodeIdRef.current, {
       data: {
         ...dataRef.current,
@@ -412,7 +471,7 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
         cwd: savedCwd,
         inlinePrompt: savedPrompt,
         status: 'running',
-        sessionId: '',
+        sessionId: freshSessionId,
         scrollback: '',
       },
     });
