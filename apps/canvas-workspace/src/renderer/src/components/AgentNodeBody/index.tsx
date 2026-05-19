@@ -402,19 +402,6 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
     setViewMode('running');
   }, [selectedAgent, cwdInput, promptInput, rootFolder, readOnly]);
 
-  const handleStop = useCallback(() => {
-    if (readOnly) return;
-    const api = window.canvasWorkspace?.pty;
-    if (api) api.kill(sessionId);
-    onUpdateRef.current(nodeIdRef.current, {
-      data: { ...dataRef.current, status: 'done' },
-    });
-  }, [sessionId, readOnly]);
-
-  const handleFocusTerminal = useCallback(() => {
-    termRef.current?.focus();
-  }, []);
-
   const handleMentionSelect = useCallback((selected: CanvasNode) => {
     if (readOnly) return;
     setPickerOpen(false);
@@ -434,31 +421,6 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
     setPickerOpen(false);
     termRef.current?.focus();
   }, []);
-
-  /**
-   * Triggered from the in-terminal "重启" button (live session that has
-   * exited). Tears down the dead PTY and routes to the Restart card so the
-   * user can decide whether to re-launch with the same config or edit it.
-   * Snapshots the final scrollback before disposing the terminal so the
-   * Restart card's "查看上次配置" panel can replay it.
-   */
-  const handleGoToRestart = useCallback(() => {
-    if (readOnly) return;
-    if (saveTimerRef.current) clearInterval(saveTimerRef.current);
-    if (termRef.current) {
-      const finalScrollback = serializeBuffer(termRef.current);
-      onUpdateRef.current(nodeIdRef.current, {
-        data: { ...dataRef.current, scrollback: finalScrollback },
-      });
-    }
-    cleanupRef.current?.();
-    termRef.current?.dispose();
-    termRef.current = null;
-    fitRef.current = null;
-    spawnedRef.current = false;
-    cleanupRef.current = null;
-    setViewMode('restart');
-  }, [readOnly]);
 
   /** Restart with saved config from the Restart view. Mints a fresh
    * sessionId and explicitly kills any leftover backend session so a
@@ -559,9 +521,6 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
         status={status}
         agentType={data.agentType || 'claude-code'}
         cwd={data.cwd}
-        onRestart={handleGoToRestart}
-        onStop={handleStop}
-        onFocusTerminal={handleFocusTerminal}
       />
     </>
   );
