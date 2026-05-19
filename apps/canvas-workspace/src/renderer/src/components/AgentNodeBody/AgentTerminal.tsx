@@ -41,21 +41,20 @@ export const AgentTerminal = ({
 /**
  * Footer chrome shown after an agent exits. Surfaces:
  *
- *   [● Done · exit 0]  [▸ Continue]                          [⎘ Copy]
+ *   [● Ended]  [▸ Continue]                                   [⎘ Copy]
  *
- * Continue / Retry is the only path back into the conversation — the
- * explicit "Restart / Start fresh" affordance was removed entirely so
- * users never have to reason about throwing away the agent state. To
- * truly start over they close the node and create a new one, which is
- * the same mental model as "this conversation is finished, open a new
- * one". For agents that don't support id-based resume, the Continue
- * button is hidden and the bar only shows status + Copy.
+ * Continue is the only path back into the conversation — the explicit
+ * "Restart / Start fresh" affordance was removed entirely so users
+ * never reason about throwing away agent state. To truly start over,
+ * close the node and create a new one. For agents that don't support
+ * id-based resume the Continue button is hidden and the bar only shows
+ * status + Copy.
  *
- * Running-state chrome (the old quick-actions bar with Continue /
- * Summarize / Stop) was removed for similar reasons: in-flight
- * Continue/Summarize prompts fought with the agent's own turn, and
- * Stop overlapped with the agent's `esc to interrupt` plus the
- * node-close button.
+ * Visual is deliberately monochrome: spawn failures, non-zero exits,
+ * and clean exits all render the same neutral "Ended" pill. Exit-code
+ * details surface only on hover so they don't dominate the canvas at
+ * a glance — what matters for the user is "session is over, pick up
+ * if you want", not the exit-code post-mortem.
  */
 interface SessionEndBarProps {
   status: 'done' | 'error' | string;
@@ -72,48 +71,30 @@ const SessionEndBar = ({
   onContinue,
   onCopyOutput,
 }: SessionEndBarProps) => {
-  // `status === 'error'` covers spawn-failure cases (no exit code).
-  // A non-zero `exitCode` covers normal-runtime failures. Either way
-  // we want the badge / button to read as a recoverable error.
-  const isError = status === 'error'
-    || (typeof exitCode === 'number' && exitCode !== 0);
-  const badgeLabel = isError
-    ? `Error${typeof exitCode === 'number' ? ` · exit ${exitCode}` : ''}`
-    : 'Done';
-  const primaryLabel = isError ? 'Retry' : 'Continue';
-  const primaryTitle = isError
-    ? 'Retry — resume the conversation in a new shell'
-    : 'Continue — resume the conversation in a new shell';
+  let detailTitle = 'Session ended';
+  if (status === 'error') {
+    detailTitle = 'Session failed to start';
+  } else if (typeof exitCode === 'number' && exitCode !== 0) {
+    detailTitle = `Session ended · exit ${exitCode}`;
+  }
 
   return (
-    <div className={`agent-session-end-bar${isError ? ' agent-session-end-bar--error' : ''}`}>
-      <span className={`agent-session-badge${isError ? ' agent-session-badge--error' : ''}`}>
+    <div className="agent-session-end-bar">
+      <span className="agent-session-badge" title={detailTitle}>
         <span className="agent-session-badge-dot" aria-hidden="true" />
-        {badgeLabel}
+        Ended
       </span>
       {canResume && (
         <button
           type="button"
-          className={`agent-session-primary${isError ? ' agent-session-primary--error' : ''}`}
+          className="agent-session-primary"
           onClick={onContinue}
-          title={primaryTitle}
+          title="Continue — resume the conversation in a new shell"
         >
-          {isError ? (
-            <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
-              <path
-                d="M13 8a5 5 0 1 1-1.5-3.6M13 3v2.5H10.5"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          ) : (
-            <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
-              <path d="M5 3l6 5-6 5V3z" fill="currentColor" />
-            </svg>
-          )}
-          {primaryLabel}
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+            <path d="M5 3l6 5-6 5V3z" fill="currentColor" />
+          </svg>
+          Continue
         </button>
       )}
       <span className="agent-session-spacer" />

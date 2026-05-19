@@ -312,11 +312,6 @@
   font-family: var(--font);
 }
 
-.agent-session-end-bar--error {
-  border-color: rgba(224, 62, 62, 0.35);
-  background: rgba(255, 244, 244, 0.96);
-}
-
 .agent-session-badge {
   display: inline-flex;
   align-items: center;
@@ -324,25 +319,16 @@
   padding: 0 2px;
   font-size: 11px;
   font-weight: 600;
-  color: #2f8a5a; /* Done — calm green */
+  color: var(--text-muted);
   letter-spacing: 0.1px;
   white-space: nowrap;
 }
 
-.agent-session-badge--error {
-  color: #c4322d;
-}
-
 .agent-session-badge-dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: currentColor;
-  box-shadow: 0 0 0 2px rgba(47, 138, 90, 0.18);
-}
-
-.agent-session-badge--error .agent-session-badge-dot {
-  box-shadow: 0 0 0 2px rgba(196, 50, 45, 0.18);
 }
 
 .agent-session-primary {
@@ -351,30 +337,21 @@
   gap: 5px;
   height: 24px;
   padding: 0 11px;
-  border: none;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--accent);
-  color: #ffffff;
+  background: var(--surface);
+  color: var(--text);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   font-family: var(--font);
   cursor: pointer;
-  transition: filter 0.12s, box-shadow 0.12s;
-  box-shadow: 0 1px 2px rgba(35, 131, 226, 0.25);
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 
 .agent-session-primary:hover {
-  filter: brightness(1.08);
-  box-shadow: 0 2px 5px rgba(35, 131, 226, 0.3);
-}
-
-.agent-session-primary--error {
-  background: #c4322d;
-  box-shadow: 0 1px 2px rgba(196, 50, 45, 0.3);
-}
-
-.agent-session-primary--error:hover {
-  box-shadow: 0 2px 5px rgba(196, 50, 45, 0.35);
+  background: var(--surface-hover);
+  border-color: var(--text-muted);
+  color: var(--text);
 }
 
 .agent-session-spacer {

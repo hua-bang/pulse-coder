@@ -142,12 +142,9 @@
   animation: nodeStatusPulse 1.8s ease-in-out infinite;
 }
 
-.node-status-dot--done {
-  background: var(--text-muted);
-}
-
+.node-status-dot--done,
 .node-status-dot--error {
-  background: #e03e3e;
+  background: var(--text-muted);
 }
 
 @keyframes nodeStatusPulse {
