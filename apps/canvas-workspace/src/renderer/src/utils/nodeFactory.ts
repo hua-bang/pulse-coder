@@ -11,7 +11,7 @@ const NODE_DEFAULTS: Record<CanvasNode['type'], { title: string; width: number; 
   terminal: { title: 'Terminal', width: 480, height: 300 },
   frame:    { title: 'Frame',    width: 600, height: 400 },
   group:    { title: 'Group',    width: 360, height: 240 },
-  agent:    { title: 'Agent',    width: 520, height: 380 },
+  agent:    { title: 'Coding Agent', width: 520, height: 380 },
   text:     { title: 'Text',     width: 260, height: 120 },
   iframe:   { title: 'Web',      width: 520, height: 400 },
   image:    { title: 'Image',    width: 320, height: 240 },

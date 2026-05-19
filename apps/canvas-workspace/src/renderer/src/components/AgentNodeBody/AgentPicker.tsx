@@ -112,8 +112,11 @@ export const AgentPicker = ({
                 className="agent-dir-input"
                 value={cwdInput}
                 onChange={(e) => onCwdChange(e.target.value)}
-                placeholder={
-                  rootFolder ? truncatePath(rootFolder, 36) : '/Users/jasper/project'
+                placeholder={rootFolder ? truncatePath(rootFolder, 36) : '~'}
+                title={
+                  rootFolder
+                    ? `Defaults to workspace root: ${rootFolder}`
+                    : 'Defaults to your home directory'
                 }
                 spellCheck={false}
                 onKeyDown={(e) => {

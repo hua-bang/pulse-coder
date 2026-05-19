@@ -554,11 +554,16 @@ const CanvasNodeViewComponent = ({
               <path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
             </svg>
           ) : (
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="5.5" r="3" stroke="currentColor" strokeWidth="1.3" />
-              <path d="M4 14c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-              <circle cx="6.5" cy="5" r="0.8" fill="currentColor" />
-              <circle cx="9.5" cy="5" r="0.8" fill="currentColor" />
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path
+                d="M9.2 2.2l1.1 2.9 2.9 1.1-2.9 1.1-1.1 2.9-1.1-2.9L5.2 6.2l2.9-1.1 1.1-2.9z"
+                fill="currentColor"
+              />
+              <path
+                d="M4.3 9.8l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4L2.3 11.8l1.4-.6.6-1.4z"
+                fill="currentColor"
+                opacity="0.55"
+              />
             </svg>
           )}
         </span>
