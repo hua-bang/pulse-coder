@@ -2,11 +2,9 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { ChatHeader } from './ChatHeader';
 import './ChatPanel.css';
 import { ChatView } from './ChatView';
-import { useCanvasModels, ModelSettingsDrawer } from './ModelSettings';
-import { usePromptProfile, PromptSettingsDrawer } from './PromptSettings';
-import { useChatSessions } from './hooks/useChatSessions';
-import { useChatStream } from './hooks/useChatStream';
-import { useMentions } from './hooks/useMentions';
+import { ModelSettingsDrawer } from './ModelSettings';
+import { PromptSettingsDrawer } from './PromptSettings';
+import { useChatComposerState } from './hooks/useChatComposerState';
 import { getNodeDisplayLabel } from '../../utils/nodeLabel';
 import type { AgentRequestContext } from '../../types';
 import type { ChatPanelProps } from './types';
@@ -22,69 +20,58 @@ export const ChatPanel = ({
   onNodeFocus,
 }: ChatPanelProps) => {
   const [executionMode, setExecutionMode] = useState<'auto' | 'ask'>('auto');
-  const [modelSettingsOpen, setModelSettingsOpen] = useState(false);
-  const [promptSettingsOpen, setPromptSettingsOpen] = useState(false);
-  const canvasModels = useCanvasModels();
-  const promptProfile = usePromptProfile();
+  const requestContextRef = useRef<AgentRequestContext>();
 
   const {
     abort,
     addImageToCanvas,
     answerClarification,
-    clarifyInput,
-    collapsedSections,
-    expandedTools,
-    loading,
-    messageTools,
-    messages,
-    pendingClarify,
-    replaceMessages,
-    sendMessage,
-    setClarifyInput,
-    streamingTools,
-    toggleSection,
-    toggleToolExpand,
-  } = useChatStream({ workspaceId, allWorkspaces });
-
-  const {
-    otherSessions,
-    handleLoadSession,
-    handleNewSession,
-    openSessionMenu,
-    sessionMenuOpen,
-    sessionMenuRef,
-    sessions,
-  } = useChatSessions({
-    workspaceId,
-    allWorkspaces,
-    onMessagesLoaded: replaceMessages,
-  });
-
-  const requestContextRef = useRef<AgentRequestContext>();
-
-  const {
     attachments,
+    canvasModels,
+    clarifyInput,
     clearInput,
+    collapsedSections,
     editableRef,
+    expandedTools,
     focusInput,
     handleAttachFiles,
     handleInput,
     handleKeyDown,
+    handleLoadSession,
+    handleNewSession,
     handlePaste,
     input,
+    loading,
     mentionIndex,
     mentionItems,
     mentionOpen,
+    messageTools,
+    messages,
+    modelSettingsOpen,
+    setModelSettingsOpen,
+    openSessionMenu,
+    otherSessions,
+    pendingClarify,
+    promptProfile,
+    promptSettingsOpen,
+    setPromptSettingsOpen,
     removeAttachment,
     selectMention,
+    sendMessage,
+    sessionMenuOpen,
+    sessionMenuRef,
+    sessions,
+    setClarifyInput,
     setMentionIndex,
+    streamingTools,
     submitCurrentInput,
-  } = useMentions({
-    allWorkspaces,
+    toggleSection,
+    toggleToolExpand,
+  } = useChatComposerState({
     workspaceId,
+    allWorkspaces,
     nodes,
     rootFolder,
-    onSubmit: sendMessage,
     getRequestContext: () => requestContextRef.current,
   });
 

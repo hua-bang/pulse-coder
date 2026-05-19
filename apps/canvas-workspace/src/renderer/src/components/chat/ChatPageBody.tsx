@@ -1,15 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { CanvasNode } from '../../types';
 import { CloseIcon, PlusIcon, SettingsIcon, SparklesIcon } from '../icons';
 import './ChatPage.css';
 import './ChatPanel.css';
 import { ChatSessionsRail, type UnifiedSession } from './ChatSessionsRail';
 import { ChatView } from './ChatView';
-import { ModelSettingsDrawer, useCanvasModels } from './ModelSettings';
-import { PromptSettingsDrawer, usePromptProfile } from './PromptSettings';
-import { useChatSessions } from './hooks/useChatSessions';
-import { useChatStream } from './hooks/useChatStream';
-import { useMentions } from './hooks/useMentions';
+import { ModelSettingsDrawer } from './ModelSettings';
+import { PromptSettingsDrawer } from './PromptSettings';
+import { useChatComposerState } from './hooks/useChatComposerState';
 import type { WorkspaceOption } from './types';
 
 const RailToggleIcon = ({ size = 16 }: { size?: number }) => (
@@ -57,69 +55,58 @@ export const ChatPageBody = ({
   // we saw when this body was constructed (after a workspace switch).
   const initialPendingRef = useRef(initialPendingSessionId);
 
-  const [modelSettingsOpen, setModelSettingsOpen] = useState(false);
-  const [promptSettingsOpen, setPromptSettingsOpen] = useState(false);
-  const canvasModels = useCanvasModels();
-  const promptProfile = usePromptProfile();
-
   const {
     abort,
     addImageToCanvas,
     answerClarification,
+    attachments,
+    canvasModels,
     clarifyInput,
+    clearInput,
     collapsedSections,
+    editableRef,
     expandedTools,
-    loading,
-    messageTools,
-    messages,
-    pendingClarify,
-    replaceMessages,
-    sendMessage,
-    setClarifyInput,
-    streamingTools,
-    toggleSection,
-    toggleToolExpand,
-  } = useChatStream({ workspaceId, allWorkspaces });
-
-  const {
-    otherSessions,
+    focusInput,
+    handleAttachFiles,
+    handleInput,
+    handleKeyDown,
     handleLoadSession,
     handleNewSession,
+    handlePaste,
+    input,
+    loading,
+    mentionIndex,
+    mentionItems,
+    mentionOpen,
+    messageTools,
+    messages,
+    modelSettingsOpen,
+    setModelSettingsOpen,
+    otherSessions,
+    pendingClarify,
+    promptProfile,
+    promptSettingsOpen,
+    setPromptSettingsOpen,
+    removeAttachment,
+    selectMention,
+    sendMessage,
     sessions,
-  } = useChatSessions({
+    setClarifyInput,
+    setMentionIndex,
+    streamingTools,
+    submitCurrentInput,
+    toggleSection,
+    toggleToolExpand,
+  } = useChatComposerState({
     workspaceId,
     allWorkspaces,
-    onMessagesLoaded: replaceMessages,
+    nodes,
+    rootFolder,
     eagerLoad: true,
     // If we're about to load a specific session on mount, don't also fetch
     // the current active-session history — it would race with the pending
     // load and potentially overwrite it.
     skipInitialHistory: initialPendingRef.current !== null,
-  });
-
-  const {
-    attachments,
-    clearInput,
-    editableRef,
-    focusInput,
-    handleAttachFiles,
-    handleInput,
-    handleKeyDown,
-    handlePaste,
-    input,
-    mentionIndex,
-    mentionItems,
-    mentionOpen,
-    removeAttachment,
-    selectMention,
-    setMentionIndex,
-    submitCurrentInput,
-  } = useMentions({
-    allWorkspaces,
-    workspaceId,
-    nodes,
-    rootFolder,
-    onSubmit: sendMessage,
   });
 
   useEffect(() => {
