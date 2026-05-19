@@ -381,7 +381,12 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(640px, 80vw);
+  /* Width is controlled inline by ArtifactDrawer.tsx so the user can drag the
+   * left-edge handle to resize. Fallback only applies when no inline style is
+   * set (e.g. SSR or stripped runtime). */
+  width: 640px;
+  min-width: 360px;
+  max-width: 95vw;
   background: #fff;
   border-left: 1px solid rgba(55, 53, 47, 0.12);
   display: flex;
@@ -389,6 +394,27 @@
   z-index: 100;
   box-shadow: -2px 0 12px rgba(15, 15, 14, 0.08);
   animation: artifact-slide-in 0.18s ease-out;
+}
+
+/* Thin draggable strip on the LEFT edge of the right-anchored drawer.
+ * Transparent at rest; the cursor hint is the only visual cue until hover,
+ * which paints a soft indigo bar so the drag target is discoverable. */
+.artifact-drawer__resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 6px;
+  margin-left: -3px;
+  cursor: ew-resize;
+  z-index: 1;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+
+.artifact-drawer__resize-handle:hover,
+.artifact-drawer__resize-handle:active {
+  background: rgba(99, 102, 241, 0.35);
 }
 
 @keyframes artifact-slide-in {
@@ -462,16 +488,6 @@
   border-bottom: 1px solid rgba(55, 53, 47, 0.08);
   background: #fafaf9;
   flex-shrink: 0;
-}
-
-.artifact-drawer__version-select {
-  font-size: 12px;
-  color: #37352f;
-  background: #fff;
-  border: 1px solid rgba(55, 53, 47, 0.16);
-  border-radius: 5px;
-  padding: 4px 8px;
-  font-family: inherit;
 }
 
 .artifact-drawer__toolbar-spacer { flex: 1; }

@@ -7,7 +7,7 @@
  * and load the requested artifact.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Artifact, ArtifactVersion } from '../../types';
 import { useArtifactDrawer } from './ArtifactContext';
 
@@ -17,18 +17,42 @@ const TYPE_LABEL: Record<string, string> = {
   mermaid: 'Mermaid',
 };
 
+const WIDTH_STORAGE_KEY = 'canvas-workspace:artifact-drawer-width';
+const MIN_DRAWER_WIDTH = 360;
+const DEFAULT_DRAWER_WIDTH = 640;
+
+function readStoredWidth(): number {
+  if (typeof window === 'undefined') return DEFAULT_DRAWER_WIDTH;
+  try {
+    const stored = window.localStorage.getItem(WIDTH_STORAGE_KEY);
+    if (!stored) return DEFAULT_DRAWER_WIDTH;
+    const parsed = Number(stored);
+    if (!Number.isFinite(parsed) || parsed < MIN_DRAWER_WIDTH) return DEFAULT_DRAWER_WIDTH;
+    return parsed;
+  } catch {
+    return DEFAULT_DRAWER_WIDTH;
+  }
+}
+
+function clampDrawerWidth(value: number): number {
+  const viewport = typeof window === 'undefined' ? value : window.innerWidth;
+  const max = Math.max(MIN_DRAWER_WIDTH, Math.round(viewport * 0.95));
+  return Math.min(max, Math.max(MIN_DRAWER_WIDTH, value));
+}
+
 export const ArtifactDrawer = () => {
   const { open, close } = useArtifactDrawer();
   const [artifact, setArtifact] = useState<Artifact | null>(null);
-  const [viewVersionId, setViewVersionId] = useState<string | null>(null);
   const [pinning, setPinning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [drawerWidth, setDrawerWidth] = useState<number>(() => clampDrawerWidth(readStoredWidth()));
+  const drawerWidthRef = useRef(drawerWidth);
+  drawerWidthRef.current = drawerWidth;
 
   // Load + subscribe whenever the opened (workspace, artifact) pair changes.
   useEffect(() => {
     if (!open) {
       setArtifact(null);
-      setViewVersionId(null);
       setError(null);
       return;
     }
@@ -44,12 +68,6 @@ export const ArtifactDrawer = () => {
         return;
       }
       setArtifact(result.artifact);
-      // On first load (or when the artifact gets a new version), snap to current.
-      setViewVersionId(prev => {
-        if (!prev) return result.artifact!.currentVersionId;
-        const stillExists = result.artifact!.versions.some(v => v.id === prev);
-        return stillExists ? prev : result.artifact!.currentVersionId;
-      });
     };
 
     void refresh();
@@ -71,11 +89,49 @@ export const ArtifactDrawer = () => {
     };
   }, [open]);
 
+  // Re-clamp on viewport resize so a stored width wider than the new viewport
+  // doesn't push the drawer off-screen.
+  useEffect(() => {
+    const onResize = () => setDrawerWidth(prev => clampDrawerWidth(prev));
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const startResize = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = drawerWidthRef.current;
+    const onMove = (ev: MouseEvent) => {
+      // Handle sits on the LEFT edge of a right-anchored drawer, so dragging
+      // left should grow the drawer.
+      const next = clampDrawerWidth(startWidth + (startX - ev.clientX));
+      setDrawerWidth(next);
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      try {
+        window.localStorage.setItem(WIDTH_STORAGE_KEY, String(drawerWidthRef.current));
+      } catch {
+        /* localStorage may be unavailable; user preference simply won't persist. */
+      }
+    };
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'ew-resize';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
+
   const viewedVersion: ArtifactVersion | null = useMemo(() => {
     if (!artifact) return null;
-    const id = viewVersionId ?? artifact.currentVersionId;
-    return artifact.versions.find(v => v.id === id) ?? artifact.versions[artifact.versions.length - 1] ?? null;
-  }, [artifact, viewVersionId]);
+    return (
+      artifact.versions.find(v => v.id === artifact.currentVersionId)
+      ?? artifact.versions[artifact.versions.length - 1]
+      ?? null
+    );
+  }, [artifact]);
 
   const handlePin = useCallback(async () => {
     if (!open || !artifact || artifact.pinnedNodeId || pinning) return;
@@ -132,7 +188,19 @@ export const ArtifactDrawer = () => {
   return (
     <>
       <div className="artifact-drawer-backdrop" onClick={close} />
-      <aside className="artifact-drawer" role="dialog" aria-label="Artifact preview">
+      <aside
+        className="artifact-drawer"
+        role="dialog"
+        aria-label="Artifact preview"
+        style={{ width: `${drawerWidth}px` }}
+      >
+        <div
+          className="artifact-drawer__resize-handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize artifact panel"
+          onMouseDown={startResize}
+        />
         <div className="artifact-drawer__header">
           <div className="artifact-drawer__title" title={artifact?.title}>
             {artifact?.title ?? 'Artifact'}
@@ -146,17 +214,6 @@ export const ArtifactDrawer = () => {
         </div>
         {artifact && artifact.versions.length > 0 && (
           <div className="artifact-drawer__toolbar">
-            <select
-              className="artifact-drawer__version-select"
-              value={viewVersionId ?? artifact.currentVersionId}
-              onChange={(e) => setViewVersionId(e.target.value)}
-            >
-              {artifact.versions.map((version, i) => (
-                <option key={version.id} value={version.id}>
-                  v{i + 1}{version.id === artifact.currentVersionId ? ' (current)' : ''}
-                </option>
-              ))}
-            </select>
             <div className="artifact-drawer__toolbar-spacer" />
             {artifact.pinnedNodeId ? (
               <span className="artifact-drawer__pinned-badge">Pinned to canvas</span>

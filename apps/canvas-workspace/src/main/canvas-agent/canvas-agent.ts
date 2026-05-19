@@ -46,8 +46,23 @@ interface CanvasAgentRequestContext {
 
 const CANVAS_AGENT_MAX_STEPS = 200;
 
-function stringifyToolResult(raw: unknown): string {
-  return typeof raw === 'string' ? raw : JSON.stringify(raw) ?? String(raw);
+// AI SDK v6 wraps tool execute return values into a tagged `ToolResultOutput`
+// — `{ type: 'text'|'json'|'error-text'|'error-json'|..., value }` — on the
+// `tool-result` parts of persisted ModelMessages. Stringifying the wrapper
+// loses the original payload (renderers can no longer JSON.parse the
+// tool's actual return value), so unwrap to the inner value first. Plain
+// strings and untyped objects pass through unchanged for back-compat.
+function unwrapToolOutput(raw: unknown): string {
+  if (typeof raw === 'string') return raw;
+  if (raw && typeof raw === 'object') {
+    const r = raw as { type?: unknown; value?: unknown };
+    if (typeof r.type === 'string' && 'value' in r) {
+      const v = r.value;
+      if (typeof v === 'string') return v;
+      return JSON.stringify(v) ?? String(v);
+    }
+  }
+  return JSON.stringify(raw) ?? String(raw);
 }
 
 function modelMessagesToToolCalls(messages: ModelMessage[]): CanvasAgentToolCall[] {
@@ -93,7 +108,7 @@ function modelMessagesToToolCalls(messages: ModelMessage[]): CanvasAgentToolCall
         const tool = findOrCreate(toolCallId, name);
         tool.name = name;
         tool.status = 'done';
-        tool.result = stringifyToolResult(part.output ?? part.result);
+        tool.result = unwrapToolOutput(part.output ?? part.result);
       }
     }
   }
@@ -659,7 +674,7 @@ export class CanvasAgent {
               recordTraceToolResult(debugTrace, { name: chunk.toolName, rawResult: raw, toolCallId: chunk.toolCallId });
               onToolResult?.({
                 name: chunk.toolName,
-                result: typeof raw === 'string' ? raw : JSON.stringify(raw),
+                result: unwrapToolOutput(raw),
                 toolCallId: chunk.toolCallId,
               });
             }
