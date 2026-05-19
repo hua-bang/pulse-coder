@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AGENT_REGISTRY } from '../../config/agentRegistry';
-import { AgentAvatar, AgentIcon } from './AgentIcon';
+import { AgentIcon } from './AgentIcon';
 import { truncatePath } from './utils/terminal';
 
 interface AgentRestartProps {
@@ -96,17 +96,6 @@ export const AgentRestart = ({
   return (
     <div className="agent-body-wrap agent-body-wrap--restart">
       <div className="agent-card">
-        <div className="agent-card-header">
-          <div className="agent-card-header-left">
-            <AgentAvatar />
-            <span className="agent-card-title">Agent</span>
-          </div>
-          <span className="agent-status-pill agent-status-pill--restart">
-            <span className="agent-status-pill-dot" />
-            Restart
-          </span>
-        </div>
-
         <div className="agent-card-body">
           <div className="agent-section-title">已保存的配置</div>
 

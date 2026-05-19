@@ -5,7 +5,7 @@ import type { ResizeEdge } from "../../hooks/useNodeResize";
 import { FileNodeBody } from "../FileNodeBody";
 import { TerminalNodeBody } from "../TerminalNodeBody";
 import { FrameNodeBody, FrameColorPicker } from "../FrameNodeBody";
-import { AgentNodeBody } from "../AgentNodeBody";
+import { AgentNodeBody, detectAgentView } from "../AgentNodeBody";
 import { TextNodeBody, TextColorPicker } from "../TextNodeBody";
 import { IframeNodeBody } from "../IframeNodeBody";
 import { ImageNodeBody } from "../ImageNodeBody";
@@ -86,12 +86,17 @@ function formatRelativeTime(epochMs: number): string {
   return `${Math.floor(diffHr / 24)}d ago`;
 }
 
-const AGENT_STATUS_LABEL: Record<string, string> = {
-  running: 'Running',
-  done: 'Done',
-  error: 'Error',
-  idle: 'Idle',
-};
+/** Map the body's view state to a header pill label + tone. */
+function agentHeaderBadge(data: AgentNodeData): { tone: string; label: string } {
+  const view = detectAgentView(data);
+  if (view === 'setup') return { tone: 'setup', label: 'Setup' };
+  if (view === 'restart') return { tone: 'restart', label: 'Restart' };
+  // 'running' — refine based on data.status to surface Done/Error inline
+  const status = data.status ?? 'running';
+  if (status === 'error') return { tone: 'error', label: 'Error' };
+  if (status === 'done') return { tone: 'done', label: 'Done' };
+  return { tone: 'running', label: 'Running' };
+}
 
 function isCanvasPanGesture(e: React.MouseEvent): boolean {
   const handToolActive = e.currentTarget.closest('.canvas-container--hand') != null;
@@ -605,12 +610,16 @@ const CanvasNodeViewComponent = ({
             Ungroup
           </button>
         )}
-        {node.type === "agent" && agentStatus && agentStatus !== 'idle' && (
-          <span className={`node-status-label node-status-label--${agentStatus}`}>
-            {AGENT_STATUS_LABEL[agentStatus] ?? agentStatus}
-          </span>
-        )}
-        {relativeTime && !(node.type === "agent" && agentStatus && agentStatus !== 'idle') && (
+        {node.type === "agent" && (() => {
+          const badge = agentHeaderBadge(node.data as AgentNodeData);
+          return (
+            <span className={`agent-status-pill agent-status-pill--${badge.tone}`}>
+              <span className="agent-status-pill-dot" />
+              {badge.label}
+            </span>
+          );
+        })()}
+        {relativeTime && node.type !== "agent" && (
           <span className="node-time-label" title={new Date(node.updatedAt!).toLocaleString()}>
             {relativeTime}
           </span>

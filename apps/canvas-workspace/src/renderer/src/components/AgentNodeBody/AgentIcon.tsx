@@ -55,22 +55,3 @@ export const AgentIcon = ({ id, size = 14 }: { id: string; size?: number }) => {
   }
 };
 
-/** Compact rounded-square avatar used in the body header. */
-export const AgentAvatar = ({ size = 36 }: { size?: number }) => (
-  <div
-    className="agent-avatar"
-    style={{ width: size, height: size }}
-    aria-hidden="true"
-  >
-    <svg width={size * 0.55} height={size * 0.55} viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="5.5" r="2.6" stroke="currentColor" strokeWidth="1.4" />
-      <path
-        d="M3.5 13.5c0-2.2 2-3.8 4.5-3.8s4.5 1.6 4.5 3.8"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-      <circle cx="11.6" cy="3.2" r="1" fill="currentColor" />
-    </svg>
-  </div>
-);

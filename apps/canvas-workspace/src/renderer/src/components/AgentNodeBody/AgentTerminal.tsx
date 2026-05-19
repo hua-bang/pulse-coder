@@ -1,6 +1,6 @@
 import type React from 'react';
 import { AGENT_REGISTRY } from '../../config/agentRegistry';
-import { AgentAvatar, AgentIcon } from './AgentIcon';
+import { AgentIcon } from './AgentIcon';
 import { truncatePath } from './utils/terminal';
 
 interface AgentTerminalProps {
@@ -36,11 +36,11 @@ const TerminalGlyph = () => (
   </svg>
 );
 
-const STATUS_TEXT: Record<string, { badge: string; load: string; tone: 'running' | 'done' | 'error' }> = {
-  running: { badge: 'Running', load: '已加载', tone: 'running' },
-  done: { badge: 'Done', load: '已退出', tone: 'done' },
-  error: { badge: 'Error', load: '出错', tone: 'error' },
-  idle: { badge: 'Idle', load: '空闲', tone: 'done' },
+const STATUS_TEXT: Record<string, { load: string; tone: 'running' | 'done' | 'error' }> = {
+  running: { load: '已加载', tone: 'running' },
+  done: { load: '已退出', tone: 'done' },
+  error: { load: '出错', tone: 'error' },
+  idle: { load: '空闲', tone: 'done' },
 };
 
 export const AgentTerminal = ({
@@ -60,17 +60,6 @@ export const AgentTerminal = ({
   return (
     <div className="agent-body-wrap agent-body-wrap--running">
       <div className="agent-card">
-        <div className="agent-card-header">
-          <div className="agent-card-header-left">
-            <AgentAvatar />
-            <span className="agent-card-title">Agent</span>
-          </div>
-          <span className={`agent-status-pill agent-status-pill--${statusInfo.tone}`}>
-            <span className="agent-status-pill-dot" />
-            {statusInfo.badge}
-          </span>
-        </div>
-
         <div className="agent-info-strip">
           <span className="agent-info-cell">
             <AgentIcon id={agentType} size={14} />

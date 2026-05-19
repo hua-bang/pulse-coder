@@ -29,15 +29,25 @@ interface Props {
 type ViewMode = 'setup' | 'running' | 'restart';
 
 /**
- * Decide which view to mount based on persisted node data. A node lands in
- * `restart` only when the previous session left behind enough breadcrumbs
- * (sessionId or scrollback) to make it clear the PTY was alive at some
- * point, but the current process tree no longer has it — i.e. a cold
- * reload of the renderer. Fresh `autoLaunch`-created nodes still have
- * `status: 'running'` but no breadcrumbs, so they correctly route to
- * `running` and spawn a real PTY.
+ * Read the current agent view from persisted data. The body keeps
+ * `data.viewMode` in sync with its real runtime view, so this function
+ * trusts that field above all else — including the presence of saved
+ * scrollback, which can be a legitimate live-session artifact (the save
+ * timer writes scrollback every 2s while the PTY is alive).
+ *
+ * Exported so the outer `CanvasNodeView` header can render a matching
+ * status pill from persisted data without needing a callback handshake
+ * with the body.
+ *
+ * Mount-time cold-reload detection lives in `AgentNodeBody`'s own
+ * `useState` initializer below — the body needs that nuance, the header
+ * doesn't.
  */
-const detectInitialView = (data: AgentNodeData): ViewMode => {
+export const detectAgentView = (data: AgentNodeData): ViewMode => {
+  if (data.viewMode === 'setup') return 'setup';
+  if (data.viewMode === 'running') return 'running';
+  if (data.viewMode === 'restart') return 'restart';
+  // Legacy fallback for nodes persisted before `viewMode` existed.
   const status = data.status ?? 'idle';
   const hasPriorSession =
     !!(data.sessionId && data.sessionId.length > 0)
@@ -56,7 +66,19 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
   const [promptInput, setPromptInput] = useState(data.inlinePrompt || data.lastInitPrompt || '');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [recentCwds, setRecentCwds] = useState<string[]>(loadRecentCwds);
-  const [viewMode, setViewMode] = useState<ViewMode>(() => detectInitialView(data));
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    // Mount-time cold-reload override: if the persisted `viewMode` is
+    // `running` but the renderer just remounted (i.e. this useState
+    // initializer is firing), the PTY that backed it is gone. Saved
+    // sessionId / scrollback are the proof that a live session existed
+    // at some point. Land on Restart so the user gets a clear recovery
+    // affordance instead of a dead terminal pretending to be live.
+    const hasPriorSession =
+      !!(data.sessionId && data.sessionId.length > 0)
+      || !!(data.scrollback && data.scrollback.length > 0);
+    if (data.viewMode === 'running' && hasPriorSession) return 'restart';
+    return detectAgentView(data);
+  });
   /** True after a Setup view was entered via the Restart card's "Edit" action,
    * so we can show a Back link and route the next launch back to Restart on
    * cancel. */
@@ -276,6 +298,17 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
     return () => observer.disconnect();
   }, [viewMode]);
 
+  // Persist viewMode so the outer canvas-node header can render a matching
+  // status pill. Skipped while readOnly to avoid mutating a node opened in
+  // a viewer / shared workspace.
+  useEffect(() => {
+    if (readOnly) return;
+    if (dataRef.current.viewMode === viewMode) return;
+    onUpdateRef.current(nodeIdRef.current, {
+      data: { ...dataRef.current, viewMode },
+    });
+  }, [viewMode, readOnly]);
+
   const handleLaunch = useCallback(() => {
     if (readOnly) return;
     const effectiveCwd = cwdInput || rootFolder || '';
@@ -419,7 +452,6 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
         promptInput={promptInput}
         rootFolder={rootFolder}
         recentCwds={recentCwds}
-        badge={fromRestart ? 'edit' : 'setup'}
         onBack={fromRestart ? handleBackToRestart : undefined}
         onAgentChange={setSelectedAgent}
         onCwdChange={setCwdInput}

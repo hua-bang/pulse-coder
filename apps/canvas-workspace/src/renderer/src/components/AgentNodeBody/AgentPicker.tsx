@@ -1,5 +1,5 @@
 import { AGENT_REGISTRY, type AgentDef } from '../../config/agentRegistry';
-import { AgentAvatar, AgentIcon } from './AgentIcon';
+import { AgentIcon } from './AgentIcon';
 import { truncatePath } from './utils/terminal';
 
 interface AgentPickerProps {
@@ -8,8 +8,6 @@ interface AgentPickerProps {
   promptInput: string;
   rootFolder?: string;
   recentCwds: string[];
-  /** Header status label override (Setup / Restart-flow Edit). */
-  badge?: 'setup' | 'edit';
   /** Optional Back button used when entering Setup from the Restart view. */
   onBack?: () => void;
   onAgentChange: (id: string) => void;
@@ -52,7 +50,6 @@ export const AgentPicker = ({
   promptInput,
   rootFolder,
   recentCwds,
-  badge = 'setup',
   onBack,
   onAgentChange,
   onCwdChange,
@@ -67,33 +64,22 @@ export const AgentPicker = ({
   const startTitle = `Start ${agentDef?.label ?? 'agent'}  —  ${previewCmd}${
     effectiveCwd ? ` in ${effectiveCwd}` : ''
   }`;
-  const badgeLabel = badge === 'edit' ? 'Edit' : 'Setup';
 
   return (
     <div className="agent-body-wrap agent-body-wrap--setup">
       <div className="agent-card">
-        <div className="agent-card-header">
-          <div className="agent-card-header-left">
-            <AgentAvatar />
-            <span className="agent-card-title">Agent</span>
+        {onBack && (
+          <div className="agent-card-back">
+            <button
+              type="button"
+              className="agent-text-link"
+              onClick={onBack}
+              title="Back to saved configuration"
+            >
+              ← 返回
+            </button>
           </div>
-          <div className="agent-card-header-right">
-            {onBack && (
-              <button
-                type="button"
-                className="agent-text-link"
-                onClick={onBack}
-                title="Back to saved configuration"
-              >
-                Back
-              </button>
-            )}
-            <span className={`agent-status-pill agent-status-pill--${badge}`}>
-              <span className="agent-status-pill-dot" />
-              {badgeLabel}
-            </span>
-          </div>
-        </div>
+        )}
 
         <div className="agent-card-body">
           <div className="agent-tabs" role="tablist" aria-label="Coding agent">

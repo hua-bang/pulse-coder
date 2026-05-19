@@ -67,6 +67,15 @@ export interface AgentNodeData {
    * the previous session was started with.
    */
   lastInitPrompt?: string;
+  /**
+   * Current AgentNodeBody view ('setup' | 'running' | 'restart'). Persisted
+   * so the outer `CanvasNodeView` header can render the status pill that
+   * matches the body — and so a cold reload mid-running session can be
+   * distinguished from an active live PTY (the body rewrites this on
+   * mount based on the cold-reload heuristic). Optional because legacy
+   * nodes won't have it; consumers should fall back to a derived value.
+   */
+  viewMode?: 'setup' | 'running' | 'restart';
 }
 
 /**

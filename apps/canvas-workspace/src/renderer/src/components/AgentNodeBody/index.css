@@ -5,9 +5,12 @@
  *   - .agent-body-wrap--restart  : cold-reload recovery
  * The agent identity uses a local purple accent so it reads as
  * distinct from the global blue accent without leaking outward.
+ *
+ * The status-pill scope (`.agent-status-pill`) is hoisted to :root so
+ * it can also be rendered in the outer `CanvasNodeView` node-header.
  * ──────────────────────────────────────────────────────────────── */
 
-.agent-body-wrap {
+:root {
   --agent-accent: #5b5bf2;
   --agent-accent-hover: #4747e8;
   --agent-accent-soft: #eef0ff;
@@ -18,13 +21,16 @@
   --agent-success: #10b981;
   --agent-success-soft: rgba(16, 185, 129, 0.12);
   --agent-danger: #e03e3e;
-  --agent-text: var(--text);
-  --agent-muted: var(--text-secondary);
-  --agent-faint: var(--text-muted);
   --agent-sans:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Hiragino Sans", "Microsoft YaHei", Roboto, "Helvetica Neue", Arial,
     sans-serif;
+}
+
+.agent-body-wrap {
+  --agent-text: var(--text);
+  --agent-muted: var(--text-secondary);
+  --agent-faint: var(--text-muted);
   font-family: var(--agent-sans);
   position: relative;
   width: 100%;
@@ -44,46 +50,12 @@
   overflow: hidden;
 }
 
-.agent-card-header {
+/* Back link rendered at the top of the body when Setup is entered from
+ * the Restart card's Edit action. */
+.agent-card-back {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border-light);
-  gap: 8px;
-}
-
-.agent-card-header-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.agent-card-header-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.agent-card-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--agent-text);
-  letter-spacing: -0.01em;
-  font-family: var(--agent-sans);
-}
-
-.agent-avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  background: var(--agent-accent-soft);
-  color: var(--agent-accent);
-  flex-shrink: 0;
+  padding-bottom: 2px;
 }
 
 /* ── Status pill (Setup / Running / Restart / Edit) ───────────── */
@@ -126,7 +98,7 @@
 
 .agent-status-pill--done {
   background: rgba(0, 0, 0, 0.06);
-  color: var(--agent-muted);
+  color: var(--text-secondary);
 }
 
 .agent-status-pill--error {
