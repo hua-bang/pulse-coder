@@ -47,7 +47,7 @@ export const ChatPage = ({
 }: ChatPageProps) => {
   const [workspaceId, setWorkspaceId] = useState(initialWorkspaceId);
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
-  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(true);
 
   // Same-workspace session click → just bump pendingSessionId without
   // remounting the body. Cross-workspace click → change workspaceId which

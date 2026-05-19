@@ -207,6 +207,7 @@
 .chat-page-body .chat-empty-state {
   max-width: 560px;
   margin: 0 auto;
+  justify-content: center;
 }
 
 .chat-page-body .chat-input-container {
