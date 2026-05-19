@@ -37,7 +37,7 @@
 
 .agent-launcher-prompt {
   flex: 1;
-  min-height: 72px;
+  min-height: 56px;
   padding: 14px 16px 12px;
   border: none;
   background: transparent;
@@ -285,81 +285,99 @@
   padding: 0 4px;
 }
 
-/* ── Quick action buttons (running state) ── */
+/* ── Session-end bar (footer chrome after agent exits) ──────────────
+ *
+ * Replaces the older lone "Restart" button. Sits along the bottom of the
+ * node body and pairs a status badge with the conversation-continuation
+ * affordances (Continue / Retry as the primary path, Start-fresh and
+ * Copy as escape hatches). Background is translucent so the last lines
+ * of terminal output remain partially visible underneath. */
 
-.agent-quick-actions {
+.agent-session-end-bar {
   position: absolute;
-  bottom: 8px;
+  left: 8px;
   right: 8px;
+  bottom: 8px;
   z-index: 10;
   display: flex;
-  gap: 4px;
-  opacity: 0;
-  transition: opacity 0.15s;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-sm);
+  font-family: var(--font);
 }
 
-.agent-body-wrap:hover .agent-quick-actions {
-  opacity: 1;
-}
-
-.agent-quick-btn {
+.agent-session-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 9px;
+  gap: 5px;
+  padding: 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.1px;
+  white-space: nowrap;
+}
+
+.agent-session-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.agent-session-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 11px;
   border: 1px solid var(--border);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  color: var(--text-secondary);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
   font-size: 11px;
   font-weight: 500;
   font-family: var(--font);
   cursor: pointer;
-  box-shadow: var(--shadow-sm);
   transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 
-.agent-quick-btn:hover {
-  background: var(--surface);
+.agent-session-primary:hover {
+  background: var(--surface-hover);
   border-color: var(--text-muted);
   color: var(--text);
 }
 
-.agent-quick-btn--stop:hover {
-  background: rgba(224, 62, 62, 0.08);
-  border-color: #e03e3e;
-  color: #e03e3e;
+.agent-session-spacer {
+  flex: 1;
 }
 
-/* ── Restart button (top-right of running body) ── */
-
-.agent-restart-btn {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  z-index: 10;
+.agent-session-secondary {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  padding: 3px 9px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  color: var(--text-secondary);
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
   font-size: 11px;
   font-weight: 500;
   font-family: var(--font);
   cursor: pointer;
-  box-shadow: var(--shadow-sm);
   transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 
-.agent-restart-btn:hover {
-  background: var(--surface);
-  border-color: var(--text-muted);
+.agent-session-secondary:hover {
+  background: var(--border-light);
+  border-color: var(--border);
   color: var(--text);
 }

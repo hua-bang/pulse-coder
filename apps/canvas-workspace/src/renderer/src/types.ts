@@ -60,6 +60,22 @@ export interface AgentNodeData {
   inlinePrompt?: string;
   /** Relative path to a prompt file in cwd for long prompts. */
   promptFile?: string;
+  /**
+   * Agent-specific resumable conversation id (distinct from `sessionId`,
+   * which keys the live PTY). Pre-allocated on first launch for agents
+   * whose CLI accepts a `--session-id <uuid>` style flag, then reused on
+   * cold reload via the agent's `--resume <uuid>` to re-attach to the
+   * same logical conversation rather than starting a fresh one.
+   *
+   * Stays unset for agents that don't declare `resume` in their registry
+   * entry — those fall back to static scrollback replay after a restart.
+   */
+  resumeId?: string;
+  /** Last observed exit code from the agent process. Drives the session-
+   *  end badge (Done vs Error) so users see *why* the agent stopped
+   *  without having to scroll the terminal to the `[Agent exited ...]`
+   *  line. Reset to undefined on a fresh launch / Start fresh. */
+  lastExitCode?: number;
 }
 
 /**

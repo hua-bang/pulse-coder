@@ -86,13 +86,6 @@ function formatRelativeTime(epochMs: number): string {
   return `${Math.floor(diffHr / 24)}d ago`;
 }
 
-const AGENT_STATUS_LABEL: Record<string, string> = {
-  running: 'Running',
-  done: 'Done',
-  error: 'Error',
-  idle: 'Idle',
-};
-
 function isCanvasPanGesture(e: React.MouseEvent): boolean {
   const handToolActive = e.currentTarget.closest('.canvas-container--hand') != null;
   return e.button === 1 || (e.button === 0 && (e.altKey || handToolActive));
@@ -605,12 +598,7 @@ const CanvasNodeViewComponent = ({
             Ungroup
           </button>
         )}
-        {node.type === "agent" && agentStatus && agentStatus !== 'idle' && (
-          <span className={`node-status-label node-status-label--${agentStatus}`}>
-            {AGENT_STATUS_LABEL[agentStatus] ?? agentStatus}
-          </span>
-        )}
-        {relativeTime && !(node.type === "agent" && agentStatus && agentStatus !== 'idle') && (
+        {relativeTime && (
           <span className="node-time-label" title={new Date(node.updatedAt!).toLocaleString()}>
             {relativeTime}
           </span>
