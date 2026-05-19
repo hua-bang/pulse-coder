@@ -8,6 +8,8 @@ interface Props {
   onOpenFind: () => void;
   statusText: string;
   modified: boolean;
+  fileName?: string | null;
+  filePath?: string;
 }
 
 export const FileNodeToolbar = ({
@@ -18,6 +20,8 @@ export const FileNodeToolbar = ({
   onOpenFind,
   statusText,
   modified,
+  fileName,
+  filePath,
 }: Props) => (
   <div className="note-toolbar">
     <div className="note-toolbar-left">
@@ -73,6 +77,11 @@ export const FileNodeToolbar = ({
       </button>
     </div>
     <div className="note-toolbar-right">
+      {fileName && !statusText && !modified && (
+        <span className="note-file-hint-inline" title={filePath}>
+          {fileName}
+        </span>
+      )}
       {statusText && <span className="note-status">{statusText}</span>}
       {modified && !statusText && (
         <span className="note-status note-status--modified">Edited</span>

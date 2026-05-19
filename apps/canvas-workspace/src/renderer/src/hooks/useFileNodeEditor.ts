@@ -206,7 +206,7 @@ export const useFileNodeEditor = ({
       }),
       EmptyLinePreservingParagraph,
       MarkdownSafeImage.configure({ inline: false }),
-      Placeholder.configure({ placeholder: 'Start writing…' }),
+      Placeholder.configure({ placeholder: "Type '/' for blocks, or just start writing…" }),
       TaskList,
       TaskItem.configure({ nested: true }),
       Underline,

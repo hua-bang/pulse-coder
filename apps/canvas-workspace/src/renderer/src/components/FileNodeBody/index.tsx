@@ -167,13 +167,9 @@ export const FileNodeBody = ({ node, onUpdate, workspaceId, readOnly = false }: 
           onOpenFind={openFindBar}
           statusText={statusText}
           modified={modified}
+          fileName={fileName}
+          filePath={filePath ?? undefined}
         />
-      )}
-
-      {fileName && (
-        <div className="note-file-hint" title={filePath ?? undefined}>
-          {fileName}
-        </div>
       )}
 
       {!readOnly && findBarOpen && editor && <NoteFindBar editor={editor} onClose={closeFindBar} />}

@@ -12,6 +12,71 @@
   transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
 
+/* File / note nodes — Heptabase + Notion lean. The chrome is intentionally
+ * quieter than the generic node: warmer paper background, softer
+ * shadow, slightly larger corner radius, and a header that fades into
+ * the body instead of sitting on a hard divider. The toolbar (when
+ * selected) and the editor share the same paper colour so the whole
+ * card reads as one document surface. */
+.canvas-node--file {
+  background: #fdfcf9;
+  border-color: rgba(55, 53, 47, 0.06);
+  border-radius: 12px;
+  box-shadow:
+    0 1px 2px rgba(55, 53, 47, 0.04),
+    0 6px 18px rgba(55, 53, 47, 0.05);
+}
+
+.canvas-node--file:hover {
+  box-shadow:
+    0 1px 3px rgba(55, 53, 47, 0.05),
+    0 10px 26px rgba(55, 53, 47, 0.08);
+  border-color: rgba(55, 53, 47, 0.09);
+}
+
+.canvas-node--file.canvas-node--selected {
+  border-color: rgba(35, 131, 226, 0.32);
+  box-shadow:
+    0 1px 3px rgba(55, 53, 47, 0.05),
+    0 10px 26px rgba(55, 53, 47, 0.08),
+    0 0 0 2px rgba(35, 131, 226, 0.1);
+}
+
+/* The header for a note becomes a thin, almost-invisible strip. The
+ * type badge / title / buttons remain functional, but the bottom rule
+ * dissolves so the header and the editor read as the same page rather
+ * than two stacked surfaces (which is what makes the current node feel
+ * "boxy"). The hard surface colour is swapped for transparent so the
+ * paper tone from .canvas-node--file shows through. */
+.canvas-node--file > .node-header {
+  background: transparent;
+  border-bottom: 1px solid transparent;
+  min-height: 30px;
+  padding: 6px 12px 4px 14px;
+  transition: border-color 0.15s ease;
+}
+
+.canvas-node--file.canvas-node--selected > .node-header {
+  border-bottom-color: rgba(55, 53, 47, 0.05);
+}
+
+.canvas-node--file > .node-header .node-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-secondary);
+  letter-spacing: 0.005em;
+  transition: color 0.12s ease;
+}
+
+.canvas-node--file:hover > .node-header .node-title,
+.canvas-node--file.canvas-node--selected > .node-header .node-title {
+  color: var(--text);
+}
+
+.canvas-node--file > .node-header .node-type-badge--file {
+  color: rgba(55, 53, 47, 0.45);
+}
+
 .canvas-node:hover {
   box-shadow: var(--shadow-card-hover);
   border-color: rgba(0, 0, 0, 0.08);
