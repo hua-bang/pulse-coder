@@ -11,10 +11,16 @@
  * ──────────────────────────────────────────────────────────────── */
 
 :root {
-  --agent-accent: #5b5bf2;
-  --agent-accent-hover: #4747e8;
-  --agent-accent-soft: #eef0ff;
-  --agent-accent-border: rgba(91, 91, 242, 0.35);
+  /* Align the agent UI with the global Notion-style accent (--accent =
+   * #2383e2) so its buttons, tabs and focus rings read as part of the
+   * same product instead of a separate purple sub-theme. Per-agent
+   * brand colors still live in `.agent-loading-overlay--<agent>` for
+   * the loading mark, which is the one place the agent's own identity
+   * (Claude orange, Pulse-Coder indigo) is meaningful. */
+  --agent-accent: #2383e2;
+  --agent-accent-hover: #1c6dbf;
+  --agent-accent-soft: rgba(35, 131, 226, 0.1);
+  --agent-accent-border: rgba(35, 131, 226, 0.45);
   --agent-warning: #d97706;
   --agent-warning-soft: #fff4e2;
   --agent-warning-border: rgba(217, 119, 6, 0.32);
@@ -360,12 +366,12 @@
   cursor: pointer;
   flex-shrink: 0;
   transition: background 0.12s, box-shadow 0.12s, transform 0.08s;
-  box-shadow: 0 1px 2px rgba(91, 91, 242, 0.25);
+  box-shadow: 0 1px 2px rgba(35, 131, 226, 0.22);
 }
 
 .agent-primary-btn:hover {
   background: var(--agent-accent-hover);
-  box-shadow: 0 2px 8px rgba(91, 91, 242, 0.32);
+  box-shadow: 0 2px 8px rgba(35, 131, 226, 0.28);
 }
 
 .agent-primary-btn:active {
@@ -544,8 +550,8 @@
   /* Per-agent accent — each coding agent gets its own tinted halo so
    * the loading state feels branded rather than generic. */
   --loading-accent: var(--agent-accent);
-  --loading-tint: rgba(91, 91, 242, 0.13);
-  --loading-tint-strong: rgba(91, 91, 242, 0.22);
+  --loading-tint: rgba(35, 131, 226, 0.12);
+  --loading-tint-strong: rgba(35, 131, 226, 0.22);
 
   position: absolute;
   inset: 0;

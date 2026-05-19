@@ -179,8 +179,8 @@
 }
 
 .node-type-badge--agent {
-  color: #5b5bf2;
-  background: #eef0ff;
+  color: var(--accent);
+  background: var(--accent-light);
   border-radius: 5px;
 }
 
