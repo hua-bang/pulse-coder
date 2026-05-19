@@ -279,31 +279,60 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
       // happily waits for events.
       let prompted = false;
       const removeDataRef: { current: (() => void) | null } = { current: null };
-      // Dismiss the loading overlay on the first chunk that arrives at
-      // least ~400ms after writeCommand fires — that filters out the
-      // shell's instant echo of our launch command, so the overlay
-      // stays up through the multi-second CLI bootstrap and goes away
-      // the moment the agent itself starts emitting output.
+      // Two-phase loading-overlay dismissal so the spinner stays up
+      // through the multi-second CLI startup and goes away the moment
+      // the user can actually interact:
+      //   Phase 1: after writeCommand, ignore the first ~300ms of
+      //            output (that's the shell echoing our launch command,
+      //            not the agent itself). The next chunk after that
+      //            window marks "banner started".
+      //   Phase 2: once banner started, each chunk resets a 500ms
+      //            quiescence timer. When the agent finally falls
+      //            silent — the natural signal that the banner is
+      //            done printing and it's waiting for input —
+      //            quiescence elapses and we dismiss.
+      // A 15s fail-safe still covers pathological cases (agent never
+      // emits anything past the echo). The shell-error / agent-exit /
+      // effect-cleanup paths also call dismissLoading() so it can't
+      // wedge.
+      const ECHO_WINDOW_MS = 300;
+      const QUIESCENCE_MS = 500;
+      const FAILSAFE_MS = 15_000;
       let loadingDismissed = false;
+      let bannerStarted = false;
+      let quiescenceTimer: ReturnType<typeof setTimeout> | null = null;
       const dismissLoading = () => {
         if (loadingDismissed) return;
         loadingDismissed = true;
+        if (quiescenceTimer) {
+          clearTimeout(quiescenceTimer);
+          quiescenceTimer = null;
+        }
         setLoading(false);
       };
-      // Fail-safe in case the agent never produces post-echo output
-      // (e.g. exits immediately, hangs on first prompt).
-      const loadingTimeout = setTimeout(dismissLoading, 12_000);
+      const scheduleQuiescence = () => {
+        if (loadingDismissed) return;
+        if (quiescenceTimer) clearTimeout(quiescenceTimer);
+        quiescenceTimer = setTimeout(() => {
+          quiescenceTimer = null;
+          dismissLoading();
+        }, QUIESCENCE_MS);
+      };
+      const loadingTimeout = setTimeout(dismissLoading, FAILSAFE_MS);
 
       const attachPermanentListener = () => {
         removeDataRef.current = api.onData(sessionId, (d: string) => {
           term.write(d);
-          if (
-            !loadingDismissed
-            && writeCommandTimeRef.current > 0
-            && Date.now() - writeCommandTimeRef.current > 400
-          ) {
-            dismissLoading();
+          if (loadingDismissed) return;
+          if (writeCommandTimeRef.current === 0) return;
+          const since = Date.now() - writeCommandTimeRef.current;
+          if (!bannerStarted) {
+            // Still inside the shell-echo window — wait for the next
+            // post-echo chunk before treating output as "banner".
+            if (since <= ECHO_WINDOW_MS) return;
+            bannerStarted = true;
           }
+          scheduleQuiescence();
         });
       };
 
