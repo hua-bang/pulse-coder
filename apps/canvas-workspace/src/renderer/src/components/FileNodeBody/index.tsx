@@ -190,7 +190,11 @@ export const FileNodeBody = ({ node, onUpdate, workspaceId, readOnly = false }: 
         <FileNodeBubbleMenu editor={editor} bubble={bubble} onOpenLinkPrompt={openLinkPrompt} />
       )}
 
-      <div className="note-content" onWheel={(e) => e.stopPropagation()}>
+      <div
+        className="note-content"
+        onPaste={(e) => e.stopPropagation()}
+        onWheel={(e) => e.stopPropagation()}
+      >
         <EditorContent editor={editor} className="note-tiptap-editor" />
       </div>
 
