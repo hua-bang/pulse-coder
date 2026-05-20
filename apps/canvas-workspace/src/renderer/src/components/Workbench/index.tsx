@@ -10,8 +10,8 @@ export { useWorkbenchState } from './useWorkbenchState';
 export type { WorkbenchController } from './useWorkbenchState';
 
 const DEFAULT_CHAT_WIDTH = 420;
-const MIN_CHAT_WIDTH = 280;
-const MAX_CHAT_WIDTH = 600;
+const MIN_CHAT_WIDTH = 240;
+const MAX_CHAT_WIDTH = 900;
 
 const EMPTY_REFERENCES: ReferenceEntry[] = [];
 
