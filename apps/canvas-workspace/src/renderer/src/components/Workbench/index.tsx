@@ -48,6 +48,26 @@ export const Workbench: React.FC<WorkbenchProps> = ({
   const [activeReferenceIdByWorkspace, setActiveReferenceIdByWorkspace] = useState<Record<string, string | undefined>>({});
   const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
 
+  // Lazy keep-alive: a workspace is mounted the first time it becomes
+  // active and stays mounted (hidden via display:none) thereafter, so
+  // re-selecting it is instant. Workspaces the user never visits never
+  // mount their Canvas / iframe webviews — this is what keeps startup
+  // from spinning up an Electron webContents for every link node across
+  // every saved workspace.
+  const [mountedWorkspaceIds, setMountedWorkspaceIds] = useState<Set<string>>(
+    () => (activeWorkspaceId ? new Set([activeWorkspaceId]) : new Set()),
+  );
+
+  useEffect(() => {
+    if (!activeWorkspaceId) return;
+    setMountedWorkspaceIds((prev) => {
+      if (prev.has(activeWorkspaceId)) return prev;
+      const next = new Set(prev);
+      next.add(activeWorkspaceId);
+      return next;
+    });
+  }, [activeWorkspaceId]);
+
   const references = referencesByWorkspace[activeWorkspaceId] ?? EMPTY_REFERENCES;
   const activeReferenceId = activeReferenceIdByWorkspace[activeWorkspaceId];
   const activeReference = activeReferenceId
@@ -202,7 +222,7 @@ export const Workbench: React.FC<WorkbenchProps> = ({
         onFocusNode={handleFocusReferenceNode}
       />
       <div className="canvas-viewport">
-        {workspaces.map((ws) => {
+        {workspaces.filter((ws) => mountedWorkspaceIds.has(ws.id)).map((ws) => {
           const isActive = ws.id === activeWorkspaceId;
           return (
             <div
@@ -233,7 +253,7 @@ export const Workbench: React.FC<WorkbenchProps> = ({
           );
         })}
       </div>
-      {workspaces.map((ws) => (
+      {workspaces.filter((ws) => mountedWorkspaceIds.has(ws.id)).map((ws) => (
         <div
           key={ws.id}
           className={`chat-panel-wrapper${chatPanelOpen && ws.id === activeWorkspaceId ? ' chat-panel-wrapper--open' : ''}`}
