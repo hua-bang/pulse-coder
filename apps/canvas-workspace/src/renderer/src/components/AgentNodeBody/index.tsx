@@ -246,53 +246,17 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
       //     spawn, then `--resume <uuid>` on every restart. The id
       //     lives on the node so resume is deterministic regardless
       //     of what else has run in the same cwd.
-      //   - Codex CLI: doesn't accept a caller-supplied id, so on the
-      //     first spawn we launch codex bare, run `/status` to surface
-      //     its self-assigned session id, parse it out of the TUI
-      //     output, persist it on the node, then send the user's
-      //     prompt. Later restarts use `codex resume <uuid>` for a
-      //     precise resume; if the capture failed (no id stored), we
-      //     fall back to `codex resume --last`.
+      //   - Codex CLI: doesn't accept a caller-supplied id, but does
+      //     expose `codex resume --last` which continues the most
+      //     recent session in the current cwd — close enough for our
+      //     per-node continuity model. No id to track on the node.
       // Other agents (Pulse-Coder) fall through to a plain spawn.
       const command = getAgentCommand(agentType);
       const existingCliSessionId = dataRef.current.cliSessionId;
-      const claudeSessionId = existingCliSessionId || crypto.randomUUID();
+      const cliSessionId = existingCliSessionId || crypto.randomUUID();
       const canResumeClaude = !!existingCliSessionId;
       const writeCommandTimeRef = { current: 0 };
-      // Quiescence helpers used by the Codex capture flow. The permanent
-      // data listener (attached just below) keeps `lastDataTime` fresh
-      // and appends to `captureBuffer` while `capturing` is on; the
-      // orchestrator polls these to know when codex has finished
-      // streaming a chunk of TUI output.
-      let lastDataTime = Date.now();
-      let capturing = false;
-      let captureBuffer = '';
-      // Snapshot lastDataTime when waitForQuiescence starts, and only
-      // resolve once we've seen new data after that snapshot AND then
-      // gone idle for idleMs. Without the "new data" check, calling
-      // waitForQuiescence right after the previous burst ended would
-      // see "already idle for 900ms" and return instantly — before
-      // the IPC we just sent (e.g. `/status`) had any chance to be
-      // processed by the PTY and emit a response.
-      const waitForQuiescence = (idleMs: number, maxMs: number) =>
-        new Promise<void>((resolve) => {
-          const start = Date.now();
-          const baseline = lastDataTime;
-          const tick = () => {
-            const sawNewData = lastDataTime > baseline;
-            if (sawNewData && Date.now() - lastDataTime >= idleMs) return resolve();
-            if (Date.now() - start >= maxMs) return resolve();
-            setTimeout(tick, 80);
-          };
-          tick();
-        });
-      const stripAnsi = (s: string) =>
-        s.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
-      const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
-
-      const escapePrompt = (s: string) => s.replace(/'/g, "'\\''");
-
-      const writeCommandFlow = async () => {
+      const writeCommand = () => {
         if (!command) {
           term.writeln(`\x1b[33mUnknown agent type: ${agentType}\x1b[0m`);
           setLoading(false);
@@ -303,89 +267,21 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
         const { inlinePrompt, promptFile, agentArgs } = dataRef.current;
         const effectivePrompt = inlinePromptOverride || inlinePrompt;
 
-        if (agentType === 'codex') {
-          if (resumeMode) {
-            // Captured cliSessionId wins (deterministic); fall back to
-            // --last (most-recent session in this cwd) when capture
-            // failed on first launch.
-            const target = existingCliSessionId || '--last';
-            api.write(sessionId, `${command} resume ${target}\n`);
-          } else if (!existingCliSessionId) {
-            // First-ever Codex spawn for this node. Codex doesn't
-            // accept a caller-supplied id, so we launch bare, run
-            // /status to surface the id Codex assigned itself, parse
-            // the UUID out of the rendered panel, persist it, then
-            // send the user's prompt. The default agent-node size is
-            // wide enough that /status renders the full UUID without
-            // truncation; if the user has shrunk the node below that
-            // threshold the capture fails and restart falls back to
-            // `codex resume --last`.
-            api.write(sessionId, `${command}\n`);
-            // Wait for codex banner / TUI to finish drawing.
-            await waitForQuiescence(900, 12_000);
-            // Codex shows an interactive "Update available" picker
-            // at startup when a newer version is on npm. Default
-            // selection is "Skip" so a bare \r dismisses it. If no
-            // picker is up the \r is a no-op against empty input.
-            // Without this, /status would be eaten by the picker.
-            captureBuffer = '';
-            capturing = true;
-            api.write(sessionId, '\r');
-            await waitForQuiescence(600, 2_500);
-            // Type /status one char at a time, then a brief settle,
-            // then \r as a discrete "Enter keypress". A single
-            // \r-terminated burst lands in the input as a paste-like
-            // chunk where \r is treated as "insert newline".
-            captureBuffer = '';
-            for (const ch of '/status') {
-              api.write(sessionId, ch);
-              await new Promise((r) => setTimeout(r, 25));
-            }
-            await new Promise((r) => setTimeout(r, 150));
-            api.write(sessionId, '\r');
-            await waitForQuiescence(600, 5_000);
-            capturing = false;
-            const stripped = stripAnsi(captureBuffer);
-            const match = stripped.match(UUID_RE);
-            if (match) {
-              onUpdateRef.current(nodeIdRef.current, {
-                data: { ...dataRef.current, cliSessionId: match[0] },
-              });
-            }
-            // Dismiss the /status panel before sending the prompt
-            // so codex sees a clean input line.
-            api.write(sessionId, '\x1b');
-            await new Promise((r) => setTimeout(r, 200));
-            if (effectivePrompt) {
-              // Write the text first, give the TUI a beat to render
-              // (so it doesn't see one big burst it might treat as a
-              // paste), then send the actual Enter as a separate \r.
-              api.write(sessionId, effectivePrompt);
-              await new Promise((r) => setTimeout(r, 80));
-              api.write(sessionId, '\r');
-            }
-            // No-prompt case: just leave Codex sitting at its empty
-            // input box. The /status capture + ESC has already run,
-            // so cliSessionId is persisted (or we'll fall back to
-            // --last on restart). User types their first message
-            // manually.
-          } else {
-            // Codex with a captured id from a prior spawn but no
-            // resumeMode (shouldn't normally happen — Setup → 初始化
-            // mints a fresh node — but handle defensively).
-            if (effectivePrompt) {
-              api.write(sessionId, `${command} '${escapePrompt(effectivePrompt)}'\n`);
-            } else {
-              api.write(sessionId, `${command}\n`);
-            }
-          }
+        // Codex `resume --last` ignores any trailing prompt argument
+        // and reads input from the resumed session's prompt, so on a
+        // resume spawn for Codex we skip the prompt entirely. The user
+        // already saw the prior conversation; they'll type their next
+        // message into the picker/prompt that comes up.
+        if (agentType === 'codex' && resumeMode) {
+          api.write(sessionId, `${command} resume --last\n`);
         } else {
           const flags =
             agentType === 'claude-code'
-              ? ` ${resumeMode && canResumeClaude ? '--resume' : '--session-id'} ${claudeSessionId}`
+              ? ` ${resumeMode && canResumeClaude ? '--resume' : '--session-id'} ${cliSessionId}`
               : '';
           if (effectivePrompt) {
-            api.write(sessionId, `${command}${flags} '${escapePrompt(effectivePrompt)}'\n`);
+            const escaped = effectivePrompt.replace(/'/g, "'\\''");
+            api.write(sessionId, `${command}${flags} '${escaped}'\n`);
           } else if (promptFile) {
             api.write(sessionId, `__prompt=$(cat ${promptFile}) && ${command}${flags} "$__prompt"\n`);
           } else if (agentArgs) {
@@ -464,11 +360,6 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
       const attachPermanentListener = () => {
         removeDataRef.current = api.onData(sessionId, (d: string) => {
           term.write(d);
-          // Always update — used by the Codex capture flow's
-          // waitForQuiescence helper to know when codex has stopped
-          // streaming a chunk of TUI output.
-          lastDataTime = Date.now();
-          if (capturing) captureBuffer += d;
           if (loadingDismissed) return;
           if (writeCommandTimeRef.current === 0) return;
           const since = Date.now() - writeCommandTimeRef.current;
@@ -488,7 +379,7 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
           prompted = true;
           promptRemove();
           attachPermanentListener();
-          setTimeout(() => { void writeCommandFlow(); }, 100);
+          setTimeout(writeCommand, 100);
         }
       });
 
@@ -521,11 +412,6 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
 
       term.onResize(({ cols, rows }) => { api.resize(sessionId, cols, rows); });
 
-      // Persist Claude's caller-supplied UUID right after spawn so the
-      // node always carries a stable cliSessionId even if the very
-      // first interaction never completes. Codex's id is captured
-      // later by the /status flow inside writeCommandFlow, so we leave
-      // whatever's already on the node intact for Codex / other agents.
       onUpdateRef.current(nodeIdRef.current, {
         data: {
           ...dataRef.current,
@@ -533,7 +419,7 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
           cwd: spawnCwd ?? '',
           status: 'running',
           sessionId,
-          ...(agentType === 'claude-code' ? { cliSessionId: claudeSessionId } : {}),
+          cliSessionId,
         },
       });
 
@@ -647,16 +533,11 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
     const oldSessionId = dataRef.current.sessionId;
     if (api && oldSessionId) api.kill(oldSessionId);
     const freshSessionId = mintSessionId(nodeIdRef.current);
-    // 初始化 always starts a brand-new conversation. cliSessionId is
-    // pre-minted only for Claude Code, whose CLI accepts our UUID via
-    // --session-id. For Codex we must clear it so spawnAgent's
-    // "no prior id" branch fires and runs the /status capture; a
-    // randomly minted UUID here would short-circuit that detection
-    // (Codex doesn't accept caller-supplied ids — a stale random UUID
-    // isn't a real Codex session and would just confuse resume later).
-    // Other agents (Pulse-Coder) don't use cliSessionId at all.
-    const freshCliSessionId =
-      selectedAgent === 'claude-code' ? crypto.randomUUID() : '';
+    // 初始化 always starts a brand-new conversation: mint a fresh
+    // cliSessionId so Claude Code files this run under our id (and so
+    // any orphaned id from a previously-active agent type doesn't get
+    // misinterpreted as resumable).
+    const freshCliSessionId = crypto.randomUUID();
     // Persist the launch intent to disk immediately. If the user reloads
     // before spawnAgent's own post-spawn update commits, the node will
     // reopen in the Restart view (because sessionId/scrollback get persisted
