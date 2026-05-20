@@ -318,6 +318,16 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
             api.write(sessionId, `${command}\n`);
             // Wait for codex banner / TUI to finish drawing.
             await waitForQuiescence(900, 12_000);
+            // Codex shows an interactive "Update available" picker at
+            // startup when a newer version is on npm — defaults to
+            // "Skip" so a bare \r dismisses it. If no picker is up,
+            // the \r is a harmless no-op against the empty input box.
+            // Without this, the first /status we send gets eaten as
+            // keystrokes into the picker and never makes it to the
+            // main TUI.
+            console.log('[agent:codex] dismissing any startup picker');
+            api.write(sessionId, '\r');
+            await new Promise((r) => setTimeout(r, 500));
             console.log('[agent:codex] banner quiesced, sending /status');
             // Run /status; everything written to the channel from
             // here until quiescence is captured for parsing.
