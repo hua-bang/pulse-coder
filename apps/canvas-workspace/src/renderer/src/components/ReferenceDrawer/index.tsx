@@ -7,8 +7,8 @@ import { getNodeDisplayLabel } from '../../utils/nodeLabel';
 import { copyTextToClipboard } from '../../utils/clipboard';
 
 const DEFAULT_REFERENCE_DRAWER_WIDTH = 420;
-const MIN_REFERENCE_DRAWER_WIDTH = 320;
-const MAX_REFERENCE_DRAWER_WIDTH = 720;
+const MIN_REFERENCE_DRAWER_WIDTH = 260;
+const MAX_REFERENCE_DRAWER_WIDTH = 1000;
 const REFERENCE_SEARCH_DEBOUNCE_MS = 180;
 
 const NODE_TYPE_LABELS: Record<CanvasNode['type'], string> = {
