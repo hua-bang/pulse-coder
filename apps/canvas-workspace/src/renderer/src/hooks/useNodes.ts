@@ -19,6 +19,11 @@ import { useNodeHistory } from './useNodeHistory';
 const SAVE_DEBOUNCE_MS = 800;
 const DEFAULT_CANVAS_ID = 'default';
 
+interface AddNodeOptions {
+  fileName?: string;
+  fileContent?: string;
+}
+
 export const useNodes = (
   canvasId = DEFAULT_CANVAS_ID,
   onRestoreTransform?: (t: CanvasTransform) => void,
@@ -327,18 +332,33 @@ export const useNodes = (
   }, [canvasId]);
 
   const addNode = useCallback(
-    (type: CanvasNode['type'], x: number, y: number) => {
+    (type: CanvasNode['type'], x: number, y: number, options?: AddNodeOptions) => {
       const node = { ...createDefaultNode(type, x, y), updatedAt: Date.now() };
 
       if (type === 'file') {
         const api = window.canvasWorkspace?.file;
         if (api) {
-          void api.createNote(canvasId).then((res) => {
+          void api.createNote(canvasId, options?.fileName).then(async (res) => {
             if (res.ok && res.filePath) {
+              let contentWritten = false;
+              if (typeof options?.fileContent === 'string') {
+                await api.write(res.filePath, options.fileContent);
+                contentWritten = true;
+              }
               setNodes((prev) => {
                 const updated = prev.map((n) =>
                   n.id === node.id
-                    ? { ...n, title: res.fileName?.replace(/\.md$/, '') || n.title, data: { ...n.data, filePath: res.filePath ?? '' } }
+                    ? {
+                        ...n,
+                        title: res.fileName?.replace(/\.md$/, '') || n.title,
+                        data: {
+                          ...n.data,
+                          filePath: res.filePath ?? '',
+                          content: contentWritten ? options?.fileContent ?? '' : (n.data as FileNodeData).content,
+                          saved: true,
+                          modified: false,
+                        },
+                      }
                     : n
                 );
                 nodesRef.current = updated;
@@ -575,7 +595,9 @@ export const useNodes = (
               ? { ...(source.data as ImageNodeData) }
               : source.type === 'shape'
                 ? { ...(source.data as ShapeNodeData) }
-                : source.type === 'mindmap'
+                : source.type === 'file'
+                  ? { ...(source.data as FileNodeData), filePath: '', saved: false, modified: false }
+                  : source.type === 'mindmap'
                   ? (() => {
                       const src = source.data as MindmapNodeData;
                       return {
@@ -590,12 +612,24 @@ export const useNodes = (
       if (newNode.type === 'file') {
         const api = window.canvasWorkspace?.file;
         if (api) {
-          void api.createNote(canvasId).then((res) => {
+          void api.createNote(canvasId, newNode.title).then(async (res) => {
             if (res.ok && res.filePath) {
+              const content = (source.data as FileNodeData).content;
+              await api.write(res.filePath, content);
               setNodes((prev) => {
                 const updated = prev.map((n) =>
                   n.id === newNode.id
-                    ? { ...n, title: res.fileName?.replace(/\.md$/, '') || n.title, data: { ...n.data, filePath: res.filePath ?? '' } }
+                    ? {
+                        ...n,
+                        title: res.fileName?.replace(/\.md$/, '') || n.title,
+                        data: {
+                          ...n.data,
+                          filePath: res.filePath ?? '',
+                          content,
+                          saved: true,
+                          modified: false,
+                        },
+                      }
                     : n
                 );
                 nodesRef.current = updated;
@@ -637,7 +671,9 @@ export const useNodes = (
               ? { ...(source.data as ImageNodeData) }
               : source.type === 'shape'
                 ? { ...(source.data as ShapeNodeData) }
-                : source.type === 'mindmap'
+                : source.type === 'file'
+                  ? { ...(source.data as FileNodeData), filePath: '', saved: false, modified: false }
+                  : source.type === 'mindmap'
                   ? (() => {
                       const src = source.data as MindmapNodeData;
                       return {
@@ -649,16 +685,29 @@ export const useNodes = (
                   : createNodeData(source.type),
         updatedAt: now,
       }));
-      newNodes.forEach((newNode) => {
+      newNodes.forEach((newNode, index) => {
         if (newNode.type === 'file') {
           const api = window.canvasWorkspace?.file;
           if (api) {
-            void api.createNote(canvasId).then((res) => {
+            void api.createNote(canvasId, newNode.title).then(async (res) => {
               if (res.ok && res.filePath) {
+                const source = sources[index];
+                const content = source?.type === 'file' ? (source.data as FileNodeData).content : '';
+                await api.write(res.filePath, content);
                 setNodes((prev) => {
                   const updated = prev.map((n) =>
                     n.id === newNode.id
-                      ? { ...n, title: res.fileName?.replace(/\.md$/, '') || n.title, data: { ...n.data, filePath: res.filePath ?? '' } }
+                      ? {
+                          ...n,
+                          title: res.fileName?.replace(/\.md$/, '') || n.title,
+                          data: {
+                            ...n.data,
+                            filePath: res.filePath ?? '',
+                            content,
+                            saved: true,
+                            modified: false,
+                          },
+                        }
                       : n
                   );
                   nodesRef.current = updated;

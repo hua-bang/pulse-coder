@@ -64,12 +64,28 @@ const createTextPatch = (text: string): Pick<CanvasNode, 'width' | 'height' | 't
   };
 };
 
+const TYPING_CONTEXT_SELECTOR = [
+  'input',
+  'textarea',
+  '[contenteditable="true"]',
+  '[role="textbox"]',
+  '.ProseMirror',
+  '.note-tiptap-editor',
+  '.note-content',
+].join(', ');
+
 const isTypingContext = (target: EventTarget | null): boolean => {
-  if (!(target instanceof HTMLElement)) return false;
-  const tag = target.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA') return true;
-  if (target.isContentEditable) return true;
-  return false;
+  if (!(target instanceof Node)) return false;
+  const element = target instanceof HTMLElement ? target : target.parentElement;
+  if (!element) return false;
+  return Boolean(element.closest(TYPING_CONTEXT_SELECTOR));
+};
+
+const isPasteFromTypingContext = (event: ClipboardEvent): boolean => {
+  if (isTypingContext(event.target)) return true;
+  if (isTypingContext(document.activeElement)) return true;
+  if (isTypingContext(document.getSelection()?.anchorNode ?? null)) return true;
+  return event.composedPath().some((target) => isTypingContext(target));
 };
 
 /**
@@ -94,7 +110,7 @@ export const useCanvasImagePaste = ({
     if (!active) return;
 
     const handler = (e: ClipboardEvent) => {
-      if (isTypingContext(e.target)) return;
+      if (isPasteFromTypingContext(e)) return;
       const items = e.clipboardData?.items;
       if (!items) return;
       const imageItem = Array.from(items).find((i) => i.type.startsWith('image/'));

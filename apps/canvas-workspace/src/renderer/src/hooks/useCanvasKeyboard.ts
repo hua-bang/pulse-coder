@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { CanvasNode } from '../types';
+import type { CanvasNode, FileNodeData } from '../types';
 
 interface Options {
   undo: () => void;
@@ -140,7 +140,22 @@ export const useCanvasKeyboard = ({
       }
       if (isMod && e.key === 'c' && !isEditable) {
         const selected = nodes.filter((n) => selectedNodeIds.includes(n.id));
-        if (selected.length > 0) setClipboardNodes(selected);
+        if (selected.length > 0) {
+          setClipboardNodes(selected);
+          const markdownNodes = selected.filter((n): n is CanvasNode & { data: FileNodeData } => (
+            n.type === 'file' && typeof (n.data as FileNodeData).content === 'string'
+          ));
+          if (markdownNodes.length === selected.length && navigator.clipboard?.writeText) {
+            const markdown = markdownNodes
+              .map((node) => markdownNodes.length === 1
+                ? node.data.content
+                : `# ${node.title}\n\n${node.data.content}`)
+              .join('\n\n---\n\n');
+            void navigator.clipboard.writeText(markdown).catch(() => {
+              // Canvas-local clipboard still works even if the system clipboard is unavailable.
+            });
+          }
+        }
         return;
       }
       if (isMod && (e.key === 'g' || e.key === 'G') && e.shiftKey && !isEditable) {
