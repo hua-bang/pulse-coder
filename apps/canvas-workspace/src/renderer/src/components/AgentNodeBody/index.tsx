@@ -297,6 +297,7 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
         if (agentType === 'codex') {
           if (resumeMode) {
             const target = existingCliSessionId || '--last';
+            console.log('[agent:codex] resume', { target, existingCliSessionId });
             api.write(sessionId, `${command} resume ${target}\n`);
           } else if (!existingCliSessionId) {
             // First-ever Codex spawn for this node: launch bare,
@@ -304,9 +305,11 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
             // prompt. Best-effort; if capture fails (TUI changes
             // format, timeout, no UUID in output) we just send the
             // prompt and restart falls back to `resume --last`.
+            console.log('[agent:codex] capture flow: launching bare codex');
             api.write(sessionId, `${command}\n`);
             // Wait for codex banner / TUI to finish drawing.
             await waitForQuiescence(900, 12_000);
+            console.log('[agent:codex] banner quiesced, sending /status');
             // Run /status; everything written to the channel from
             // here until quiescence is captured for parsing.
             captureBuffer = '';
@@ -314,7 +317,13 @@ export const AgentNodeBody = ({ node, getAllNodes, rootFolder, workspaceId, onUp
             api.write(sessionId, '/status\n');
             await waitForQuiescence(600, 5_000);
             capturing = false;
-            const match = stripAnsi(captureBuffer).match(UUID_RE);
+            const stripped = stripAnsi(captureBuffer);
+            const match = stripped.match(UUID_RE);
+            console.log('[agent:codex] /status captured', {
+              bytes: captureBuffer.length,
+              strippedSample: stripped.slice(0, 600),
+              matchedUuid: match?.[0] ?? null,
+            });
             if (match) {
               onUpdateRef.current(nodeIdRef.current, {
                 data: { ...dataRef.current, cliSessionId: match[0] },
