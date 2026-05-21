@@ -156,56 +156,18 @@ export async function readA11y(
 export async function captureScreenshot(
   wc: AnyWebContents,
 ): Promise<{ ok: boolean; imagePath: string; error?: string }> {
-  const MAX_HEIGHT_PX = 8_000;
-  const DEFAULT_WIDTH_PX = 1_280;
-
   let debuggerAttached = false;
-  let viewportOverrideSet = false;
   try {
     wc.debugger.attach('1.3');
     debuggerAttached = true;
 
-    // Read both the full content size and the current visual viewport size
-    // so we can restore the exact original dimensions afterwards.
-    const metrics = await wc.debugger.sendCommand('Page.getLayoutMetrics') as {
-      contentSize: { width: number; height: number };
-      visualViewport: { clientWidth: number; clientHeight: number };
-    };
-
-    const origWidth  = metrics.visualViewport.clientWidth  || DEFAULT_WIDTH_PX;
-    const origHeight = metrics.visualViewport.clientHeight || 900;
-    const fullWidth  = Math.max(Math.ceil(metrics.contentSize.width),  DEFAULT_WIDTH_PX);
-    const fullHeight = Math.min(Math.ceil(metrics.contentSize.height), MAX_HEIGHT_PX);
-
-    const needsExpansion = fullHeight > origHeight;
-
-    if (needsExpansion) {
-      await wc.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
-        width: fullWidth,
-        height: fullHeight,
-        deviceScaleFactor: 1,
-        mobile: false,
-      });
-      viewportOverrideSet = true;
-    }
-
+    // captureBeyondViewport:true without a clip captures the full scrollable
+    // document — same technique used by Puppeteer's fullPage:true screenshot.
+    // No viewport override needed → zero layout reflow, zero visual impact.
     const result = await wc.debugger.sendCommand('Page.captureScreenshot', {
       format: 'png',
-      fromSurface: true,
+      captureBeyondViewport: true,
     }) as { data: string };
-
-    // Restore original viewport before returning — minimise visible impact.
-    if (viewportOverrideSet) {
-      await wc.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
-        width: origWidth,
-        height: origHeight,
-        deviceScaleFactor: 1,
-        mobile: false,
-      });
-      // Clear the override so the webview reverts to its natural CSS-driven size.
-      await wc.debugger.sendCommand('Emulation.clearDeviceMetricsOverride');
-      viewportOverrideSet = false;
-    }
 
     wc.debugger.detach();
     debuggerAttached = false;
@@ -215,9 +177,6 @@ export async function captureScreenshot(
     return { ok: true, imagePath };
   } catch (err) {
     if (debuggerAttached) {
-      if (viewportOverrideSet) {
-        try { await wc.debugger.sendCommand('Emulation.clearDeviceMetricsOverride'); } catch { /* ignore */ }
-      }
       try { wc.debugger.detach(); } catch { /* ignore */ }
     }
     return { ok: false, imagePath: '', error: err instanceof Error ? err.message : String(err) };
