@@ -17,6 +17,10 @@ import {
   resolveWorkspaceNames,
 } from './context-builder';
 import { createCanvasTools } from './tools';
+import {
+  createCanvasWorkspaceMemoryIntegration,
+  createCanvasWorkspaceMemoryRunContext,
+} from './memory';
 import { SessionStore } from './session-store';
 import { formatPromptProfileForSystem, getPromptProfile } from './prompt-profile';
 import {
@@ -364,6 +368,7 @@ export interface CanvasClarificationRequest {
 
 export class CanvasAgent {
   private engine: any; // Engine type from pulse-coder-engine (no .d.ts yet)
+  private memoryIntegration: ReturnType<typeof createCanvasWorkspaceMemoryIntegration>;
   private messages: ModelMessage[] = [];
   private sessionStore: SessionStore;
   private config: CanvasAgentConfig;
@@ -378,11 +383,12 @@ export class CanvasAgent {
     this.sessionStore = new SessionStore(config.workspaceId);
 
     const canvasTools = createCanvasTools(config.workspaceId);
+    this.memoryIntegration = createCanvasWorkspaceMemoryIntegration(config.workspaceId);
 
     this.engine = new Engine({
       disableBuiltInPlugins: true,
       enginePlugins: {
-        plugins: [builtInSkillsPlugin],
+        plugins: [builtInSkillsPlugin, this.memoryIntegration.enginePlugin],
       },
       model: config.model,
       tools: canvasTools,
@@ -392,6 +398,7 @@ export class CanvasAgent {
   async initialize(): Promise<void> {
     console.info(`[canvas-agent] Initializing for workspace: ${this.config.workspaceId}`);
 
+    await this.memoryIntegration.initialize();
     await this.engine.initialize();
 
     // Start a new session
@@ -521,69 +528,75 @@ export class CanvasAgent {
         model: this.config.model ?? modelConfig.model,
         modelType: modelConfig.modelType,
       });
-      const resultText = await this.engine.run(context, {
-        provider: modelConfig.provider,
-        model: this.config.model ?? modelConfig.model,
-        modelType: modelConfig.modelType,
-        systemPrompt,
-        maxSteps: CANVAS_AGENT_MAX_STEPS,
-        abortSignal: abortController.signal,
-        onClarificationRequest: engineClarificationHandler,
-        onText,
-        onToolCall: (onToolCall || debugTrace)
-          ? (chunk: any) => {
-              // AI SDK v6 uses `input`; older versions use `args`
-              const args = chunk.input ?? chunk.args;
-              console.info('[canvas-agent] tool-call chunk keys:', Object.keys(chunk), 'input:', chunk.input, 'args:', chunk.args);
-              recordTraceToolCall(debugTrace, { name: chunk.toolName, args, toolCallId: chunk.toolCallId });
-              onToolCall?.({ name: chunk.toolName, args, toolCallId: chunk.toolCallId });
-            }
-          : undefined,
-        onToolResult: (onToolResult || debugTrace)
-          ? (chunk: any) => {
-              // AI SDK v6 uses `output`; older versions use `result`
-              const raw = chunk.output ?? chunk.result;
-              console.info('[canvas-agent] tool-result chunk keys:', Object.keys(chunk), 'output:', typeof chunk.output, 'result:', typeof chunk.result);
-              recordTraceToolResult(debugTrace, { name: chunk.toolName, rawResult: raw, toolCallId: chunk.toolCallId });
-              onToolResult?.({
-                name: chunk.toolName,
-                result: typeof raw === 'string' ? raw : JSON.stringify(raw),
-                toolCallId: chunk.toolCallId,
-              });
-            }
-          : undefined,
-        onToolInputStart: onToolInputStart
-          ? (chunk: { id: string; toolName: string }) => {
-              console.info('[canvas-agent] tool-input-start', chunk.toolName, chunk.id);
-              onToolInputStart(chunk);
-            }
-          : undefined,
-        onToolInputDelta: onToolInputDelta
-          ? (chunk: { id: string; delta: string }) => {
-              // Sample log — full delta firehose is too noisy for a long run.
-              if (Math.random() < 0.02) {
-                console.info('[canvas-agent] tool-input-delta (sampled)', chunk.id, chunk.delta.length + 'B');
+      const resultText = await this.memoryIntegration.withRunContext<string>(
+        createCanvasWorkspaceMemoryRunContext({
+          workspaceId: this.config.workspaceId,
+          userText: message,
+        }),
+        () => this.engine.run(context, {
+          provider: modelConfig.provider,
+          model: this.config.model ?? modelConfig.model,
+          modelType: modelConfig.modelType,
+          systemPrompt,
+          maxSteps: CANVAS_AGENT_MAX_STEPS,
+          abortSignal: abortController.signal,
+          onClarificationRequest: engineClarificationHandler,
+          onText,
+          onToolCall: (onToolCall || debugTrace)
+            ? (chunk: any) => {
+                // AI SDK v6 uses `input`; older versions use `args`
+                const args = chunk.input ?? chunk.args;
+                console.info('[canvas-agent] tool-call chunk keys:', Object.keys(chunk), 'input:', chunk.input, 'args:', chunk.args);
+                recordTraceToolCall(debugTrace, { name: chunk.toolName, args, toolCallId: chunk.toolCallId });
+                onToolCall?.({ name: chunk.toolName, args, toolCallId: chunk.toolCallId });
               }
-              onToolInputDelta(chunk);
+            : undefined,
+          onToolResult: (onToolResult || debugTrace)
+            ? (chunk: any) => {
+                // AI SDK v6 uses `output`; older versions use `result`
+                const raw = chunk.output ?? chunk.result;
+                console.info('[canvas-agent] tool-result chunk keys:', Object.keys(chunk), 'output:', typeof chunk.output, 'result:', typeof chunk.result);
+                recordTraceToolResult(debugTrace, { name: chunk.toolName, rawResult: raw, toolCallId: chunk.toolCallId });
+                onToolResult?.({
+                  name: chunk.toolName,
+                  result: typeof raw === 'string' ? raw : JSON.stringify(raw),
+                  toolCallId: chunk.toolCallId,
+                });
+              }
+            : undefined,
+          onToolInputStart: onToolInputStart
+            ? (chunk: { id: string; toolName: string }) => {
+                console.info('[canvas-agent] tool-input-start', chunk.toolName, chunk.id);
+                onToolInputStart(chunk);
+              }
+            : undefined,
+          onToolInputDelta: onToolInputDelta
+            ? (chunk: { id: string; delta: string }) => {
+                // Sample log — full delta firehose is too noisy for a long run.
+                if (Math.random() < 0.02) {
+                  console.info('[canvas-agent] tool-input-delta (sampled)', chunk.id, chunk.delta.length + 'B');
+                }
+                onToolInputDelta(chunk);
+              }
+            : undefined,
+          onToolInputEnd: onToolInputEnd
+            ? (chunk: { id: string }) => {
+                console.info('[canvas-agent] tool-input-end', chunk.id);
+                onToolInputEnd(chunk);
+              }
+            : undefined,
+          onResponse: (msgs: ModelMessage[]) => {
+            for (const msg of msgs) {
+              this.messages.push(msg);
+              responseMessages.push(msg);
             }
-          : undefined,
-        onToolInputEnd: onToolInputEnd
-          ? (chunk: { id: string }) => {
-              console.info('[canvas-agent] tool-input-end', chunk.id);
-              onToolInputEnd(chunk);
-            }
-          : undefined,
-        onResponse: (msgs: ModelMessage[]) => {
-          for (const msg of msgs) {
-            this.messages.push(msg);
-            responseMessages.push(msg);
-          }
-        },
-        onCompacted: (newMessages: ModelMessage[]) => {
-          this.messages = newMessages;
-          context.messages = newMessages;
-        },
-      });
+          },
+          onCompacted: (newMessages: ModelMessage[]) => {
+            this.messages = newMessages;
+            context.messages = newMessages;
+          },
+        }),
+      );
 
       const responseText = resultText || '(no response)';
       recordTraceMessageSnapshot(debugTrace, { systemPrompt, messages: context.messages });
