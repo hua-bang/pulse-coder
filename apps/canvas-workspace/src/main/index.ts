@@ -241,14 +241,21 @@ app.on("web-contents-created", (_event, contents) => {
 
 app.whenReady().then(() => {
   // Notion (and a handful of other services) reject embedded `<webview>`s
-  // the moment the UA string contains the "Electron/x.y.z" token, surfacing
-  // a "Your browser is not compatible" page even though the underlying
-  // Chromium is perfectly capable. Strip the Electron and product-name
-  // tokens from the default fallback so each webContents looks like stock
-  // Chromium. Must run before any webContents navigates.
+  // on two grounds: the UA string contains the "Electron/x.y.z" token, AND
+  // the Chrome major version bundled with Electron 30 (Chromium 124) is now
+  // below their supported floor. Both checks surface the same "Your browser
+  // is not compatible" page even though the underlying Chromium renders the
+  // app fine. Strip the Electron / product-name tokens and rewrite the
+  // Chrome version to a recent stable release so each webContents looks
+  // like a current stock Chrome. Must run before any webContents navigates.
+  //
+  // We use UA-Reduction's `X.0.0.0` minor format — that matches what stock
+  // Chrome itself sends now, so we don't have to track real build numbers.
+  const SPOOFED_CHROME_MAJOR = "140";
   app.userAgentFallback = app.userAgentFallback
     .replace(/\s?Electron\/\S+/g, "")
-    .replace(/\s?PulseCanvas\/\S+/g, "");
+    .replace(/\s?PulseCanvas\/\S+/g, "")
+    .replace(/Chrome\/\d+(?:\.\d+){0,3}/g, `Chrome/${SPOOFED_CHROME_MAJOR}.0.0.0`);
 
   registerPulseCanvasProtocol();
 
