@@ -57,6 +57,7 @@ const AppContent = () => {
     deleteFolder,
     toggleFolder,
     moveWorkspace,
+    reorderWorkspace,
     reorderFolder,
   } = useWorkspaces();
 
@@ -112,9 +113,9 @@ const AppContent = () => {
     ensureWorkspaceNodesLoaded(activeId);
   }, [activeId, ensureWorkspaceNodesLoaded]);
 
-  const handleCreateWorkspace = useCallback((name: string) => {
+  const handleCreateWorkspace = useCallback((name: string, folderId?: string) => {
     const trimmed = name.trim() || 'Untitled';
-    const id = createWorkspace(name);
+    const id = createWorkspace(name, folderId);
     notify({
       tone: 'success',
       title: 'Workspace created',
@@ -360,6 +361,7 @@ const AppContent = () => {
           onDeleteFolder={handleDeleteFolder}
           onToggleFolder={toggleFolder}
           onMoveWorkspace={moveWorkspace}
+          onReorderWorkspace={reorderWorkspace}
           onReorderFolder={reorderFolder}
           activeNodes={activeNodes}
           onNodeFocus={requestActiveNodeFocus}

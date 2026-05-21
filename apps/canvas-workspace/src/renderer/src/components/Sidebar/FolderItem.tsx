@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { FolderEntry, WorkspaceEntry } from '../../hooks/useWorkspaces';
-import { CloseIcon, ChevronRightIcon, FolderIcon } from '../icons';
+import { CloseIcon, ChevronRightIcon, FolderIcon, PencilIcon, PlusIcon } from '../icons';
 
 interface FolderItemProps {
   folder: FolderEntry;
@@ -21,7 +21,9 @@ interface FolderItemProps {
   onRenameCommit: () => void;
   onRenameCancel: () => void;
   onDelete: () => void;
+  onCreateWorkspace: () => void;
   renderWorkspace: (ws: WorkspaceEntry) => React.ReactNode;
+  inlineCreateSlot?: React.ReactNode;
 }
 
 export const FolderItem = ({
@@ -43,7 +45,9 @@ export const FolderItem = ({
   onRenameCommit,
   onRenameCancel,
   onDelete,
+  onCreateWorkspace,
   renderWorkspace,
+  inlineCreateSlot,
 }: FolderItemProps) => {
   const isOpen = !folder.collapsed;
 
@@ -74,8 +78,7 @@ export const FolderItem = ({
           <button
             className="sidebar-folder-toggle"
             onClick={onToggle}
-            onDoubleClick={onStartRename}
-            title="Click to toggle · Double-click to rename"
+            title="Toggle"
           >
             <span className={`sidebar-folder-chevron${isOpen ? ' sidebar-folder-chevron--open' : ''}`}>
               <ChevronRightIcon size={10} />
@@ -87,13 +90,32 @@ export const FolderItem = ({
           </button>
         )}
         {!isRenaming && (
-          <button
-            className="sidebar-folder-delete"
-            onClick={onDelete}
-            title="Delete folder"
-          >
-            <CloseIcon size={12} strokeWidth={1.5} />
-          </button>
+          <div className="sidebar-folder-actions">
+            <button
+              className="sidebar-folder-action"
+              onClick={(e) => { e.stopPropagation(); onCreateWorkspace(); }}
+              title="New workspace in folder"
+              aria-label="New workspace in folder"
+            >
+              <PlusIcon size={12} strokeWidth={1.5} />
+            </button>
+            <button
+              className="sidebar-folder-action"
+              onClick={(e) => { e.stopPropagation(); onStartRename(); }}
+              title="Rename folder"
+              aria-label="Rename folder"
+            >
+              <PencilIcon size={12} strokeWidth={1.4} />
+            </button>
+            <button
+              className="sidebar-folder-action sidebar-folder-action--danger"
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              title="Delete folder"
+              aria-label="Delete folder"
+            >
+              <CloseIcon size={12} strokeWidth={1.5} />
+            </button>
+          </div>
         )}
       </div>
 
@@ -103,7 +125,8 @@ export const FolderItem = ({
       >
         <div className="sidebar-folder-children-inner">
           {folderWorkspaces.map(renderWorkspace)}
-          {folderWorkspaces.length === 0 && (
+          {inlineCreateSlot}
+          {folderWorkspaces.length === 0 && !inlineCreateSlot && (
             <div className="sidebar-folder-empty">Drop workspaces here</div>
           )}
         </div>

@@ -93,9 +93,13 @@ export const useWorkspaces = () => {
   );
 
   const createWorkspace = useCallback(
-    (name: string) => {
+    (name: string, folderId?: string) => {
       const id = `ws-${Date.now()}`;
-      const entry: WorkspaceEntry = { id, name: name.trim() || 'Untitled' };
+      const entry: WorkspaceEntry = {
+        id,
+        name: name.trim() || 'Untitled',
+        ...(folderId ? { folderId } : {}),
+      };
       setWorkspaces((prev) => {
         const next = [...prev, entry];
         saveManifest(next, id);
@@ -259,6 +263,36 @@ export const useWorkspaces = () => {
     [saveManifest]
   );
 
+  /**
+   * Reorder a workspace by moving it before another workspace (or to end of the target container).
+   * `folderId` is the target container — `undefined` means root, a string means inside that folder.
+   */
+  const reorderWorkspace = useCallback(
+    (
+      workspaceId: string,
+      beforeWorkspaceId: string | null,
+      folderId: string | undefined,
+    ) => {
+      setWorkspaces((prev) => {
+        const moving = prev.find((w) => w.id === workspaceId);
+        if (!moving) return prev;
+        const updatedMoving: WorkspaceEntry = { ...moving, folderId };
+        const without = prev.filter((w) => w.id !== workspaceId);
+        let next: WorkspaceEntry[];
+        if (beforeWorkspaceId === null) {
+          next = [...without, updatedMoving];
+        } else {
+          const idx = without.findIndex((w) => w.id === beforeWorkspaceId);
+          if (idx === -1) return prev;
+          next = [...without.slice(0, idx), updatedMoving, ...without.slice(idx)];
+        }
+        saveManifest(next);
+        return next;
+      });
+    },
+    [saveManifest],
+  );
+
   /** Reorder a folder by moving it before another folder (or to end) */
   const reorderFolder = useCallback(
     (folderId: string, beforeFolderId: string | null) => {
@@ -296,6 +330,7 @@ export const useWorkspaces = () => {
     deleteFolder,
     toggleFolder,
     moveWorkspace,
+    reorderWorkspace,
     reorderFolder,
   };
 };
