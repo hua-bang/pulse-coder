@@ -73,6 +73,24 @@ export const TrashIcon = ({ size = 14, className, strokeWidth = 1.3 }: IconProps
   </svg>
 );
 
+export const PencilIcon = ({ size = 14, className, strokeWidth = 1.3 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+    <path
+      d="M11.2 2.8l2 2-7.4 7.4-2.5.5.5-2.5 7.4-7.4z"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M9.8 4.2l2 2"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
 
 export const CloseIcon = ({ size = 16, className, strokeWidth = 1.3 }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>

@@ -21,7 +21,7 @@ interface Props {
   folders: FolderEntry[];
   activeId: string;
   onSelect: (id: string) => void;
-  onCreate: (name: string) => void;
+  onCreate: (name: string, folderId?: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
   onExport: (id: string) => void;
@@ -31,6 +31,11 @@ interface Props {
   onDeleteFolder: (id: string) => void;
   onToggleFolder: (id: string) => void;
   onMoveWorkspace: (workspaceId: string, folderId: string | undefined) => void;
+  onReorderWorkspace: (
+    workspaceId: string,
+    beforeWorkspaceId: string | null,
+    folderId: string | undefined,
+  ) => void;
   onReorderFolder: (folderId: string, beforeFolderId: string | null) => void;
   activeNodes?: CanvasNode[];
   onNodeFocus?: (nodeId: string) => void;
@@ -48,7 +53,8 @@ const FOLDER_DRAG = 'application/x-folder-id';
 
 export const Sidebar = ({
   collapsed, onToggle, workspaces, folders, activeId, onSelect, onCreate, onRename, onDelete,
-  onExport, onImport, onCreateFolder, onRenameFolder, onDeleteFolder, onToggleFolder, onMoveWorkspace, onReorderFolder,
+  onExport, onImport, onCreateFolder, onRenameFolder, onDeleteFolder, onToggleFolder, onMoveWorkspace,
+  onReorderWorkspace, onReorderFolder,
   activeNodes = [], onNodeFocus, onNodeDelete, onNodeRename, activeView, onEnterChat, pluginNavItems, onNavigate,
 }: Props) => {
   const { notify } = useAppShell();
@@ -60,8 +66,10 @@ export const Sidebar = ({
   const [renameLayerValue, setRenameLayerValue] = useState('');
   const [inlineCreate, setInlineCreate] = useState<'workspace' | 'folder' | null>(null);
   const [inlineCreateValue, setInlineCreateValue] = useState('');
+  const [inlineCreateFolderId, setInlineCreateFolderId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [folderDropTarget, setFolderDropTarget] = useState<string | null>(null);
+  const [wsDropBeforeId, setWsDropBeforeId] = useState<string | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [collapsedLayers, setCollapsedLayers] = useState<Set<string>>(new Set());
   const [layerContextMenu, setLayerContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
@@ -138,8 +146,22 @@ export const Sidebar = ({
   };
   const commitInlineCreate = () => {
     const v = inlineCreateValue.trim();
-    if (v) { if (inlineCreate === 'workspace') onCreate(v); else if (inlineCreate === 'folder') onCreateFolder(v); }
-    setInlineCreate(null); setInlineCreateValue('');
+    if (v) {
+      if (inlineCreate === 'workspace') onCreate(v, inlineCreateFolderId ?? undefined);
+      else if (inlineCreate === 'folder') onCreateFolder(v);
+    }
+    setInlineCreate(null); setInlineCreateValue(''); setInlineCreateFolderId(null);
+  };
+  const cancelInlineCreate = () => {
+    setInlineCreate(null); setInlineCreateValue(''); setInlineCreateFolderId(null);
+  };
+  const startCreateInFolder = (folderId: string) => {
+    const folder = folders.find((f) => f.id === folderId);
+    if (folder?.collapsed) onToggleFolder(folderId);
+    setShowAddMenu(false);
+    setInlineCreate('workspace');
+    setInlineCreateValue('');
+    setInlineCreateFolderId(folderId);
   };
 
   const handleLayerDelete = useCallback((nodeId: string) => {
@@ -176,7 +198,8 @@ export const Sidebar = ({
     (e.currentTarget as HTMLElement).classList.add('sidebar-dragging');
   };
   const handleWsDragEnd = (e: DragEvent) => {
-    (e.currentTarget as HTMLElement).classList.remove('sidebar-dragging'); setDropTarget(null);
+    (e.currentTarget as HTMLElement).classList.remove('sidebar-dragging');
+    setDropTarget(null); setWsDropBeforeId(null);
   };
   const handleWsDragOver = (e: DragEvent, targetId: string) => {
     if (!e.dataTransfer.types.includes(WS_DRAG)) return;
@@ -188,7 +211,32 @@ export const Sidebar = ({
     if (dropTarget === targetId) setDropTarget(null);
   };
   const handleWsDrop = (e: DragEvent, folderId: string | undefined) => {
-    e.preventDefault(); const wsId = e.dataTransfer.getData(WS_DRAG); if (wsId) onMoveWorkspace(wsId, folderId); setDropTarget(null);
+    e.preventDefault(); const wsId = e.dataTransfer.getData(WS_DRAG);
+    if (wsId) onMoveWorkspace(wsId, folderId);
+    setDropTarget(null); setWsDropBeforeId(null);
+  };
+
+  // Workspace-on-workspace reorder (drop A before B)
+  const handleWsReorderDragOver = (e: DragEvent, targetWsId: string) => {
+    if (!e.dataTransfer.types.includes(WS_DRAG)) return;
+    e.preventDefault(); e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    setWsDropBeforeId(targetWsId);
+    setDropTarget(null);
+  };
+  const handleWsReorderDragLeave = (e: DragEvent, targetWsId: string) => {
+    const rel = e.relatedTarget as HTMLElement | null;
+    if (rel && (e.currentTarget as HTMLElement).contains(rel)) return;
+    if (wsDropBeforeId === targetWsId) setWsDropBeforeId(null);
+  };
+  const handleWsReorderDrop = (e: DragEvent, targetWs: WorkspaceEntry) => {
+    if (!e.dataTransfer.types.includes(WS_DRAG)) return;
+    e.preventDefault(); e.stopPropagation();
+    const wsId = e.dataTransfer.getData(WS_DRAG);
+    if (wsId && wsId !== targetWs.id) {
+      onReorderWorkspace(wsId, targetWs.id, targetWs.folderId);
+    }
+    setWsDropBeforeId(null); setDropTarget(null);
   };
 
   // Folder drag
@@ -226,9 +274,14 @@ export const Sidebar = ({
       key={ws.id} ws={ws} activeId={activeId} activeView={activeView}
       isOnlyWorkspace={workspaces.length <= 1} isRenaming={renamingId === ws.id}
       renameValue={renameValue} renameInputRef={renameInputRef}
+      isDropBefore={wsDropBeforeId === ws.id}
       onSelect={onSelect} onStartRename={startRename} onRenameChange={setRenameValue}
       onRenameCommit={commitRename} onRenameCancel={() => setRenamingId(null)}
-      onDelete={onDelete} onExport={onExport} onDragStart={handleWsDragStart} onDragEnd={handleWsDragEnd}
+      onDelete={onDelete} onExport={onExport}
+      onDragStart={handleWsDragStart} onDragEnd={handleWsDragEnd}
+      onReorderDragOver={(e) => handleWsReorderDragOver(e, ws.id)}
+      onReorderDragLeave={(e) => handleWsReorderDragLeave(e, ws.id)}
+      onReorderDrop={(e) => handleWsReorderDrop(e, ws)}
     />
   );
 
@@ -241,8 +294,8 @@ export const Sidebar = ({
             pluginNavItems={pluginNavItems} onNavigate={onNavigate}
             showAddMenu={showAddMenu} onToggleAddMenu={() => setShowAddMenu((v) => !v)}
             addMenuRef={addMenuRef}
-            onNewWorkspace={() => { setShowAddMenu(false); setInlineCreate('workspace'); setInlineCreateValue(''); }}
-            onNewFolder={() => { setShowAddMenu(false); setInlineCreate('folder'); setInlineCreateValue(''); }}
+            onNewWorkspace={() => { setShowAddMenu(false); setInlineCreate('workspace'); setInlineCreateValue(''); setInlineCreateFolderId(null); }}
+            onNewFolder={() => { setShowAddMenu(false); setInlineCreate('folder'); setInlineCreateValue(''); setInlineCreateFolderId(null); }}
             onImportWorkspace={() => { setShowAddMenu(false); onImport(); }}
           />
           <WorkspaceList
@@ -251,6 +304,7 @@ export const Sidebar = ({
             renamingFolderId={renamingFolderId} renameFolderValue={renameFolderValue}
             renameFolderInputRef={renameFolderInputRef}
             inlineCreate={inlineCreate} inlineCreateValue={inlineCreateValue} inlineCreateRef={inlineCreateRef}
+            inlineCreateFolderId={inlineCreateFolderId}
             onFolderDragStart={handleFolderDragStart} onFolderDragEnd={handleFolderDragEnd}
             onFolderCombinedDragOver={onFolderCombinedDragOver}
             onFolderCombinedDragLeave={onFolderCombinedDragLeave}
@@ -261,9 +315,11 @@ export const Sidebar = ({
             onToggleFolder={onToggleFolder} onStartFolderRename={startFolderRename}
             onFolderRenameChange={setRenameFolderValue} onFolderRenameCommit={commitFolderRename}
             onFolderRenameCancel={() => setRenamingFolderId(null)}
-            onDeleteFolder={onDeleteFolder} renderWorkspace={renderWorkspaceItem}
+            onDeleteFolder={onDeleteFolder}
+            onCreateWorkspaceInFolder={startCreateInFolder}
+            renderWorkspace={renderWorkspaceItem}
             onInlineCreateChange={setInlineCreateValue} onInlineCreateCommit={commitInlineCreate}
-            onInlineCreateCancel={() => { setInlineCreate(null); setInlineCreateValue(''); }}
+            onInlineCreateCancel={cancelInlineCreate}
           />
         </>
       )}

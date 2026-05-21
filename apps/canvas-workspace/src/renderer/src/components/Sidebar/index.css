@@ -210,7 +210,8 @@
 }
 
 .sidebar-item-delete,
-.sidebar-item-export {
+.sidebar-item-export,
+.sidebar-item-rename {
   flex-shrink: 0;
   width: 22px;
   height: 22px;
@@ -230,17 +231,23 @@
   right: 6px;
 }
 
-.sidebar-item-export {
+.sidebar-item-rename {
   right: 30px;
 }
 
+.sidebar-item-export {
+  right: 54px;
+}
+
 .sidebar-item-row:hover .sidebar-item-delete,
-.sidebar-item-row:hover .sidebar-item-export {
+.sidebar-item-row:hover .sidebar-item-export,
+.sidebar-item-row:hover .sidebar-item-rename {
   display: flex;
 }
 
 .sidebar-item-delete:hover,
-.sidebar-item-export:hover {
+.sidebar-item-export:hover,
+.sidebar-item-rename:hover {
   background: rgba(0, 0, 0, 0.06);
   color: var(--text-secondary);
 }
@@ -671,30 +678,43 @@
   border-left-color: transparent;
 }
 
-.sidebar-folder-delete {
+.sidebar-folder-actions {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  gap: 1px;
+  pointer-events: auto;
+}
+
+.sidebar-folder-header:hover .sidebar-folder-actions {
+  display: flex;
+}
+
+.sidebar-folder-action {
   flex-shrink: 0;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border: none;
   background: transparent;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
   transition: background 0.1s, color 0.1s;
-  position: absolute;
-  right: 12px;
 }
 
-.sidebar-folder-header:hover .sidebar-folder-delete {
-  display: flex;
-}
-
-.sidebar-folder-delete:hover {
+.sidebar-folder-action:hover {
   background: rgba(0, 0, 0, 0.06);
   color: var(--text-secondary);
+}
+
+.sidebar-folder-action--danger:hover {
+  color: var(--text);
 }
 
 .sidebar-folder-children {
@@ -734,10 +754,24 @@
 .sidebar-workspace-entry {
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .sidebar-workspace-entry[draggable="true"] {
   transition: opacity 0.15s;
+}
+
+.sidebar-workspace-entry--drop-before::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: var(--accent, #2383e2);
+  border-radius: 1px;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .sidebar-dragging {

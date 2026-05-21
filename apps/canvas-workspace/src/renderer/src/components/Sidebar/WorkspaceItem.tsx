@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { WorkspaceEntry } from '../../hooks/useWorkspaces';
-import { CloseIcon, ExportIcon, WorkspaceIcon } from '../icons';
+import { CloseIcon, ExportIcon, PencilIcon, WorkspaceIcon } from '../icons';
 
 export interface WorkspaceItemProps {
   ws: WorkspaceEntry;
@@ -10,6 +10,7 @@ export interface WorkspaceItemProps {
   isRenaming: boolean;
   renameValue: string;
   renameInputRef: React.RefObject<HTMLInputElement>;
+  isDropBefore: boolean;
   onSelect: (id: string) => void;
   onStartRename: (ws: WorkspaceEntry) => void;
   onRenameChange: (value: string) => void;
@@ -19,6 +20,9 @@ export interface WorkspaceItemProps {
   onExport: (id: string) => void;
   onDragStart: (e: React.DragEvent, id: string) => void;
   onDragEnd: (e: React.DragEvent) => void;
+  onReorderDragOver: (e: React.DragEvent) => void;
+  onReorderDragLeave: (e: React.DragEvent) => void;
+  onReorderDrop: (e: React.DragEvent) => void;
 }
 
 export const WorkspaceItem = ({
@@ -29,6 +33,7 @@ export const WorkspaceItem = ({
   isRenaming,
   renameValue,
   renameInputRef,
+  isDropBefore,
   onSelect,
   onStartRename,
   onRenameChange,
@@ -38,12 +43,18 @@ export const WorkspaceItem = ({
   onExport,
   onDragStart,
   onDragEnd,
+  onReorderDragOver,
+  onReorderDragLeave,
+  onReorderDrop,
 }: WorkspaceItemProps) => (
   <div
-    className="sidebar-workspace-entry"
+    className={`sidebar-workspace-entry${isDropBefore ? ' sidebar-workspace-entry--drop-before' : ''}`}
     draggable
     onDragStart={(e) => onDragStart(e, ws.id)}
     onDragEnd={onDragEnd}
+    onDragOver={onReorderDragOver}
+    onDragLeave={onReorderDragLeave}
+    onDrop={onReorderDrop}
   >
     <div className="sidebar-item-row">
       {isRenaming ? (
@@ -62,13 +73,22 @@ export const WorkspaceItem = ({
         <button
           className={`sidebar-item${activeId === ws.id && activeView === 'canvas' ? ' sidebar-item--active' : ''}`}
           onClick={() => onSelect(ws.id)}
-          onDoubleClick={() => onStartRename(ws)}
-          title="Double-click to rename"
+          title={ws.name}
         >
           <span className="sidebar-item-icon">
             <WorkspaceIcon size={14} />
           </span>
           <span className="sidebar-item-name">{ws.name}</span>
+        </button>
+      )}
+      {!isRenaming && (
+        <button
+          className="sidebar-item-rename"
+          onClick={() => onStartRename(ws)}
+          title="Rename"
+          aria-label="Rename workspace"
+        >
+          <PencilIcon size={12} strokeWidth={1.4} />
         </button>
       )}
       {!isRenaming && (

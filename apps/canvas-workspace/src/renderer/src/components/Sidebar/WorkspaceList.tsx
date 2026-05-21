@@ -14,6 +14,7 @@ interface WorkspaceListProps {
   inlineCreate: 'workspace' | 'folder' | null;
   inlineCreateValue: string;
   inlineCreateRef: React.RefObject<HTMLInputElement>;
+  inlineCreateFolderId: string | null;
   onFolderDragStart: (e: React.DragEvent, folderId: string) => void;
   onFolderDragEnd: (e: React.DragEvent) => void;
   onFolderCombinedDragOver: (e: React.DragEvent, folderId: string) => void;
@@ -28,6 +29,7 @@ interface WorkspaceListProps {
   onFolderRenameCommit: () => void;
   onFolderRenameCancel: () => void;
   onDeleteFolder: (id: string) => void;
+  onCreateWorkspaceInFolder: (folderId: string) => void;
   renderWorkspace: (ws: WorkspaceEntry) => React.ReactNode;
   onInlineCreateChange: (value: string) => void;
   onInlineCreateCommit: () => void;
@@ -45,6 +47,7 @@ export const WorkspaceList = ({
   inlineCreate,
   inlineCreateValue,
   inlineCreateRef,
+  inlineCreateFolderId,
   onFolderDragStart,
   onFolderDragEnd,
   onFolderCombinedDragOver,
@@ -59,17 +62,30 @@ export const WorkspaceList = ({
   onFolderRenameCommit,
   onFolderRenameCancel,
   onDeleteFolder,
+  onCreateWorkspaceInFolder,
   renderWorkspace,
   onInlineCreateChange,
   onInlineCreateCommit,
   onInlineCreateCancel,
 }: WorkspaceListProps) => {
   const rootWorkspaces = workspaces.filter((ws) => !ws.folderId);
+  const showRootInlineCreate = !!inlineCreate && inlineCreateFolderId === null;
 
   return (
     <div className="sidebar-scroll">
       {folders.map((folder) => {
         const folderWorkspaces = workspaces.filter((ws) => ws.folderId === folder.id);
+        const folderInlineCreate =
+          inlineCreate === 'workspace' && inlineCreateFolderId === folder.id ? (
+            <InlineCreateRow
+              type="workspace"
+              value={inlineCreateValue}
+              inputRef={inlineCreateRef}
+              onChange={onInlineCreateChange}
+              onCommit={onInlineCreateCommit}
+              onCancel={onInlineCreateCancel}
+            />
+          ) : null;
         return (
           <FolderItem
             key={folder.id}
@@ -91,7 +107,9 @@ export const WorkspaceList = ({
             onRenameCommit={onFolderRenameCommit}
             onRenameCancel={onFolderRenameCancel}
             onDelete={() => onDeleteFolder(folder.id)}
+            onCreateWorkspace={() => onCreateWorkspaceInFolder(folder.id)}
             renderWorkspace={renderWorkspace}
+            inlineCreateSlot={folderInlineCreate}
           />
         );
       })}
@@ -105,7 +123,7 @@ export const WorkspaceList = ({
         {rootWorkspaces.map(renderWorkspace)}
       </div>
 
-      {inlineCreate && (
+      {showRootInlineCreate && inlineCreate && (
         <InlineCreateRow
           type={inlineCreate}
           value={inlineCreateValue}
