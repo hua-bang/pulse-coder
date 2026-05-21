@@ -131,10 +131,12 @@ export function createMentionChipElement(item: MentionItem, nodes?: CanvasNode[]
     chip.dataset.workspaceId = item.workspaceId;
   }
 
-  const iconSpan = document.createElement('span');
-  iconSpan.className = 'chat-mention-chip-icon';
-  iconSpan.innerHTML = `<svg width="12" height="12" viewBox="0 0 14 14" fill="none">${mentionIconSvg(nodeType)}</svg>`;
-  chip.appendChild(iconSpan);
+  if (!isSkill) {
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'chat-mention-chip-icon';
+    iconSpan.innerHTML = `<svg width="12" height="12" viewBox="0 0 14 14" fill="none">${mentionIconSvg(nodeType)}</svg>`;
+    chip.appendChild(iconSpan);
+  }
 
   const labelSpan = document.createElement('span');
   labelSpan.className = 'chat-mention-chip-label';
@@ -188,11 +190,6 @@ export function renderUserContent(content: string, nodes?: CanvasNode[]): ReactN
             className: 'chat-mention-chip chat-mention-chip--skill',
             'data-node-type': 'skill',
           } as any,
-          createElement(
-            'span',
-            { className: 'chat-mention-chip-icon' },
-            createElement(MentionNodeIcon, { nodeType: 'skill' }),
-          ),
           createElement('span', { className: 'chat-mention-chip-label' }, skillLabel),
         ),
       );
@@ -239,7 +236,7 @@ export function renderMdWithMentions(content: string, nodes?: CanvasNode[]): str
 
     if (rawLabel.startsWith(SKILL_MENTION_PREFIX)) {
       const skillLabel = rawLabel.slice(SKILL_MENTION_PREFIX.length);
-      return `<span class="chat-mention-chip chat-mention-chip--skill" data-node-type="skill"><span class="chat-mention-chip-icon"><svg width="12" height="12" viewBox="0 0 14 14" fill="none">${mentionIconSvg('skill')}</svg></span><span class="chat-mention-chip-label">${escapeHtml(skillLabel)}</span></span>`;
+      return `<span class="chat-mention-chip chat-mention-chip--skill" data-node-type="skill"><span class="chat-mention-chip-label">${escapeHtml(skillLabel)}</span></span>`;
     }
 
     const node = nodes?.find(item => item.title === rawLabel);

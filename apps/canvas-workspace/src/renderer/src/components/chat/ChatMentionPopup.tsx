@@ -41,9 +41,11 @@ export const ChatMentionPopup = ({
             }}
             onMouseEnter={() => onMentionIndexChange(index)}
           >
-            <span className="chat-mention-item-icon">
-              <MentionNodeIcon size={14} nodeType={nodeType} />
-            </span>
+            {item.type !== 'skill' && (
+              <span className="chat-mention-item-icon">
+                <MentionNodeIcon size={14} nodeType={nodeType} />
+              </span>
+            )}
             <span className="chat-mention-item-label">{item.label}</span>
             {item.type === 'skill' && item.description && (
               <span className="chat-mention-item-description">{item.description}</span>
